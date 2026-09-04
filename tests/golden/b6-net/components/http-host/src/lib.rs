@@ -29,13 +29,47 @@ fn agent() -> &'static Agent {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
-        let config = Agent::config_builder()
+        let builder = Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(max_redirects)
-            .max_redirects_will_error(false)
-            .build();
+            .max_redirects_will_error(false);
+        #[cfg(feature = "tls")]
+        let builder = builder.tls_config(tls::config());
+        let config = builder.build();
         Agent::new_with_config(config)
     })
+}
+
+/// TLS trust (H13, `tls` feature only). ureq supplies the ring CryptoProvider
+/// itself, so this only chooses the root store: webpki-roots by default, and —
+/// when HEMATITE_HTTP_EXTRA_CA points at a PEM — webpki-roots **plus** those
+/// certs (additive: public CAs stay trusted; the extra CA is the local-dev /
+/// corporate / test hook). One env var, one PEM file, no replace-the-store mode.
+#[cfg(feature = "tls")]
+mod tls {
+    use ureq::tls::{Certificate, RootCerts, TlsConfig};
+
+    pub fn config() -> TlsConfig {
+        let root_certs = match std::env::var_os("HEMATITE_HTTP_EXTRA_CA") {
+            None => RootCerts::WebPki,
+            Some(path) => match std::fs::read(&path) {
+                Ok(pem) => {
+                    // webpki roots (full DERs) + the extra CA's certs, leaked to
+                    // 'static (built once behind the process-wide Agent OnceLock).
+                    let mut certs: Vec<Certificate<'static>> = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+                        .iter()
+                        .map(|c| Certificate::from_der(c.as_ref()))
+                        .collect();
+                    let extra: Vec<_> = rustls_pemfile::certs(&mut &pem[..]).flatten().collect();
+                    let extra: &'static [_] = Box::leak(extra.into_boxed_slice());
+                    certs.extend(extra.iter().map(|c| Certificate::from_der(c.as_ref())));
+                    RootCerts::Specific(std::sync::Arc::new(certs))
+                }
+                Err(_) => RootCerts::WebPki, // unreadable extra CA -> public roots only
+            },
+        };
+        TlsConfig::builder().root_certs(root_certs).build()
+    }
 }
 
 fn err(tag: ErrTag, msg: &str) -> HttpHostSendResult {
@@ -79,6 +113,13 @@ pub extern "C-unwind" fn hematite__http_host__send(a: HttpHostSendArgs) -> HttpH
     let body = a.body.as_slice().to_vec();
     let timeout = a.timeout_ms;
     unsafe { a.decref(abi::host()); } // whole-struct decref recurses into header element strings (B0)
+
+    // tls-off build: no rustls linked, so https can't work — reject it with a
+    // clear message rather than a bare connect failure (H12).
+    #[cfg(not(feature = "tls"))]
+    if uri.starts_with("https://") {
+        return err(ErrTag::Other, "https requires the tls feature, which is disabled in this build");
+    }
 
     let method = match http::Method::from_bytes(method_str.as_bytes()) {
         Ok(m) => m,

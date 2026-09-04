@@ -8,3 +8,7 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 hematite-abi = { path = "../../abi" }
 sync-io-core = { path = "../sync-io-core" }
+# HC4: a rustls TLS server presenting the ephemeral test cert, so an https://
+# GET exercises a real handshake + cert validation + body-over-TLS, offline.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"

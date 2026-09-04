@@ -13,3 +13,6 @@ symbol_stem = "start_httpd"
 [[hosted]]
 leaf = "connect_and_send_later!"
 symbol_stem = "connect_and_send_later"
+[[hosted]]
+leaf = "start_https_server!"
+symbol_stem = "start_https_server"

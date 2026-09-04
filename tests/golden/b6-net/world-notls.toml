@@ -1,10 +1,7 @@
-# roc:basic-cli — the all-in-one migration world (P14/P15): basic-cli 0.21's
-# surface minus Sqlite, plus Udp/Sockets/Streams/Temporal and the two
-# WASI-shaped path packages under their own names. Apps port by URL.
 [world]
-name = "basic-cli-confined"
+name = "b6-net-notls"
 driver = "main-driver"
-exports = ["Cmd", "Env", "File", "Http", "IOErr", "Locale", "OsStr", "Path", "Random", "Sleep", "Stdin", "Stdout", "Stderr", "Tcp", "Tty", "Url", "Utc", "Udp", "Sockets", "Streams", "Temporal", "StrPath", "OsPath", "TestNet"]
+exports = ["Stdout", "Stderr", "Stdin", "Tty", "Env", "Path", "Utc", "Sleep", "Random", "Locale", "Url", "Cmd", "OsStr", "Tcp", "Http", "Udp", "Sockets", "Streams", "TestNet", "HttpHost"]
 [components.main-driver]
 kind = "driver"
 lang = "rust"
@@ -38,10 +35,8 @@ source = "roc:subprocess@0.1.0"
 source = "roc:sync-sockets@0.1.0"
 [interfaces.sync-http]
 source = "roc:sync-http@0.1.0"
-[interfaces.temporal]
-source = "roc:temporal@0.1.0"
 [interfaces.testnet]
-source = "roc:testnet@0.1.0"
+source = "roc:test/net@0.1.0"
 [components.sync-io]
 kind = "host"
 lang = "rust"
@@ -55,7 +50,7 @@ exports = ["cli-stdout", "cli-stdin", "cli-env", "cli-tty"]
 kind = "host"
 lang = "rust"
 exports = ["cell"]
-[components.fs-confined]
+[components.fs-unconfined]
 kind = "host"
 lang = "rust"
 imports = ["sync-io"]
@@ -76,6 +71,9 @@ exports = ["locale"]
 kind = "host"
 lang = "rust"
 exports = ["subprocess"]
+[components.cmd-lib]
+kind = "roc"
+exports = ["Cmd", "OsStr", "Tcp", "Http", "Udp", "Sockets", "Streams", "TestNet"]
 [components.sockets-host]
 kind = "host"
 lang = "rust"
@@ -85,28 +83,17 @@ exports = ["sync-sockets"]
 kind = "host"
 lang = "rust"
 exports = ["sync-http"]
-features = ["tls"]
-[components.temporal-host]
-kind = "host"
-lang = "rust"
-exports = ["temporal"]
+default_features = false        # HC4 negative case: compose http-host with tls OFF
 [components.testnet-host]
 kind = "host"
 lang = "rust"
 exports = ["testnet"]
-test_only = true          # linked into apps, but excluded from the published baseline
-[components.host-shim]
-kind = "roc"
-exports = ["Host"]
-[components.basic-cli-lib]
-kind = "roc"
-exports = ["Path", "File", "Env"]
-[components.cmd-lib]
-kind = "roc"
-exports = ["Cmd", "OsStr"]
 [components.net-lib]
 kind = "roc"
 exports = ["Tcp", "Http", "InternalHttp", "Udp"]
+[components.host-shim]
+kind = "roc"
+exports = ["Host"]
 [components.basic-lib]
 kind = "roc"
 exports = ["Utc", "Sleep", "Random", "Locale", "Url", "InternalDateTime"]
@@ -116,13 +103,10 @@ imports = ["fs", "cell"]
 exports = ["FsOps"]
 [components.path]
 kind = "roc"
-exports = ["Path as StrPath"]
-[components.os-path]
-kind = "roc"
-exports = ["OsPath"]
+exports = ["Path"]
 [components.stdio-lib]
 kind = "roc"
-exports = ["Stdout", "Stderr", "Stdin", "Tty"]
+exports = ["Stdout", "Stderr", "Stdin", "Tty", "Env"]
 [wiring]
 sync-io = "sync-io"
 cli-stdout = "cli-host"
@@ -130,14 +114,13 @@ cli-stdin = "cli-host"
 cli-env = "cli-host"
 cli-tty = "cli-host"
 cell = "cell"
-fs = "fs-confined"
+fs = "fs-unconfined"
 clocks = "clocks-host"
 random = "random-host"
 locale = "locale-host"
 subprocess = "subprocess-host"
 sync-sockets = "sockets-host"
 sync-http = "http-host"
-temporal = "temporal-host"
 testnet = "testnet-host"
 
 [packages]

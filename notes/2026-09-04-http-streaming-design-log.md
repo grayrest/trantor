@@ -209,6 +209,33 @@ future additions behind the shapes chosen here.
   migrate by URL alone, and the 2 http examples now RUN (they only checked
   before).
 
+## HC4 implementation notes (TLS, additive extra-CA, deterministic HTTPS)
+
+- **R-HC1 resolved.** ureq 3.4's rustls path supplies the ring `CryptoProvider`
+  itself (falls back to `ring::default_provider()`), so the host does not
+  `install_default()`. The host only chooses the root store.
+- **Additive store achieved via `webpki-root-certs`.** ureq's `RootCerts` enum
+  is `WebPki` **or** `Specific(certs)` — not both, and webpki-roots are trust
+  *anchors*, not full cert DERs, so they can't feed `Specific`. The
+  `webpki-root-certs` crate provides Mozilla roots as full DERs, so with
+  HEMATITE_HTTP_EXTRA_CA set the host builds `Specific(webpki-root-certs +
+  extra-CA)` — genuinely additive (H13), no custom connector, no
+  replace-the-store. Default (no extra CA) stays `RootCerts::WebPki` (cheap).
+- **`tls` feature rides HC0's knob.** `http-host` declares `[features] default =
+  ["tls"]`; `tls = ["ureq/rustls", "dep:webpki-root-certs", "dep:rustls-pemfile"]`.
+  The default world composes it with `features = ["tls"]` (explicit, so
+  re-composing restores tls-on after a tls-off world); the negative world sets
+  `default_features = false` → `default = []`. tls-off sheds rustls/ring/webpki
+  (verified by `ar t` member count) and rejects `https://` up front with
+  `Other("https requires the tls feature…")`.
+- **Deterministic HTTPS.** `testnet-host` runs a rustls server presenting an
+  **ephemeral** cert (`just make-local-cert` per run, no committed key); the test
+  trusts it via HEMATITE_HTTP_EXTRA_CA and an `https://` GET proves handshake +
+  cert validation + body-over-TLS. Without the extra CA the same cert is
+  rejected (trust is real, not blanket). The tls-on `http-host` archive is
+  self-contained with rustls (so the testnet-less published baseline can do
+  https); a world without `sync-http` links no ureq/rustls (H0c).
+
 ## Open items
 
 1. **`get_utf8!` / http examples adaptation** — the exact minimal edit

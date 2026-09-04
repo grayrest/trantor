@@ -5,4 +5,7 @@ TestNet :: [].{
 	start_httpd! : {} => U16
 	## After `ms`, a thread connects to 127.0.0.1:port and sends "ping\n".
 	connect_and_send_later! : U16, U64 => {}
+	## HC4: a rustls HTTPS server presenting the ephemeral test cert; returns
+	## the bound port (0 if the cert is missing).
+	start_https_server! : {} => U16
 }

@@ -83,6 +83,7 @@ exports = ["sync-sockets"]
 kind = "host"
 lang = "rust"
 exports = ["sync-http"]
+features = ["tls"]              # TLS on (explicit, so composing restores it after a tls-off world)
 [components.testnet-host]
 kind = "host"
 lang = "rust"

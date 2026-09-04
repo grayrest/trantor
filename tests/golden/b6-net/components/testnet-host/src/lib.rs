@@ -29,6 +29,57 @@ pub extern "C-unwind" fn hematite__testnet_host__connect_and_send_later(port: u1
     std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(ms)); if let Ok(mut c) = TcpStream::connect(("127.0.0.1", port)) { let _ = c.write_all(b"ping\n"); } });
 }
 
+/// HC4: start a rustls HTTPS server presenting the ephemeral test cert at
+/// $HEMATITE_TEST_CERT (key at $HEMATITE_TEST_CERT.key, as `local-cert` writes).
+/// Serves "https-hello" to any request over TLS. Returns the bound port (0 if
+/// the cert is missing/unloadable, so the test fails loudly rather than hangs).
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn hematite__testnet_host__start_https_server() -> u16 {
+    use std::sync::Arc;
+    let cert_path = match std::env::var("HEMATITE_TEST_CERT") {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+    let config = match tls_server_config(&cert_path) {
+        Some(c) => Arc::new(c),
+        None => return 0,
+    };
+    let l = match TcpListener::bind("127.0.0.1:0") { Ok(l) => l, Err(_) => return 0 };
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for c in l.incoming().flatten() {
+            let config = config.clone();
+            std::thread::spawn(move || serve_tls(c, config));
+        }
+    });
+    port
+}
+
+fn tls_server_config(cert_path: &str) -> Option<rustls::ServerConfig> {
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    let cert_pem = std::fs::read(cert_path).ok()?;
+    let key_pem = std::fs::read(format!("{cert_path}.key")).ok()?;
+    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut &cert_pem[..]).flatten().collect();
+    let key: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut &key_pem[..]).ok().flatten()?;
+    if certs.is_empty() { return None; }
+    let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+    rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions().ok()?
+        .with_no_client_auth()
+        .with_single_cert(certs, key).ok()
+}
+
+fn serve_tls(mut tcp: TcpStream, config: std::sync::Arc<rustls::ServerConfig>) {
+    let mut conn = match rustls::ServerConnection::new(config) { Ok(c) => c, Err(_) => return };
+    let mut tls = rustls::Stream::new(&mut conn, &mut tcp);
+    // Read the request head (best-effort), then answer over TLS.
+    let mut buf = [0u8; 512];
+    let _ = tls.read(&mut buf);
+    let body = "https-hello";
+    let _ = tls.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
+    let _ = tls.flush();
+}
+
 fn headers(code: u16, reason: &str, len: usize) -> String {
     format!("HTTP/1.1 {code} {reason}\r\nContent-Type: text/plain\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n")
 }

@@ -74,6 +74,7 @@ platform ""
 		"hematite__testnet_host__start_udp_echo": TestNet.start_udp_echo!,
 		"hematite__testnet_host__start_httpd": TestNet.start_httpd!,
 		"hematite__testnet_host__connect_and_send_later": TestNet.connect_and_send_later!,
+		"hematite__testnet_host__start_https_server": TestNet.start_https_server!,
 	}
 	targets: {
 		inputs_dir: "targets/",
