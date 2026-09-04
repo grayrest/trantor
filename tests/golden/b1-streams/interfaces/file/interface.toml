@@ -1,0 +1,4 @@
+module = "FileIo"
+[[hosted]]
+leaf = "open!"
+symbol_stem = "open"

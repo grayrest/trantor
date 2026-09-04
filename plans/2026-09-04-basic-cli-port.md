@@ -104,6 +104,19 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
 - **Exit:** a Roc app reads a memory-backed stream and a file-backed stream
   through the *same* `InputStream` resource; stream handles drop-balance.
 
+> **Outcome ✅ COMPLETE 2026-09-04** ([note](../notes/2026-09-04-b1-streams.md)):
+> first build — memory backing read 11 bytes, file backing read 720 bytes
+> (== `wc -c world.toml`) through one `InputStream`; `live=0`; exit 11. The
+> substrate is split into `sync-io-core` (rlib: `Stream` trait + constructors,
+> **no `no_mangle`**) that producers cargo-depend on, and `sync-io` (staticlib:
+> the hosted symbols) — so bundling the shared rlib into N archives can't
+> duplicate exported symbols (H0c). Findings: no `Drop` on bare `RocStr`/
+> `RocListWith`, so every hosted list/str arg needs an explicit `.decref` (B0's
+> owned-argument rule) — which exposed a **pre-existing quiet leak** in H2/H5's
+> stdio components (they never decref their `RocStr` args; tracked cleanup).
+> `RocListWith::from_slice` exists for byte lists. `tests/golden/b1-streams/verify.sh`
+> is the gate.
+
 ### B2 — `roc:cli` + both drivers — first end-to-end milestone
 
 - `roc:cli/{stdin,stdout,stderr}` over `sync-io` streams; `environment`

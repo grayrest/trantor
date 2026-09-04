@@ -1,0 +1,7 @@
+module = "Memory"
+[[hosted]]
+leaf = "open!"
+symbol_stem = "open"
+[[hosted]]
+leaf = "report!"
+symbol_stem = "report"

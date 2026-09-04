@@ -1,0 +1,35 @@
+[world]
+name = "b1-streams"
+driver = "cli"
+exports = ["Streams", "Memory", "FileIo"]
+[interfaces.io]
+source = "roc:io/error@0.1.0"
+[interfaces.sync-io]
+source = "roc:sync-io/streams@0.1.0"
+[interfaces.memory]
+source = "roc:test/memory@0.1.0"
+[interfaces.file]
+source = "roc:test/file@0.1.0"
+[components.sync-io]
+kind = "host"
+lang = "rust"
+exports = ["sync-io"]
+[components.memory]
+kind = "host"
+lang = "rust"
+imports = ["sync-io"]
+exports = ["memory"]
+[components.file]
+kind = "host"
+lang = "rust"
+imports = ["sync-io"]
+exports = ["file"]
+[components.cli]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+requires_uses = ["Streams", "Memory", "FileIo"]
+[wiring]
+sync-io = "sync-io"
+memory = "memory"
+file = "file"
