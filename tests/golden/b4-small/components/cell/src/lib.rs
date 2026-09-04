@@ -11,6 +11,7 @@ static SLOT: Mutex<String> = Mutex::new(String::new());
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn hematite__cell__put(value: RocStr) {
     *SLOT.lock().unwrap() = value.as_str().to_string();
+    unsafe { value.decref(abi::host()); } // owned arg (B0): released after copying out
 }
 
 /// hosted `Cell.get! : {} => Str`

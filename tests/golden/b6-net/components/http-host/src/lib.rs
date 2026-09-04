@@ -24,7 +24,7 @@ pub extern "C-unwind" fn hematite__http_host__send(a: HttpHostSendArgs) -> HttpH
     let headers: Vec<(String, String)> = a.headers.as_slice().iter().map(|h| (h._0.as_str().to_string(), h._1.as_str().to_string())).collect();
     let body = a.body.as_slice().to_vec();
     let timeout = a.timeout_ms;
-    unsafe { a.uri.decref(abi::host()); a.method_ext.decref(abi::host()); a.headers.decref(abi::host()); a.body.decref(abi::host()); }
+    unsafe { a.decref(abi::host()); } // whole-struct decref recurses into headers element strings (B0)
 
     let rest = match uri.strip_prefix("http://") { Some(r) => r, None => return err(T::Other, "only http:// is supported") };
     let (hostport, path) = match rest.find('/') { Some(i) => (&rest[..i], &rest[i..]), None => (rest, "/") };

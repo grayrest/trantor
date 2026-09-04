@@ -1,7 +1,8 @@
 //! roc:subprocess host (seahaven's design, P3): spawn via std::process::Command.
 //! The crossing record carries seahaven's NativeOsStr union; Utf8 is what Roc
 //! mints here, UnixBytes is honored raw. Owned-argument rule (B0): the whole
-//! Args struct is owned -- program/args/envs are decref'd after conversion.
+//! Args struct is owned and released via its own decref (recurses into
+//! args/envs element strings), not field-by-field.
 use core::mem::ManuallyDrop;
 use hematite_abi as abi;
 use abi::*;
@@ -29,7 +30,7 @@ fn command(a: SubprocessHostExecOutputArgs) -> Command {
     if a.clear_envs { c.env_clear(); }
     let envs: Vec<OsString> = a.envs.as_slice().iter().map(to_os).collect();
     for kv in envs.chunks(2) { if let [k, v] = kv { c.env(k, v); } }
-    unsafe { a.args.decref(abi::host()); a.envs.decref(abi::host()); a.program.decref(abi::host()); }
+    unsafe { a.decref(abi::host()); } // whole-struct decref recurses into args/envs elements (B0)
     c
 }
 // The four Args structs are layout-identical; view them as one.
