@@ -1,0 +1,17 @@
+[package]
+name = "local-cert"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Generate a self-signed localhost cert+key for hematite's HEMATITE_HTTP_EXTRA_CA."
+
+# Standalone: its own workspace so rcgen's crypto deps stay OUT of the hematite
+# tool's lock/build (every fixture verify runs `cargo build` on that workspace).
+[workspace]
+
+[dependencies]
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
+
+[dev-dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls-pemfile = "2"
