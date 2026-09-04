@@ -47,21 +47,35 @@ fn io_err_e(e: &std::io::Error) -> IOErr {
 fn err_ok() -> ErrR { ErrR { payload: ErrP { ok: [] }, tag: ErrT::Ok } }
 fn err_err(e: &std::io::Error) -> ErrR { ErrR { payload: ErrP { err: ManuallyDrop::new(io_err_e(e)) }, tag: ErrT::Err } }
 
+// Owned-argument rule (B0): each fn releases its RocStr / byte-list arg after
+// writing (plain decref = full release; no refcounted elements here).
 #[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__std_stdio__stdout_line(s: RocStr) -> OutR {
-    match writeln!(std::io::stdout(), "{}", s.as_str()) { Ok(()) => out_ok(), Err(e) => out_err(&e) }
+    let r = writeln!(std::io::stdout(), "{}", s.as_str());
+    unsafe { s.decref(abi::host()); }
+    match r { Ok(()) => out_ok(), Err(e) => out_err(&e) }
 }
 #[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__std_stdio__stdout_write(s: RocStr) -> OutR {
-    match write!(std::io::stdout(), "{}", s.as_str()) { Ok(()) => out_ok(), Err(e) => out_err(&e) }
+    let r = write!(std::io::stdout(), "{}", s.as_str());
+    unsafe { s.decref(abi::host()); }
+    match r { Ok(()) => out_ok(), Err(e) => out_err(&e) }
 }
 #[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__std_stdio__stdout_write_bytes(b: RocListWith<u8, false>) -> OutR {
-    match std::io::stdout().write_all(b.as_slice()) { Ok(()) => out_ok(), Err(e) => out_err(&e) }
+    let r = std::io::stdout().write_all(b.as_slice());
+    unsafe { b.decref(abi::host()); }
+    match r { Ok(()) => out_ok(), Err(e) => out_err(&e) }
 }
 #[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__std_stdio__stderr_line(s: RocStr) -> ErrR {
-    match writeln!(std::io::stderr(), "{}", s.as_str()) { Ok(()) => err_ok(), Err(e) => err_err(&e) }
+    let r = writeln!(std::io::stderr(), "{}", s.as_str());
+    unsafe { s.decref(abi::host()); }
+    match r { Ok(()) => err_ok(), Err(e) => err_err(&e) }
 }
 #[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__std_stdio__stderr_write(s: RocStr) -> ErrR {
-    match write!(std::io::stderr(), "{}", s.as_str()) { Ok(()) => err_ok(), Err(e) => err_err(&e) }
+    let r = write!(std::io::stderr(), "{}", s.as_str());
+    unsafe { s.decref(abi::host()); }
+    match r { Ok(()) => err_ok(), Err(e) => err_err(&e) }
 }
 #[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__std_stdio__stderr_write_bytes(b: RocListWith<u8, false>) -> ErrR {
-    match std::io::stderr().write_all(b.as_slice()) { Ok(()) => err_ok(), Err(e) => err_err(&e) }
+    let r = std::io::stderr().write_all(b.as_slice());
+    unsafe { b.decref(abi::host()); }
+    match r { Ok(()) => err_ok(), Err(e) => err_err(&e) }
 }

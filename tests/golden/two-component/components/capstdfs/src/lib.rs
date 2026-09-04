@@ -23,7 +23,11 @@ fn other(m: &str) -> FsIOErr {
 
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn hematite__capstdfs__file_read(path: RocStr) -> FsFileReadResult {
-    match std::fs::read_to_string(path.as_str()) {
+    // `audit` transfers ownership of `path` here (it moves, doesn't decref), so
+    // this callee releases it — owned-argument rule (B0).
+    let result = std::fs::read_to_string(path.as_str());
+    unsafe { path.decref(abi::host()); }
+    match result {
         Ok(text) => ok(&text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => err(not_found()),
         Err(e) => err(other(&e.to_string())),

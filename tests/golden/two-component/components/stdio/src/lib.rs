@@ -14,7 +14,9 @@ fn err_other(m: &str) -> StdioLineResult {
 
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn hematite__stdio__stdout_line(line: RocStr) -> StdioLineResult {
-    match writeln!(std::io::stdout(), "{}", line.as_str()) {
+    let r = writeln!(std::io::stdout(), "{}", line.as_str());
+    unsafe { line.decref(abi::host()); } // owned arg (B0): released after use
+    match r {
         Ok(()) => ok(),
         Err(e) => err_other(&e.to_string()),
     }
