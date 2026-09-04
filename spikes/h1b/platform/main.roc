@@ -1,6 +1,6 @@
 platform ""
-	requires { main! : {} => I64 }
-	exposes [Effect]
+	requires { main! : {} => WidgetRef }
+	exposes [Widget, WidgetRef, Effect]
 	packages {}
 	provides { "roc_main": main_for_host! }
 	hosted {
@@ -14,6 +14,11 @@ platform ""
 
 import Host
 import Effect
+import Widget exposing [Widget]
+import WidgetRef exposing [WidgetRef]
 
 main_for_host! : () => I64
-main_for_host! = || main!({})
+main_for_host! = || {
+	w = main!({})
+	Widget.value(w)
+}

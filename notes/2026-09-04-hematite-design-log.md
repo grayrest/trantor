@@ -189,8 +189,12 @@ D13 binding modules to **re-export the original nominal rather than alias it**
 for any type a driver `requires` names. Rejected alternatives: (A) hematite
 parses the `requires` block — reintroduces the Roc parser D13 exists to avoid;
 (B) forbid renames touching a `requires` type — guts D14's "new component pays"
-rule. Spiked at H1b before any of it is built, because the failure mode is a
-silent segfault, not a compose error.
+rule. Spiked at H1b before any of it is built (`notes/2026-09-04-h1b-requires-splice.md`):
+the base cross-module-nominal case **works**, and two hard rules came out — (1)
+hematite runs `roc check` on the composed platform *before* `roc build`, because
+a `requires` type whose module is missing from `exposes` **segfaults `roc build`**
+(fault 0x138c) while `roc check` reports it cleanly; (2) binding modules re-export
+the original nominal, never an alias, because an alias in `requires` crashes.
 
 **D19 — Roc shims serve Roc consumers only (v1).** Host→Roc would need a third
 lifecycle phase for closure registration, runtime-thread confinement, and
