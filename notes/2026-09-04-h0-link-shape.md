@@ -51,11 +51,32 @@ D6/D8 split (one driver owns `main()`, components are imports-only).
    invocation must `mkdir -p` first (this cost one failed link that looked like
    a link error but was a missing directory).
 
+## H0d — panic/unwind across component frames ✅ PASS, with a hard rule
+
+`spikes/h0d/`. Component B's hosted `boom!` panics while holding a local RAII
+guard; the driver (component A) wraps `roc_main()` in `catch_unwind` and holds
+its own process guard. Two ABI configs:
+
+| config | outcome | B::drop (own frame) | driver catch | A::drop | process |
+| --- | --- | --- | --- | --- | --- |
+| `extern "C"` (default) | **abort** — "failed to initiate panic, aborting" | ✗ | ✗ | ✗ | SIGABRT (134) |
+| `extern "C-unwind"` | unwind crosses the Roc frames | ✅ | ✅ | ✅ | survives (0) |
+
+**The rule (folded into D8):** every hematite-generated hosted-symbol boundary
+**and** the driver's `roc_main` import must be `extern "C-unwind"`. Default
+`extern "C"` makes any panic an unconditional abort with **zero** teardown — no
+component cleanup at all.
+
+**What the admission rule (D21) gets:** even under `C-unwind`, only teardown
+that is RAII-local to the panicking component's **own hosted-call frame** runs.
+Roc-frame cleanup still does not (consistent with G1's D11d — the Roc values
+leak). So a component must release in its own frame or register with the driver;
+it must never rely on Roc unwinding its resources. Partial teardown was observed
+to be *safe* here (B's frame cleaned, driver caught, no corruption), so "catch
+at the boundary and continue/report" is a viable driver policy, not forced abort.
+
 ## Still open in H0 (this note updated as they land)
 
 - **H0b** — framework sysroot union (macOS `.tbd` stub union).
 - **H0c** — duplicate vendored natives (two archives each bundling sqlite):
   link error, silent first-wins, or fine? Expected to need a *policy*.
-- **H0d** — panic/unwind across N component frames (does each component's Rust
-  `Drop` run; is partial teardown worse than none). G1's D11d already settled
-  single-host unwind: caught at the boundary, no Roc-frame cleanup, abort.

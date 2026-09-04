@@ -99,7 +99,15 @@ either. Promote only what two independent worlds both need.
 sink, `init`/`shutdown` lifecycle. Free-standing — *not* riding on `RocHost`,
 which the upstream glue redesign deletes (Phase 2, items 19–21). C-ABI rather
 than a Rust trait so Zig stays viable. roc-solid's `Sink` is already this
-abstraction at N=1.
+abstraction at N=1 (over {winit, mpsc} — both loop-injection backends; tower's
+effect-data model is a third family it does not yet cover — see R-tower, post-v1).
+**H0d addendum:** every generated hosted-symbol boundary and the driver's
+`roc_main` import must be `extern "C-unwind"`, not `extern "C"`. Measured: a
+panic across a plain `extern "C"` boundary is an unconditional abort with zero
+teardown; across `C-unwind` it unwinds, the panicking component's own-frame RAII
+runs, and the driver's `catch_unwind` catches it (process survives). Roc-frame
+cleanup never runs either way, so D21 stands: components release in their own
+frame or register with the driver.
 
 **D9 — Opaque completions, per-component supersession.**
 `wake(component_id, *mut c_void)`; the component allocates and frees, the driver
