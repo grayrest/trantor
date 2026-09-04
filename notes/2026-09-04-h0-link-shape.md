@@ -113,9 +113,47 @@ explicitly declares it a shared/deduplicated native dependency. Corollary: the
 the linker either — two archives defining `roc_alloc` would also silently
 first-wins — so hematite must own that as the same compose-time check.
 
-## Still open in H0
+## H0b — framework sysroot union ✅ PASS
 
-- **H0b** — framework sysroot union (macOS `.tbd` stub union). Lowest risk; the
-  single-framework mechanism already works in roc-solid's `sysroot` recipe, the
-  open question is only whether the *union* of two components' framework sets
-  links.
+`spikes/h0b/`. comp-a's `ping` references CoreFoundation
+(`CFAbsoluteTimeGetCurrent`), comp-b's `pong` references Security
+(`SecRandomCopyBytes`) — disjoint frameworks.
+
+- **Control (no sysroot):** `ld64.lld: undefined symbol: _SecRandomCopyBytes`.
+  (CoreFoundation resolves via base System libs; Security needs its TBD.) Proves
+  the sysroot's framework set is what drives linkage.
+- **Union sysroot** (`macos-sysroot/System/Library/Frameworks/` with
+  `CoreFoundation.framework` **and** `Security.framework` TBD symlinks, built by
+  roc-solid's `sysroot` recipe rule) → **links and runs, output 42.**
+
+The roc linker (`cli/linker.zig findPlatformSysroot`) discovers
+`platform/targets/macos-sysroot` by convention and auto-adds `-framework X` for
+each `X.framework` carrying a TBD. So the framework directory **is** the
+dependency declaration, and hematite's job is purely to emit the *union* of
+every component's declared frameworks into that one directory. Confirmed the
+union is exactly the two needed and nothing leaks. Mechanism is a directory of
+symlinks — no linker flags, no per-component negotiation.
+
+## H0 gate: ✅ COMPLETE (a, b, c, d, e)
+
+| spike | verdict |
+| --- | --- |
+| H0a two-archive link | ✅ PASS |
+| H0b framework sysroot union | ✅ PASS |
+| H0c duplicate vendored natives | ⚠ PASS-with-policy (silent first-wins; hematite must nm-scan) |
+| H0d panic/unwind across frames | ✅ PASS (requires `extern "C-unwind"`) |
+| H0e multi-hosted-module union | ✅ PASS |
+
+No NO-GO. D1's central assumption (multi-archive linking) holds. The two things
+hematite must own that the linker will not enforce: **exactly one runtime
+provider** and **no duplicate non-hosted symbols** (both from H0c's mechanism),
+and every generated boundary must be **`extern "C-unwind"`** (H0d).
+
+## Recurring codegen hazard (met twice)
+
+A dropped `#[unsafe(no_mangle)]` makes a hosted symbol vanish from the archive
+and presents *identically* to a roc "missing host symbol" link error — not as a
+Rust error. Bit the spike twice via edits that orphaned the attribute onto an
+adjacent `extern` block. Hematite's generated host stubs must emit `no_mangle`
+unconditionally and ideally assert each expected symbol is present in the built
+archive (an `nm` post-check) before invoking `roc build`.
