@@ -83,6 +83,19 @@ This is WASI's first-byte/between-bytes flavor mapped onto the single knob.
 `0` = no timeout anywhere. (Divergence from basic-cli's one overall deadline
 around the whole collect.)
 
+> **H9 revised at HC2 (measured against ureq 3.4.0).** ureq 3.4.0's
+> `ConfigBuilder` exposes no between-bytes / per-read timeout — the body-phase
+> options are `timeout_recv_response` (headers only) and `timeout_recv_body` (a
+> *total* budget, explicitly "not restarted for each read"). A true stall guard
+> (SO_RCVTIMEO) would require a bespoke `Connector` chain, out of scope for this
+> pass. So `timeout_ms` maps to `timeout_connect` + `timeout_recv_response` +
+> `timeout_recv_body`, all equal: a stall trips `Timeout` (termination
+> guaranteed), but a very large/slow body is *also* bounded by the same deadline
+> — i.e. the body reverts to basic-cli's one-overall-deadline rather than H9's
+> "don't kill steady large downloads." Decided with the user at HC2; a
+> between-bytes guard via a custom connector remains a clean future addition.
+> `0` still means no timeout anywhere.
+
 **H10 — Response headers: NUL-joined, every occurrence preserved.** R-B5 still
 holds (pinned glue can't build `RocList<RocStr>` host-side), so headers cross as
 `name\0value\0…` and the shim splits into `List (Str, Str)`. Every occurrence is

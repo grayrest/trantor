@@ -2,7 +2,7 @@ platform ""
 	requires {
 		main! : List(Str) => Try({}, [Exit(I32), ..])
 	}
-	exposes [Stdout, Stderr, Stdin, Tty, Env, Path, Utc, Sleep, Random, Locale, Url, Cmd, OsStr, Tcp, Http, Udp, Sockets, Streams, TestNet]
+	exposes [Stdout, Stderr, Stdin, Tty, Env, Path, Utc, Sleep, Random, Locale, Url, Cmd, OsStr, Tcp, Http, Udp, Sockets, Streams, TestNet, HttpHost]
 	packages {
 		http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	}

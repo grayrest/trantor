@@ -116,7 +116,10 @@ Host :: [].{
 	http_send_request! : InternalHttp.RequestToAndFromHost => Try(InternalHttp.ResponseToAndFromHost, InternalHttp.TransportErr)
 	http_send_request! = |req| {
 		match HttpHost.send!(req) {
-			Ok(resp) => Ok({ status: resp.status, headers: split_headers(resp.headers_flat), body: resp.body })
+			# The primitive now streams the body (H5); the eager basic-cli-shaped
+			# response wants the whole thing, so collect it here. (The streaming
+			# app-facing Response is HC3; this keeps Http.get_utf8!/get! working.)
+			Ok(resp) => Ok({ status: resp.status, headers: split_headers(resp.headers_flat), body: collect_stream!(resp.body_stream, []) })
 			Err(e) => Err(e)
 		}
 	}
@@ -144,6 +147,18 @@ err_write! = |stream, bytes| {
 
 collect_locales! : U64, U64, List(Str) => List(Str)
 collect_locales! = |n, i, acc| if i >= n { acc } else { collect_locales!(n, i + 1, List.append(acc, LocaleHost.at!(i))) }
+
+## Drain an InputStream to end. `read!` owns its handle each call (released via
+## the resource contract), so `stream` is threaded through the recursion: Roc
+## re-incs it before each `read!`, and drops it at the base case — drop-balanced.
+## A mid-stream StreamErr ends the collect with what was read (H15).
+collect_stream! : Streams.InputStream, List(U8) => List(U8)
+collect_stream! = |stream, acc| {
+	match Streams.read!(stream, 65536) {
+		Ok(chunk) => if List.is_empty(chunk) { acc } else { collect_stream!(stream, List.concat(acc, chunk)) }
+		Err(_) => acc
+	}
+}
 
 read_exact_loop! : Sockets.TcpSocket, U64, List(U8) => Try(List(U8), Str)
 read_exact_loop! = |sock, n, acc| {

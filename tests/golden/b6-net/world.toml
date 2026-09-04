@@ -1,7 +1,7 @@
 [world]
 name = "b6-net"
 driver = "main-driver"
-exports = ["Stdout", "Stderr", "Stdin", "Tty", "Env", "Path", "Utc", "Sleep", "Random", "Locale", "Url", "Cmd", "OsStr", "Tcp", "Http", "Udp", "Sockets", "Streams", "TestNet"]
+exports = ["Stdout", "Stderr", "Stdin", "Tty", "Env", "Path", "Utc", "Sleep", "Random", "Locale", "Url", "Cmd", "OsStr", "Tcp", "Http", "Udp", "Sockets", "Streams", "TestNet", "HttpHost"]
 [components.main-driver]
 kind = "driver"
 lang = "rust"
