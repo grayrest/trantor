@@ -164,6 +164,20 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
   the confined impl makes an out-of-preopen path a capability error, not a
   file; `Descriptor`s drop-balance.
 
+> **Outcome ✅ COMPLETE 2026-09-04** ([note](../notes/2026-09-04-b3-filesystem.md)):
+> one unchanged app on three worlds — unconfined (`/etc/hosts` readable),
+> **confined (`denied`: the capability error — seahaven's confinement as a
+> swappable component, P14)**, and `OsPath as Path` (the lossless impl under
+> the name `Path` via the new `exports = ["A as B"]` rename-on-copy — D14 made
+> real) — all exit 0 (descriptors drop-balanced), host compiled first try.
+> Descriptor-relative primitives (P4), bytes paths (P11), NUL-joined listings
+> (R-B5), one `stat_at!` for eight leaves, `fs-core` rlib + two thin
+> staticlibs via an `exports!` macro (H0c-safe), cwd as a `cell` prefix (P8).
+> Finding worth a rule: BSD `sed` has no `\b` — the first OsPath was a silent
+> Str copy that *typechecked* because the surfaces match by design; `verify.sh`
+> now asserts declaration content, not just types. Deferred: `File.Reader`
+> line-buffering, `U128` times, a cached root descriptor.
+
 ### B4 — `roc:clocks` + `roc:random` + `roc:locale` + `roc:url`
 
 - `clocks/wall-clock.now!` (→ datetime record), `monotonic-clock.now!`,

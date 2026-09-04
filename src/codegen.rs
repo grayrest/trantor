@@ -69,17 +69,58 @@ pub fn emit(
         }
     }
     // Copy pure-Roc components' exported modules into platform/ (D13, verbatim).
+    // An export may be renamed on the way in — `"OsPath as Path"` — which is
+    // D14's world-rename made real: Roc has no re-export, so the world chooses
+    // WHICH implementation is exposed under a name by copying that module's
+    // source with its identifier substituted (word-boundary), unchanged
+    // otherwise. This is how both path packages ship and a world picks one.
     for (name, c) in &world.components {
         if c.kind == "roc" {
-            for module in &c.exports {
+            for entry in &c.exports {
+                let (module, as_name) = match entry.split_once(" as ") {
+                    Some((m, a)) => (m.trim(), a.trim()),
+                    None => (entry.as_str(), entry.as_str()),
+                };
                 let from = src.join("components").join(name).join(format!("{module}.roc"));
-                if from.exists() {
+                if !from.exists() {
+                    continue;
+                }
+                if module == as_name {
                     copy(&from, &format!("platform/{module}.roc"))?;
+                } else {
+                    let text = std::fs::read_to_string(&from)
+                        .map_err(|e| format!("read {}: {e}", from.display()))?;
+                    let renamed = rename_ident(&text, module, as_name);
+                    w(&format!("platform/{as_name}.roc"), renamed)?;
                 }
             }
         }
     }
     Ok(())
+}
+
+/// Replace whole-identifier occurrences of `from` with `to`.
+fn rename_ident(text: &str, from: &str, to: &str) -> String {
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() {
+        if text[i..].starts_with(from) {
+            let before_ok = i == 0 || !is_ident(bytes[i - 1] as char);
+            let after = i + from.len();
+            let after_ok = after >= text.len() || !is_ident(bytes[after] as char);
+            if before_ok && after_ok {
+                out.push_str(to);
+                i = after;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
 }
 
 fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {

@@ -1,0 +1,8 @@
+target/
+bin/
+glue-out/
+abi/src/generated.rs
+platform/*.roc
+!platform/main.roc
+platform/targets/*/*.a
+b3-scratch/
