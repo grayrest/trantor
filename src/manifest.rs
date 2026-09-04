@@ -76,8 +76,8 @@ pub struct Driver {
     pub provided: String,
 }
 
-pub fn load_world(dir: &Path) -> Result<World, String> {
-    let p = dir.join("world.toml");
+pub fn load_world(dir: &Path, file: &str) -> Result<World, String> {
+    let p = dir.join(file);
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
 }

@@ -35,6 +35,15 @@ pub struct Resolved {
     pub roc_impls: Vec<(String, String)>,
 }
 
+/// Sanitize a component name into the identifier segment of a mangled linker
+/// symbol: roc requires hosted symbols to be valid C identifiers, so a name
+/// like `std-stdio` becomes `std_stdio`. Host code must use the same form.
+pub fn sanitize(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
+}
+
 /// Parse a wiring expression like `audit(capstdfs)` or `stdio`. Returns the
 /// chain head-first: `["audit", "capstdfs"]` or `["stdio"]`.
 fn parse_chain(expr: &str) -> Vec<String> {
@@ -70,7 +79,7 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
         } else {
             for HostedLeaf { leaf, symbol_stem } in &iface.hosted {
                 hosted.push(HostedBinding {
-                    symbol: format!("hematite__{head}__{symbol_stem}"),
+                    symbol: format!("hematite__{}__{symbol_stem}", sanitize(head)),
                     module: iface.module.clone(),
                     leaf: leaf.clone(),
                 });

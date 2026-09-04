@@ -1,0 +1,10 @@
+target/
+bin/
+glue-out/
+abi/src/generated.rs
+platform/Stdio.roc
+platform/Stdout.roc
+platform/Stderr.roc
+platform/IOErr.roc
+platform/targets/*/*.a
+platform/targets/macos-sysroot/

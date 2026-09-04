@@ -1,0 +1,26 @@
+[world]
+name = "seahaven-stdio-capture"
+driver = "cli"
+exports = ["Stdout", "Stderr"]
+
+[interfaces.io]
+source = "roc:cli/io@0.1.0"
+[interfaces.stdio]
+source = "roc:cli/stdio@0.1.0"
+
+[components.capture-stdio]
+kind = "host"
+lang = "rust"
+exports = ["stdio"]
+[components.stdio-lib]
+kind = "roc"
+imports = ["stdio"]
+exports = ["Stdout", "Stderr"]
+[components.cli]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+requires_uses = ["Stdout", "Stderr"]
+
+[wiring]
+stdio = "capture-stdio"

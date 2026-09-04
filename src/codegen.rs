@@ -97,7 +97,12 @@ fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {
     }
     s.push_str("\t}\n");
     // targets: per-target inputs, archives in topological order + app.
-    let archives: Vec<String> = r.archive_order.iter().map(|a| format!("\"lib{a}.a\"")).collect();
+    // cargo emits the staticlib as lib<sanitized>.a (it replaces '-' with '_').
+    let archives: Vec<String> = r
+        .archive_order
+        .iter()
+        .map(|a| format!("\"lib{}.a\"", crate::resolve::sanitize(a)))
+        .collect();
     let inputs = format!("[{}, app]", archives.join(", "));
     s.push_str("\ttargets: {\n");
     s.push_str("\t\tinputs_dir: \"targets/\",\n");

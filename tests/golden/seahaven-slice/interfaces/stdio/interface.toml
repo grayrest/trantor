@@ -1,0 +1,19 @@
+module = "Stdio"
+[[hosted]]
+leaf = "stdout_line!"
+symbol_stem = "stdout_line"
+[[hosted]]
+leaf = "stdout_write!"
+symbol_stem = "stdout_write"
+[[hosted]]
+leaf = "stdout_write_bytes!"
+symbol_stem = "stdout_write_bytes"
+[[hosted]]
+leaf = "stderr_line!"
+symbol_stem = "stderr_line"
+[[hosted]]
+leaf = "stderr_write!"
+symbol_stem = "stderr_write"
+[[hosted]]
+leaf = "stderr_write_bytes!"
+symbol_stem = "stderr_write_bytes"

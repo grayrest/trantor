@@ -36,14 +36,16 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     let dir = PathBuf::from(it.next().ok_or("compose: missing <world-dir>")?);
     let mut out = dir.clone();
+    let mut world_file = String::from("world.toml");
     while let Some(flag) = it.next() {
         match flag.as_str() {
             "--out" => out = PathBuf::from(it.next().ok_or("--out: missing path")?),
+            "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
             other => return Err(format!("unknown flag {other:?}")),
         }
     }
 
-    let world = manifest::load_world(&dir)?;
+    let world = manifest::load_world(&dir, &world_file)?;
     let driver = manifest::load_driver(&dir, &world.world.driver)?;
     let resolved = resolve::resolve(&dir, &world, &driver)?;
     codegen::emit(&dir, &out, &world, &driver, &resolved)?;
