@@ -30,13 +30,21 @@ pub struct WorldMeta {
 
 #[derive(Debug, Deserialize)]
 pub struct InterfaceRef {
+    /// The versioned interface identifier (e.g. `roc:io/error@0.1.0`). Part of
+    /// the manifest schema and carried for a future registry resolve; the
+    /// composer currently keys on the interface's map name, not this.
+    #[allow(dead_code)]
     pub source: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Component {
     pub kind: String, // "host" | "roc" | "driver"
+    /// Component implementation language (always `rust` today). Accepted for
+    /// forward-compat (D-note: interfaces may be authored in Zig/WIT later);
+    /// the composer does not branch on it yet.
     #[serde(default)]
+    #[allow(dead_code)]
     pub lang: Option<String>,
     #[serde(default)]
     pub imports: Vec<String>,

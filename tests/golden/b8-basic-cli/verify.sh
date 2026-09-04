@@ -31,6 +31,9 @@ for f in $(git -C "$REPO" ls-tree --name-only "$TAG" examples/ | grep '\.roc$');
   git -C "$REPO" show "${TAG}:${f}" | perl -pe 's|platform "[^"]+"|platform "../../platform/main.roc"|' > "$X/$n/main.roc"
   if cap "$ROC" check "$X/$n/main.roc" >/dev/null 2>&1; then pass=$((pass+1)); else failed="$failed $n"; fi
 done
+# Guard against a vacuous 0/0 pass (wrong tag, moved examples/, detached repo):
+# basic-cli 0.21.0 ships ~28 non-sqlite examples.
+[[ $total -ge 20 ]] || { echo "FAIL: only $total example(s) found at $TAG (expected >=20); migration proof would be vacuous"; exit 1; }
 [[ $pass -eq $total ]] || { echo "FAIL: $pass/$total examples check; failing:$failed"; exit 1; }
 echo "ok: $pass/$total basic-cli $TAG examples roc-check with only the platform URL changed"
 

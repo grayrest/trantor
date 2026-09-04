@@ -25,6 +25,10 @@ for a in "$T"/lib*.a; do
   if ar t "$a" | grep "^temporal_rs-" >/dev/null; then echo "FAIL: $(basename "$a") also carries temporal_rs"; exit 1; fi
 done
 [[ -x tests/golden/b4-small/bin/b4 ]] || ( cd tests/golden/b4-small && ./build.sh app b4 >/dev/null 2>&1 )
+# A stripped binary would make the negative grep pass vacuously; assert the
+# symbol table is actually present first, then that it carries no temporal_rs.
+b4syms=$(nm tests/golden/b4-small/bin/b4 2>/dev/null | grep -c .)
+[[ "$b4syms" -gt 100 ]] || { echo "FAIL: b4 has $b4syms symbols (stripped?) — the temporal_rs check would be vacuous"; exit 1; }
 if nm tests/golden/b4-small/bin/b4 2>/dev/null | grep temporal_rs >/dev/null; then echo "FAIL: temporal-less world (b4) links temporal_rs"; exit 1; fi
 echo "ok: temporal_rs vendored by temporal-host only; temporal-less world links none"
 echo "B7 PASS"
