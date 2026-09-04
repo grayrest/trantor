@@ -115,3 +115,16 @@ echo "ok: a world without sync-http links no ureq/rustls (H0c)"
 ./target/release/hematite compose "$B" >/dev/null
 ( cd "$B" && ./build.sh app b6 >/dev/null 2>&1 )
 echo "HC4 PASS"
+
+# ---- HC5: transparent decode over the stream (chunked / gzip / brotli) ----
+# http-stream-app (run in HC2, output captured in $sout) also GETs /chunked,
+# /gzip and /brotli. ureq de-chunks and decompresses transparently, so the
+# stream yields the ORIGINAL text (Content-Length reflects the compressed size,
+# harmless — apps read the stream, H15). The b8 migration RE-PROOF (baseline
+# re-publish, Tier 1 unchanged, confinement swap, http examples running) is the
+# b8 fixture's own verify, green after HC3/HC4.
+grep -qxF 'chunked: hello-world' <<<"$sout" || { echo "FAIL: chunked not de-chunked"; echo "$sout"; exit 1; }
+grep -qxF 'gzip: hello-gzip'     <<<"$sout" || { echo "FAIL: gzip not decompressed"; echo "$sout"; exit 1; }
+grep -qxF 'brotli: hello-brotli' <<<"$sout" || { echo "FAIL: brotli not decompressed"; echo "$sout"; exit 1; }
+echo "ok: chunked de-chunked, gzip + brotli decompressed transparently over the stream"
+echo "HC5 (decode) PASS"

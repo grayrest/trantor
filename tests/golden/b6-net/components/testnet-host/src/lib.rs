@@ -84,6 +84,26 @@ fn headers(code: u16, reason: &str, len: usize) -> String {
     format!("HTTP/1.1 {code} {reason}\r\nContent-Type: text/plain\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n")
 }
 
+fn encoded_headers(encoding: &str, len: usize) -> String {
+    format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: {encoding}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n")
+}
+
+fn gzip(data: &[u8]) -> Vec<u8> {
+    use flate2::{write::GzEncoder, Compression};
+    let mut e = GzEncoder::new(Vec::new(), Compression::default());
+    let _ = e.write_all(data);
+    e.finish().unwrap_or_default()
+}
+
+fn brotli_enc(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut w = brotli::CompressorWriter::new(&mut out, 4096, 5, 22);
+        let _ = w.write_all(data);
+    }
+    out
+}
+
 fn serve(mut c: TcpStream) {
     let mut req = Vec::new(); let mut b = [0u8; 512];
     loop {
@@ -121,6 +141,11 @@ fn serve(mut c: TcpStream) {
         "/truncate" => { let _ = c.write_all(headers(200, "OK", 100).as_bytes()); let _ = c.write_all(&[b'y'; 10]); }
         // HC2/HC5: chunked transfer-encoding; ureq decodes to "hello-world".
         "/chunked" => { let _ = c.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhello\r\n6\r\n-world\r\n0\r\n\r\n"); }
+        // HC5: gzip/brotli-encoded bodies; ureq decompresses transparently, so
+        // the stream yields the ORIGINAL text (Content-Length is the COMPRESSED
+        // size — apps read the stream, so the disagreement is harmless, H15).
+        "/gzip" => { let enc = gzip(b"hello-gzip"); let _ = c.write_all(encoded_headers("gzip", enc.len()).as_bytes()); let _ = c.write_all(&enc); }
+        "/brotli" => { let enc = brotli_enc(b"hello-brotli"); let _ = c.write_all(encoded_headers("br", enc.len()).as_bytes()); let _ = c.write_all(&enc); }
         _ => { let _ = c.write_all(headers(404, "Not Found", 0).as_bytes()); }
     }
 }

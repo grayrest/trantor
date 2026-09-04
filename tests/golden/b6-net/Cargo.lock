@@ -30,6 +30,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
+name = "brotli"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc97b8f16f944bba54f0433f07e30be199b6dc2bd25937444bbad560bcea29bd"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor 4.0.3",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a334ef7c9e23abf0ce748e8cd309037da93e606ad52eb372e4ce327a0dcfbdfd"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+]
+
+[[package]]
 name = "brotli-decompressor"
 version = "5.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -346,6 +367,8 @@ dependencies = [
 name = "testnet-host"
 version = "0.0.0"
 dependencies = [
+ "brotli",
+ "flate2",
  "hematite-abi",
  "rustls",
  "rustls-pemfile",
@@ -365,7 +388,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "972d7902c8735f2695410b8aed7df6ed12a47394aa1c8d7af49f0497b731a94d"
 dependencies = [
  "base64",
- "brotli-decompressor",
+ "brotli-decompressor 5.0.3",
  "flate2",
  "log",
  "percent-encoding",

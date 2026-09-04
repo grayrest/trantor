@@ -12,3 +12,7 @@ sync-io-core = { path = "../sync-io-core" }
 # GET exercises a real handshake + cert validation + body-over-TLS, offline.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-pemfile = "2"
+# HC5: serve gzip/brotli-encoded bodies so the client's transparent decode
+# (ureq gzip+brotli) can be proven — the stream must yield the DECODED bytes.
+flate2 = "1"
+brotli = "7"

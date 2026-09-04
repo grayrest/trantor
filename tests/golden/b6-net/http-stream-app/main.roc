@@ -38,6 +38,12 @@ main! = |_args| {
 		Err(_) => Stdout.line!("multi: failed") ?? {}
 	}
 
+	# Decode coverage (H2): chunked is de-chunked; gzip/brotli decompress
+	# transparently — the stream yields the ORIGINAL text either way.
+	Stdout.line!(Str.concat("chunked: ", get_text!(Str.concat(base, "/chunked")))) ?? {}
+	Stdout.line!(Str.concat("gzip: ", get_text!(Str.concat(base, "/gzip")))) ?? {}
+	Stdout.line!(Str.concat("brotli: ", get_text!(Str.concat(base, "/brotli")))) ?? {}
+
 	# Mid-body cutoff: send! succeeds, a read partway through fails (StreamErr).
 	match HttpHost.send!(get_req(Str.concat(base, "/truncate"), 5000)) {
 		Ok(resp) => {
@@ -80,6 +86,23 @@ send_and_drain! = |uri, timeout_ms| {
 	match HttpHost.send!(get_req(uri, timeout_ms)) {
 		Ok(resp) => drain!(resp.body_stream, 0, False)
 		Err(_) => { n: 0, errored: True }
+	}
+}
+
+## GET a URL and return its (decoded) body as text.
+get_text! : Str => Str
+get_text! = |uri| {
+	match HttpHost.send!(get_req(uri, 5000)) {
+		Ok(resp) => Str.from_utf8_lossy(collect_bytes!(resp.body_stream, []))
+		Err(_) => "err"
+	}
+}
+
+collect_bytes! : Streams.InputStream, List(U8) => List(U8)
+collect_bytes! = |stream, acc| {
+	match Streams.read!(stream, 65536) {
+		Ok(chunk) => if List.is_empty(chunk) { acc } else { collect_bytes!(stream, List.concat(acc, chunk)) }
+		Err(_) => acc
 	}
 }
 
