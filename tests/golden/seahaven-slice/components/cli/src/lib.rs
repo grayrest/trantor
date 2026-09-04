@@ -10,6 +10,9 @@ pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> *mut c_void {
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn roc_dealloc(ptr_: *mut c_void, alignment: usize) {
+    // P5/B0: a resource box's last Roc drop lands here with the allocation
+    // base; run its destructor before freeing (the glue has no such hook).
+    abi::resource::on_dealloc(ptr_);
     abi::DefaultAllocators::roc_dealloc(ptr::null_mut(), ptr_, alignment)
 }
 #[unsafe(no_mangle)]

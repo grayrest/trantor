@@ -52,6 +52,19 @@ pub struct Interface {
     pub module: String,
     #[serde(default)]
     pub hosted: Vec<HostedLeaf>,
+    /// Resource types this interface declares (P5). A resource is a refcounted
+    /// opaque host handle spelled `Name :: Box(U64)` in the shipped binding
+    /// module; the host builds it with `hematite_abi::resource::new` and the
+    /// driver's `roc_dealloc` runs its destructor on the last Roc drop.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub resources: Vec<ResourceDecl>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ResourceDecl {
+    #[allow(dead_code)]
+    pub name: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

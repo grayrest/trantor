@@ -82,6 +82,16 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
   aliases from `[[resources]]`; the driver's generated `roc_dealloc` consults
   the registry.
 
+> **Outcome ✅ COMPLETE 2026-09-04** ([note](../notes/2026-09-04-b0-resource-model.md)):
+> `opens=3 closes=3 live=0`, exit 3; every `roc_dealloc` a registry HIT at
+> `data − 8` (**R-B1 resolved** — Roc passes the allocation base); the borrow
+> test held (counter#2 bumped, borrowed, bumped again, closed once). The spike's
+> real bug was not R-B1 but the glue's **owned-argument contract**: a hosted fn
+> receiving a resource owns that reference and must `resource::release` it (or
+> use `resource::with`), else the count never reaches zero and the handle leaks
+> silently. **Hard rule for every gate after this.** `spikes/b0-resource/verify.sh`
+> is the gate.
+
 ### B1 — Substrate: `roc:io/error` + `roc:sync-io/streams`
 
 - `roc:io/error` — `IOErr` as a plain-data nominal (basic-cli's 10 variants),
@@ -193,9 +203,12 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
 
 ## Risks
 
-- **R-B1 — the `roc_dealloc` pointer contract** (B0). The registry assumes
-  Roc frees a box by passing the allocation base. Spiked first; NO-GO path
-  documented in B0.
+- **R-B1 — the `roc_dealloc` pointer contract** (B0). ✅ RESOLVED 2026-09-04:
+  Roc passes the allocation base; registry keyed on `data − 8` hits. The live
+  risk it uncovered instead is the **owned-argument rule** — a hosted fn that
+  takes a resource must `resource::release`/`with` it or the handle leaks
+  silently (no crash). Every B1–B7 hosted signature taking a resource is a
+  place to get this wrong; `verify.sh` gauges must assert `live=0`.
 - **R-B2 — `temporal_rs` weight and vendoring.** Heavy; must be the sole
   vendor of its natives (H0c) and opt-in per world.
 - **R-B3 — full sockets surface is large.** tcp listen + udp + lookup is

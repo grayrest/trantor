@@ -1,0 +1,12 @@
+module = "Gauge"
+[[resources]]
+name = "Counter"
+[[hosted]]
+leaf = "open!"
+symbol_stem = "open"
+[[hosted]]
+leaf = "bump!"
+symbol_stem = "bump"
+[[hosted]]
+leaf = "report!"
+symbol_stem = "report"

@@ -173,6 +173,9 @@ pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> *mut c_void {{
 }}
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn roc_dealloc(ptr_: *mut c_void, alignment: usize) {{
+    // P5/B0: a resource box's last Roc drop lands here with the allocation
+    // base; run its destructor before freeing (the glue has no such hook).
+    abi::resource::on_dealloc(ptr_);
     abi::DefaultAllocators::roc_dealloc(ptr::null_mut(), ptr_, alignment)
 }}
 #[unsafe(no_mangle)]
@@ -242,6 +245,119 @@ static HOST: OnceLock<RocHost> = OnceLock::new();
 /// runtime symbols). Cached; used to build owned Roc values.
 pub fn host() -> &'static RocHost {{
     HOST.get_or_init(|| make_roc_host(std::ptr::null_mut()))
+}}
+
+/// Resources (P5): a refcounted opaque host handle. Roc holds a `Box(U64)`
+/// whose payload is a raw pointer to a Rust value. Refcounting IS ownership:
+/// when Roc drops the last reference its runtime calls `roc_dealloc` with the
+/// box's allocation base, and the generated driver's `roc_dealloc` consults
+/// this registry first to run the destructor. The glue's own
+/// `RocBoxPayloadDecref` only fires on HOST-side decref, so a Roc-side drop
+/// needs this hook (B0).
+pub mod resource {{
+    use super::*;
+    use core::ffi::c_void;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    /// `Box(U64)`: 8-byte payload, align 8, non-refcounted -> header_bytes = 8,
+    /// so the allocation base Roc passes to `roc_dealloc` is `data - 8`.
+    const HEADER: usize = 8;
+
+    struct Entry {{
+        raw: *mut c_void,
+        dtor: unsafe fn(*mut c_void),
+    }}
+    unsafe impl Send for Entry {{}}
+
+    static REGISTRY: Mutex<Option<HashMap<usize, Entry>>> = Mutex::new(None);
+
+    unsafe fn drop_boxed<T>(raw: *mut c_void) {{
+        drop(unsafe {{ Box::from_raw(raw as *mut T) }});
+    }}
+
+    /// Allocate a resource box holding `value`; Roc receives it as `Box(U64)`.
+    pub fn new<T>(value: T) -> RocBox {{
+        let data = unsafe {{ allocate_box(8, 8, false, host()) }};
+        let raw = Box::into_raw(Box::new(value)) as *mut c_void;
+        unsafe {{ *(data as *mut *mut c_void) = raw; }}
+        let base = data as usize - HEADER;
+        if std::env::var_os("HEMATITE_RESOURCE_TRACE").is_some() {{
+            eprintln!("[resource] new: data={{data:p}} base={{base:#x}}");
+        }}
+        let mut g = REGISTRY.lock().unwrap();
+        g.get_or_insert_with(HashMap::new)
+            .insert(base, Entry {{ raw, dtor: drop_boxed::<T> }});
+        data
+    }}
+
+    /// Borrow the Rust value behind a resource handle.
+    ///
+    /// # Safety
+    /// `b` must be a live resource box created by `new::<T>`.
+    pub unsafe fn get<'a, T>(b: RocBox) -> &'a mut T {{
+        unsafe {{ &mut *(*(b as *const *mut T)) }}
+    }}
+
+    /// Release one reference to a resource box. **The owned-argument contract:**
+    /// a hosted fn that receives a resource OWNS that reference (glue: "hosted
+    /// functions receive owned refcounted arguments") and must release it, or
+    /// the count never reaches zero and the destructor never runs. On the last
+    /// reference this reaches the driver's `roc_dealloc` hook (the linker
+    /// symbol), which runs the destructor and frees.
+    ///
+    /// # Safety
+    /// `b` must be a live resource box; the caller must not use it afterward.
+    pub unsafe fn release(b: RocBox) {{
+        use core::sync::atomic::{{fence, AtomicIsize, Ordering}};
+        let data = b as *mut u8;
+        let rc = unsafe {{ data.sub(8) }} as *mut AtomicIsize;
+        if unsafe {{ (*rc).load(Ordering::Relaxed) }} == 0 {{
+            return; // static data
+        }}
+        let prev = unsafe {{ (*rc).fetch_sub(1, Ordering::Release) }};
+        if prev == 1 {{
+            fence(Ordering::Acquire);
+            unsafe {{ roc_dealloc((data as usize - HEADER) as *mut c_void, 8) }};
+        }}
+    }}
+
+    /// Borrow then release in one step — the safe way for a hosted fn to use a
+    /// resource argument it owns (the owned-argument contract, B0). Prefer this
+    /// over `get` + `release`; forgetting `release` silently leaks the handle.
+    ///
+    /// # Safety
+    /// `b` must be a live resource box created by `new::<T>`; not used after.
+    pub unsafe fn with<T, R>(b: RocBox, f: impl FnOnce(&mut T) -> R) -> R {{
+        let r = f(unsafe {{ get::<T>(b) }});
+        unsafe {{ release(b) }};
+        r
+    }}
+
+    /// Called by the generated driver's `roc_dealloc` BEFORE freeing. If `base`
+    /// is a registered resource, runs its destructor and unregisters it.
+    /// Returns whether it was a resource (for gauges/tests).
+    pub fn on_dealloc(base: *mut c_void) -> bool {{
+        let entry = {{
+            let mut g = REGISTRY.lock().unwrap();
+            g.as_mut().and_then(|m| m.remove(&(base as usize)))
+        }};
+        if std::env::var_os("HEMATITE_RESOURCE_TRACE").is_some() {{
+            eprintln!("[resource] dealloc: ptr={{base:p}} {{}}", if entry.is_some() {{ "HIT" }} else {{ "miss" }});
+        }}
+        match entry {{
+            Some(e) => {{
+                unsafe {{ (e.dtor)(e.raw) }};
+                true
+            }}
+            None => false,
+        }}
+    }}
+
+    /// Number of live (registered, not yet dropped) resources — for tests.
+    pub fn live() -> usize {{
+        REGISTRY.lock().unwrap().as_ref().map_or(0, |m| m.len())
+    }}
 }}
 "#
     )

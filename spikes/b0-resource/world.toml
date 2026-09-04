@@ -1,0 +1,17 @@
+[world]
+name = "b0-resource"
+driver = "cli"
+exports = ["Gauge"]
+[interfaces.gauge]
+source = "roc:test/gauge@0.1.0"
+[components.gauge]
+kind = "host"
+lang = "rust"
+exports = ["gauge"]
+[components.cli]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+requires_uses = ["Gauge"]
+[wiring]
+gauge = "gauge"
