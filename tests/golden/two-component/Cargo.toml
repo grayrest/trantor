@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = ["abi", "components/stdio", "components/capstdfs", "components/audit", "components/env", "components/cli"]
+
+[profile.release]
+panic = "unwind"

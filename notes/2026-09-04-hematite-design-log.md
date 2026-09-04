@@ -246,3 +246,18 @@ at generated code honestly.
 5. **Binding-module indirection cost** (D13). Measured in H3 at `--opt=speed`.
    If the hop doesn't flatten, the fallback trades D12's implementation
    transparency for direct calls.
+
+## H2 findings (2026-09-04)
+
+- **Cross-component host calls resolve at the final roc link, never via a cargo
+  dependency.** A cargo dep between two component crates bundles one into the
+  other's archive, duplicating its symbols across archives (the H0c footgun).
+  Hematite emits an `extern "C-unwind"` declaration for a cross-component call
+  and lets `roc` resolve it across the staged archives; cargo deps are only for
+  a component's own private crates.
+- **`List(OsStr)` driver deferred to post-glue-redesign.** The pinned glue
+  (release-fast-43746ac5) exposes no host-side `RocList<RocStr>` constructor, so
+  a `List(OsStr)`/`List(Str)` entrypoint can't be marshalled without hand-rolled
+  refcount code (the silent-corruption class). The H2 fixture uses `main! : {}`
+  plus an `env` interface returning one `RocStr`. Concrete instance of R4 and of
+  the plan's upstream-glue dependency; the list entrypoint returns in H5/H7.

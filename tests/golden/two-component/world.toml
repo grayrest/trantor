@@ -1,0 +1,53 @@
+# Composition manifest for the two-component golden fixture (D18).
+# hematite consumes this + the component sources and regenerates the platform/,
+# abi/, workspace Cargo.toml, and cli main() -- byte-for-byte (H3's test).
+
+[world]
+name = "reader-cli"
+driver = "cli"                      # exactly one driver (D5)
+exports = ["Path", "Stdio", "Env"]  # app-visible surface (D14)
+
+# Interfaces (bodiless, WIT-shaped). `io` owns the shared IOErr nominal (D7/D16).
+[interfaces.io]
+source = "roc:cli/io@0.1.0"
+[interfaces.filesystem]
+source = "roc:cli/filesystem@0.1.0"
+[interfaces.stdio]
+source = "roc:cli/stdio@0.1.0"
+[interfaces.env]
+source = "roc:cli/env@0.1.0"
+
+# Components.
+[components.stdio]
+kind = "host"
+lang = "rust"
+exports = ["stdio"]                 # provides the stdio interface
+[components.capstdfs]
+kind = "host"
+lang = "rust"
+exports = ["filesystem"]            # the primitive fs impl (cap-std-shaped)
+[components.audit]
+kind = "host"
+lang = "rust"
+imports = ["filesystem"]           # interposer: imports fs...
+exports = ["filesystem"]           # ...and exports fs (D2/D6)
+[components.env]
+kind = "host"
+lang = "rust"
+exports = ["env"]
+[components.pathlib]
+kind = "roc"                        # pure-Roc derived component, no host archive
+imports = ["filesystem"]
+exports = ["Path"]
+[components.cli]
+kind = "driver"
+lang = "rust"
+provides_runtime = true            # the one runtime + main() provider (H0a/H0c)
+# The driver's requires names types from other components; declare them (D18-C).
+requires_uses = ["Path", "Stdio", "Env"]
+
+# Wiring: the DAG. fs is an interposer chain; the app sees one fs (D6).
+[wiring]
+stdio = "stdio"
+fs = "audit(capstdfs)"
+env = "env"
