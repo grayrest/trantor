@@ -13,6 +13,12 @@ use std::process::{Command, Stdio};
 
 type Native = UnixBytesOrUtf8OrWindowsU16s;
 
+// The userland cwd lives in the `cell` component (FsOps.set_cwd! writes it);
+// read it to run subprocesses in that directory (Option A cwd model).
+unsafe extern "C-unwind" {
+    fn hematite__cell__get() -> RocStr;
+}
+
 fn to_os(n: &Native) -> OsString {
     unsafe {
         match n.tag {
@@ -31,6 +37,12 @@ fn command(a: SubprocessHostExecOutputArgs) -> Command {
     let envs: Vec<OsString> = a.envs.as_slice().iter().map(to_os).collect();
     for kv in envs.chunks(2) { if let [k, v] = kv { c.env(k, v); } }
     unsafe { a.decref(abi::host()); } // whole-struct decref recurses into args/envs elements (B0)
+    // Honor the userland cwd so a child runs where file ops resolve (basic-cli's
+    // observable single-cwd behavior), without mutating this process's real cwd.
+    // Empty cell = no set_cwd! yet = inherit the process cwd.
+    let cwd = unsafe { hematite__cell__get() };
+    if !cwd.is_empty() { c.current_dir(cwd.as_str()); }
+    unsafe { cwd.decref(abi::host()); }
     c
 }
 // The four Args structs are layout-identical; view them as one.

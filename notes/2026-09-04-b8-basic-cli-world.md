@@ -59,6 +59,15 @@ archives; the shim is ~300 lines of pure Roc.
   basic-cli's type); `fs-core` aliases the record's glue name.
 - **Driver contract** is basic-cli's `main! : List(NativeOsStr)`; the
   adapter builds argv from `CliEnv` count/at as `Utf8`.
+- **`Env.set_cwd!` propagates to subprocesses** (added post-review, cwd-model
+  Option A). The port keeps a single userland cwd in the `cell` (what
+  `FsOps.set_cwd!` writes and file ops resolve against); the subprocess host
+  now reads that cell (`hematite__cell__get`) and sets `Command.current_dir`
+  before spawning, so a child runs in the same directory files resolve
+  against — basic-cli's observable single-cwd behavior — without mutating this
+  process's real cwd (stays capability-clean and projects to WASI). Empty cell
+  = inherit the process cwd. `cwd-app` asserts `pwd` reports `/usr` after
+  `set_cwd!("/usr")` while the process cwd is unchanged.
 
 ## Findings
 

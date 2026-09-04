@@ -73,6 +73,13 @@ has locale           "LANG=en_US.UTF-8 ../bin/ex-locale" "application: en-US"
 rm -rf demo-workspace out.txt greeting.txt; cd - >/dev/null
 echo "ok: 21 examples run with basic-cli's output (argv[0], stdin, env, files, dirs, subprocess, time, locale)"
 
+# ---- 2a. Env.set_cwd! propagates to the subprocess working directory ----
+cap "$ROC" build --output="$B/bin/ex-cwd" "$B/cwd-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build cwd-app"; exit 1; }
+cwdout=$(cd "$B" && ./bin/ex-cwd 2>/dev/null)
+grep -q '^before: /usr$' <<<"$cwdout" && { echo "FAIL: cwd test vacuous (process cwd is already /usr)"; exit 1; }
+grep -q '^after: /usr$'  <<<"$cwdout" || { echo "FAIL: subprocess did not honor Env.set_cwd! (want 'after: /usr'):"; echo "$cwdout"; exit 1; }
+echo "ok: Env.set_cwd! propagates to subprocess cwd (child pwd = /usr, process cwd unchanged)"
+
 # ---- 2b. drop-balance gauge (env-gated alloc counter) ----
 # resource live() counts handles; it cannot see leaked RocStr/RocList DATA (the
 # B0 owned-arg leaks). HEMATITE_ALLOC_GAUGE makes the driver print allocs/
