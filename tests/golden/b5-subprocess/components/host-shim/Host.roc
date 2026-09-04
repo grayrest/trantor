@@ -1,0 +1,96 @@
+## The basic-cli `Host` surface, reconstructed in pure Roc over the WASI-shaped
+## primitives (P4/D2). basic-cli's own Stdout.roc/Stderr.roc/Stdin.roc/Tty.roc
+## `import Host` and compile here UNCHANGED. Each stdout/stderr call mints the
+## process stream resource and drops it after the write (drop-balanced by B0).
+import IOErr exposing [IOErr]
+import Streams
+import CliOut
+import CliIn
+import CliEnv
+import CliTty
+import Clocks
+import RandomHost
+import LocaleHost
+import SubprocessHost
+Host :: [].{
+	NativeOsStr : [Utf8(Str), UnixBytes(List(U8)), WindowsU16s(List(U16))]
+	Cmd : { args : List(NativeOsStr), clear_envs : Bool, envs : List(NativeOsStr), program : NativeOsStr }
+	CmdOutputSuccess : { stderr_bytes : List(U8), stdout_bytes : List(U8) }
+	CmdOutputFailure : { stderr_bytes : List(U8), stdout_bytes : List(U8), exit_code : I32 }
+	cmd_exec_exit_code! : Cmd => Try(I32, IOErr)
+	cmd_exec_exit_code! = |c| SubprocessHost.exec_exit_code!(c)
+	cmd_exec_status! : Cmd => Try(I32, IOErr)
+	cmd_exec_status! = |c| SubprocessHost.exec_status!(c)
+	cmd_exec_output! : Cmd => Try(CmdOutputSuccess, [NonZeroExitCode(CmdOutputFailure), FailedToGetExitCode(IOErr)])
+	cmd_exec_output! = |c| SubprocessHost.exec_output!(c)
+	cmd_exec_output_inherit_stdin! : Cmd => Try(CmdOutputSuccess, [NonZeroExitCode(CmdOutputFailure), FailedToGetExitCode(IOErr)])
+	cmd_exec_output_inherit_stdin! = |c| SubprocessHost.exec_output_inherit_stdin!(c)
+	stdout_line! : Str => Try({}, [StdoutErr(IOErr)])
+	stdout_line! = |s| out_write!(CliOut.get_stdout!({}), Str.to_utf8(Str.concat(s, "\n")))
+	stdout_write! : Str => Try({}, [StdoutErr(IOErr)])
+	stdout_write! = |s| out_write!(CliOut.get_stdout!({}), Str.to_utf8(s))
+	stdout_write_bytes! : List(U8) => Try({}, [StdoutErr(IOErr)])
+	stdout_write_bytes! = |b| out_write!(CliOut.get_stdout!({}), b)
+
+	stderr_line! : Str => Try({}, [StderrErr(IOErr)])
+	stderr_line! = |s| err_write!(CliOut.get_stderr!({}), Str.to_utf8(Str.concat(s, "\n")))
+	stderr_write! : Str => Try({}, [StderrErr(IOErr)])
+	stderr_write! = |s| err_write!(CliOut.get_stderr!({}), Str.to_utf8(s))
+	stderr_write_bytes! : List(U8) => Try({}, [StderrErr(IOErr)])
+	stderr_write_bytes! = |b| err_write!(CliOut.get_stderr!({}), b)
+
+	stdin_line! : () => Try(Str, [EndOfFile, StdinErr(IOErr)])
+	stdin_line! = || CliIn.read_line!({})
+	stdin_bytes! : () => Try(List(U8), [EndOfFile, StdinErr(IOErr)])
+	stdin_bytes! = || {
+		match Streams.read!(CliIn.get_stdin!({}), 4096) {
+			Ok([]) => Err(EndOfFile)
+			Ok(bytes) => Ok(bytes)
+			Err(StreamErr(e)) => Err(StdinErr(e))
+		}
+	}
+	stdin_read_to_end! : () => Try(List(U8), [StdinErr(IOErr)])
+	stdin_read_to_end! = || CliIn.read_to_end!({})
+
+	env_var! : Str => Try(Str, [VarNotFound(Str), EnvErr(IOErr)])
+	env_var! = |name| CliEnv.var!(name)
+	env_platform! : () => { arch : [X86, X64, ARM, AARCH64, OTHER(Str)], os : [LINUX, MACOS, WINDOWS, OTHER(Str)] }
+	env_platform! = || CliEnv.platform!({})
+
+	utc_now! : () => Try(U128, [ClockBeforeEpoch])
+	utc_now! = || Clocks.wall_now!({})
+	sleep_millis! : U64 => {}
+	sleep_millis! = |ms| Clocks.sleep_millis!(ms)
+	random_seed_u64! : () => Try(U64, [RandomErr(IOErr)])
+	random_seed_u64! = || RandomHost.seed_u64!({})
+	random_seed_u32! : () => Try(U32, [RandomErr(IOErr)])
+	random_seed_u32! = || RandomHost.seed_u32!({})
+	locale_get! : () => Try(Str, [NotAvailable])
+	locale_get! = || LocaleHost.get!({})
+	## List(Str) built in Roc from count/at (no host RocList<RocStr>, R-B5).
+	locale_all! : () => List(Str)
+	locale_all! = || collect_locales!(LocaleHost.count!({}), 0, [])
+
+	tty_enable_raw_mode! : () => {}
+	tty_enable_raw_mode! = || CliTty.enable_raw_mode!({})
+	tty_disable_raw_mode! : () => {}
+	tty_disable_raw_mode! = || CliTty.disable_raw_mode!({})
+}
+
+out_write! : Streams.OutputStream, List(U8) => Try({}, [StdoutErr(IOErr)])
+out_write! = |stream, bytes| {
+	match Streams.write!(stream, bytes) {
+		Ok({}) => Ok({})
+		Err(StreamErr(e)) => Err(StdoutErr(e))
+	}
+}
+err_write! : Streams.OutputStream, List(U8) => Try({}, [StderrErr(IOErr)])
+err_write! = |stream, bytes| {
+	match Streams.write!(stream, bytes) {
+		Ok({}) => Ok({})
+		Err(StreamErr(e)) => Err(StderrErr(e))
+	}
+}
+
+collect_locales! : U64, U64, List(Str) => List(Str)
+collect_locales! = |n, i, acc| if i >= n { acc } else { collect_locales!(n, i + 1, List.append(acc, LocaleHost.at!(i))) }

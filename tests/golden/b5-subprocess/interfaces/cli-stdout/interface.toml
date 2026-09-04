@@ -1,0 +1,8 @@
+# roc:cli/stdout + roc:cli/stderr (WASI: get the stream; writing is sync-io).
+module = "CliOut"
+[[hosted]]
+leaf = "get_stdout!"
+symbol_stem = "get_stdout"
+[[hosted]]
+leaf = "get_stderr!"
+symbol_stem = "get_stderr"

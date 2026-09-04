@@ -205,6 +205,18 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
 - **Exit:** seahaven's `Cmd` derived layer runs unchanged; a PATH-searched
   command executes with captured output and status.
 
+> **Outcome ✅ COMPLETE 2026-09-04** ([note](../notes/2026-09-04-b5-subprocess.md)):
+> host compiled first try — PATH-searched `echo` with captured output,
+> `exit-code: 7`, `check_available!("ls")` running seahaven's full PATH-search;
+> exit 0. **seahaven's 499-line `Cmd.roc` ports with exactly two changed
+> lines** (the `Env.var!` sites, bridged by one appended `env_var_os!`) and its
+> 247-line `OsStr.roc` ships byte-verbatim (`verify.sh` bounds the diff at 2).
+> Design call: the crossing record keeps seahaven's `NativeOsStr` union (its
+> seam and PATH-split match on `to_raw`'s variants) — P11 governs the path
+> packages, not this argument crossing. `Path`/`OsPath` gained seahaven's
+> constructors, `is_executable!`, and `is_eq`/`to_hash` (its `expect`s compare
+> `List(Path)`). Open: whether `RocList<T,true>::decref` releases elements.
+
 ### B6 — `roc:sync-sockets` (full) + `roc:sync-http`
 
 - Sockets: WASI's full surface — `network`, `instance-network`,

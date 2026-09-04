@@ -1,0 +1,53 @@
+# roc:filesystem/types + preopens. Descriptor is a resource (P5). Paths cross
+# as raw bytes (P11); directory listings return NUL-joined names (R-B5).
+module = "Fs"
+[[resources]]
+name = "Descriptor"
+[[hosted]]
+leaf = "preopen_count!"
+symbol_stem = "preopen_count"
+[[hosted]]
+leaf = "preopen_at!"
+symbol_stem = "preopen_at"
+[[hosted]]
+leaf = "open_at!"
+symbol_stem = "open_at"
+[[hosted]]
+leaf = "read_via_stream!"
+symbol_stem = "read_via_stream"
+[[hosted]]
+leaf = "read_file_at!"
+symbol_stem = "read_file_at"
+[[hosted]]
+leaf = "write_file_at!"
+symbol_stem = "write_file_at"
+[[hosted]]
+leaf = "stat_at!"
+symbol_stem = "stat_at"
+[[hosted]]
+leaf = "read_dir_at!"
+symbol_stem = "read_dir_at"
+[[hosted]]
+leaf = "create_dir_at!"
+symbol_stem = "create_dir_at"
+[[hosted]]
+leaf = "create_dir_all_at!"
+symbol_stem = "create_dir_all_at"
+[[hosted]]
+leaf = "remove_dir_at!"
+symbol_stem = "remove_dir_at"
+[[hosted]]
+leaf = "remove_dir_all_at!"
+symbol_stem = "remove_dir_all_at"
+[[hosted]]
+leaf = "unlink_at!"
+symbol_stem = "unlink_at"
+[[hosted]]
+leaf = "rename_at!"
+symbol_stem = "rename_at"
+[[hosted]]
+leaf = "link_at!"
+symbol_stem = "link_at"
+[[hosted]]
+leaf = "live!"
+symbol_stem = "live"
