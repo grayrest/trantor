@@ -1,0 +1,32 @@
+requires_uses = ["Env", "Element"]
+authored_host = true
+imports_extra = []
+
+requires = """
+		[Model : model] for main : {
+			init : Env -> model,
+			view : model -> { tree : Element },
+		}
+"""
+
+provided = """
+init_for_host : Env -> Box(Model)
+init_for_host = |env| {
+	init_fn = main.init
+	Box.box(init_fn(env))
+}
+
+view_for_host : Box(Model) -> { tree : Element }
+view_for_host = |boxed_model| {
+	view_fn = main.view
+	view_fn(Box.unbox(boxed_model))
+}
+"""
+
+[[provides]]
+symbol = "roc_im_init"
+fn = "init_for_host"
+
+[[provides]]
+symbol = "roc_im_view"
+fn = "view_for_host"

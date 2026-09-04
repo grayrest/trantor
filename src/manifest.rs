@@ -64,9 +64,16 @@ pub struct HostedLeaf {
 /// declared cross-component type uses (D18-C).
 #[derive(Debug, Deserialize)]
 pub struct Driver {
-    pub provides_symbol: String,
+    /// Single provided entrypoint (CLI-style). Either this pair or `provides`
+    /// (the multi-entry list, reactor-style) must be given.
+    #[serde(default)]
+    pub provides_symbol: Option<String>,
+    #[serde(default)]
     #[allow(dead_code)]
-    pub provided_fn: String,
+    pub provided_fn: Option<String>,
+    /// Multiple provided entrypoints (reactor-style, e.g. roc_im_init + roc_im_view).
+    #[serde(default)]
+    pub provides: Vec<Provided>,
     #[serde(default)]
     #[allow(dead_code)]
     pub requires_uses: Vec<String>,
@@ -74,6 +81,32 @@ pub struct Driver {
     pub imports_extra: Vec<String>,
     pub requires: String,
     pub provided: String,
+    /// A reactor driver (multi-provides, host-calls-app) ships its own host
+    /// src/lib.rs; hematite generates only its Cargo.toml, not the CLI driver
+    /// body. A CLI driver leaves this false and hematite generates the body.
+    #[serde(default)]
+    pub authored_host: bool,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Provided {
+    pub symbol: String,
+    #[serde(rename = "fn")]
+    pub func: String,
+}
+
+impl Driver {
+    /// Normalized list of (linker symbol, roc fn) provided entrypoints.
+    pub fn provided_entries(&self) -> Vec<(String, String)> {
+        if !self.provides.is_empty() {
+            self.provides.iter().map(|p| (p.symbol.clone(), p.func.clone())).collect()
+        } else {
+            match (&self.provides_symbol, &self.provided_fn) {
+                (Some(s), Some(f)) => vec![(s.clone(), f.clone())],
+                _ => vec![],
+            }
+        }
+    }
 }
 
 pub fn load_world(dir: &Path, file: &str) -> Result<World, String> {

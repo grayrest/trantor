@@ -39,7 +39,11 @@ pub fn emit(
     w("platform/main.roc", main_roc(world, driver, r))?;
     w("Cargo.toml", workspace_toml(world, r))?;
     w(&format!("components/{}/Cargo.toml", r.driver), driver_cargo(&r.driver))?;
-    w(&format!("components/{}/src/lib.rs", r.driver), driver_lib(driver))?;
+    // A CLI driver's host is generated; a reactor driver (authored_host) ships
+    // its own src/lib.rs and hematite must not clobber it (H7 finding).
+    if !driver.authored_host {
+        w(&format!("components/{}/src/lib.rs", r.driver), driver_lib(driver))?;
+    }
     w("abi/Cargo.toml", abi_cargo())?;
     w("abi/src/lib.rs", abi_lib())?;
 
@@ -89,7 +93,16 @@ fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {
     // exposes: the world's export list (D14).
     s.push_str(&format!("\texposes [{}]\n", world.world.exports.join(", ")));
     s.push_str("\tpackages {}\n");
-    s.push_str(&format!("\tprovides {{ \"{}\": {} }}\n", driver.provides_symbol, "main_for_host!"));
+    let entries = driver.provided_entries();
+    if entries.len() == 1 {
+        s.push_str(&format!("\tprovides {{ \"{}\": {} }}\n", entries[0].0, entries[0].1));
+    } else {
+        s.push_str("\tprovides {\n");
+        for (sym, func) in &entries {
+            s.push_str(&format!("\t\t\"{sym}\": {func},\n"));
+        }
+        s.push_str("\t}\n");
+    }
     // hosted: the mangled union (D6).
     s.push_str("\thosted {\n");
     for b in &r.hosted {
