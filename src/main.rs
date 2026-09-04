@@ -12,6 +12,7 @@
 
 mod codegen;
 mod manifest;
+mod publish;
 mod resolve;
 
 use std::path::PathBuf;
@@ -30,11 +31,36 @@ fn main() -> ExitCode {
 
 fn run(args: &[String]) -> Result<(), String> {
     let mut it = args.iter().skip(1);
-    let cmd = it.next().ok_or("usage: hematite compose <world-dir> [--out <dir>]")?;
-    if cmd != "compose" {
-        return Err(format!("unknown subcommand {cmd:?}; expected `compose`"));
+    let cmd = it
+        .next()
+        .ok_or("usage: hematite <compose|publish|tier> <world-dir> [flags]")?;
+    let dir = PathBuf::from(it.next().ok_or("missing <world-dir>")?);
+
+    match cmd.as_str() {
+        "compose" => {}
+        "publish" => return publish::publish(&dir),
+        "tier" => {
+            // classify an extension world's additions (D11): Tier 1 (pure-Roc,
+            // no toolchain) vs Tier 2 (host code, full source composition).
+            let mut world_file = String::from("world.toml");
+            while let Some(f) = it.next() {
+                if f == "--world" {
+                    world_file = it.next().ok_or("--world: missing file")?.clone();
+                }
+            }
+            let world = manifest::load_world(&dir, &world_file)?;
+            match publish::classify(&world) {
+                publish::Tier::One => {
+                    println!("Tier 1: pure-Roc extension — reuses the baseline's prebuilt archives, no Rust toolchain (glue + libhost unchanged). Add module + edit exposes/import.");
+                }
+                publish::Tier::Two(hosts) => {
+                    println!("Tier 2: adds host component(s) {hosts:?} — new hosted symbols, so full source composition (cargo + roc glue) is required. This crosses the tier cliff (D11).");
+                }
+            }
+            return Ok(());
+        }
+        other => return Err(format!("unknown subcommand {other:?}")),
     }
-    let dir = PathBuf::from(it.next().ok_or("compose: missing <world-dir>")?);
     let mut out = dir.clone();
     let mut world_file = String::from("world.toml");
     while let Some(flag) = it.next() {

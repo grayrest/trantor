@@ -1,0 +1,10 @@
+# A per-app extension that adds a host component with a native dep (Tier 2).
+[world]
+name = "reader-plus-metrics"
+driver = "cli"
+exports = ["Metrics"]
+[components.metrics]
+kind = "host"
+lang = "rust"
+exports = ["metrics"]
+[wiring]

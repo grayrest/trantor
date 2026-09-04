@@ -1,0 +1,9 @@
+# A per-app extension that adds ONLY a pure-Roc component (Tier 1).
+[world]
+name = "reader-plus-greet"
+driver = "cli"
+exports = ["Greet"]
+[components.greet]
+kind = "roc"
+exports = ["Greet"]
+[wiring]

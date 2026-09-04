@@ -11,3 +11,4 @@ platform/IOErr.roc
 platform/Path.roc
 platform/targets/*/*.a
 platform/targets/macos-sysroot/
+dist/
