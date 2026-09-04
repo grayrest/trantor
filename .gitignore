@@ -11,3 +11,7 @@ target/hematite/
 **/targets/macos-sysroot/
 # OS
 .DS_Store
+spikes/*/glue-out/
+spikes/*/comp-*/src/abi.rs
+spikes/*/target/
+spikes/*/bin/

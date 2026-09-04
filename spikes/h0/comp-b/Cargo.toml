@@ -1,0 +1,11 @@
+[package]
+name = "comp-b"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "comp_b"
+crate-type = ["staticlib"]
+
+[dependencies]
