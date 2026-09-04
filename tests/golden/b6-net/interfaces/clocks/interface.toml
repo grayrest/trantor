@@ -1,0 +1,11 @@
+# roc:clocks/wall-clock + monotonic-clock (+ blocking sleep, the sync form).
+module = "Clocks"
+[[hosted]]
+leaf = "wall_now!"
+symbol_stem = "wall_now"
+[[hosted]]
+leaf = "monotonic_now!"
+symbol_stem = "monotonic_now"
+[[hosted]]
+leaf = "sleep_millis!"
+symbol_stem = "sleep_millis"

@@ -1,0 +1,11 @@
+[package]
+name = "fs-confined"
+version = "0.0.0"
+edition = "2021"
+publish = false
+[lib]
+crate-type = ["staticlib", "rlib"]
+[dependencies]
+hematite-abi = { path = "../../abi" }
+sync-io-core = { path = "../sync-io-core" }
+fs-core = { path = "../fs-core" }

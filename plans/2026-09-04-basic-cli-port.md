@@ -229,6 +229,23 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
 - **Exit:** tcp echo client↔server in-process, a udp round-trip, an http GET;
   basic-cli `Tcp`/`Http` app code unchanged.
 
+> **Outcome ✅ COMPLETE 2026-09-04** ([note](../notes/2026-09-04-b6-net.md)):
+> hosts compiled first try — `tcp-echo: hi`, `http-get: hello-http`,
+> `udp-echo: dgram`, `tcp-accept: ping`, exit 0 (`live()==0`). basic-cli's
+> `Tcp.roc`/`Http.roc`/`InternalHttp.roc` ship **byte-verbatim** (15 verbatim
+> modules total); `Udp.roc` is new sugar. `Host.TcpStream` is an *alias* of
+> `Sockets.TcpSocket`; `tcp_input!/output!` mint `roc:sync-io` streams from a
+> cloned socket, so sockets and files share one stream layer. `HttpHost.send!`
+> takes basic-cli's exact host-request record; response headers cross
+> NUL-joined (R-B5) and the shim splits them. Tool gained `[packages]` in
+> `world.toml` → `packages { http: "…" }` (verbatim `Http.roc` imports
+> `roc-lang/http`). **Finding:** basic-cli's `Method→U8` is `to_host_method`'s
+> table (`CONNECT=0 … TRACE=9`, `Unknown` shares `QUERY`'s 2 via `method_ext`),
+> not union order — the test httpd now answers only a `GET`, so it's under
+> test. Peers are `roc:testnet` host threads (TEST SCAFFOLDING, not shipped).
+> The HTTP client is a ~40-line `std::net` one (no TLS/chunked/redirects); B8
+> decides whether the shipped host grows a real client behind the same leaf.
+
 ### B7 — `roc:temporal` (`temporal_rs`)
 
 - Calendar ops host-backed by `temporal_rs` (P13). Value types (`PlainDate`,

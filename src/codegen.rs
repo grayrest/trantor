@@ -133,7 +133,15 @@ fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {
     s.push_str("\t}\n");
     // exposes: the world's export list (D14).
     s.push_str(&format!("\texposes [{}]\n", world.world.exports.join(", ")));
-    s.push_str("\tpackages {}\n");
+    if world.packages.is_empty() {
+        s.push_str("\tpackages {}\n");
+    } else {
+        s.push_str("\tpackages {\n");
+        for (alias, url) in &world.packages {
+            s.push_str(&format!("\t\t{alias}: \"{url}\",\n"));
+        }
+        s.push_str("\t}\n");
+    }
     let entries = driver.provided_entries();
     if entries.len() == 1 {
         s.push_str(&format!("\tprovides {{ \"{}\": {} }}\n", entries[0].0, entries[0].1));

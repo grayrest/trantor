@@ -14,6 +14,10 @@ pub struct World {
     pub interfaces: BTreeMap<String, InterfaceRef>,
     pub components: BTreeMap<String, Component>,
     pub wiring: BTreeMap<String, String>,
+    /// External Roc packages the composed platform declares (`packages { alias: "url" }`),
+    /// so verbatim modules that `import alias.Module` keep working (D18).
+    #[serde(default)]
+    pub packages: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -1,0 +1,7 @@
+module = "CliTty"
+[[hosted]]
+leaf = "enable_raw_mode!"
+symbol_stem = "enable_raw_mode"
+[[hosted]]
+leaf = "disable_raw_mode!"
+symbol_stem = "disable_raw_mode"

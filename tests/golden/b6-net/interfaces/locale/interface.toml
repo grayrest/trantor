@@ -1,0 +1,10 @@
+module = "LocaleHost"
+[[hosted]]
+leaf = "get!"
+symbol_stem = "get"
+[[hosted]]
+leaf = "count!"
+symbol_stem = "count"
+[[hosted]]
+leaf = "at!"
+symbol_stem = "at"
