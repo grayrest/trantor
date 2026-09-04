@@ -140,6 +140,17 @@ the stream, harmless); redirects resolve inside `send!` (final hop only);
 early-drop of the stream closes/recycles the connection via the B0 destructor;
 the `to_host_method` u8 table + `method_ext` for `Unknown` carries over unchanged.
 
+**H16 — Global redirect knob: `HEMATITE_HTTP_MAX_REDIRECTS`.** The shared
+Agent's `max_redirects` is read from this env when the Agent is built — default
+`10` (H4's browser-like following), `0` = don't follow (a 3xx comes back as the
+`Response`, restoring basic-cli's behavior without a rebuild). Per-process,
+runtime, no interface change; consistent with the `HEMATITE_HTTP_EXTRA_CA`
+env convention (H13). `max_redirects_will_error` stays **false** (hitting the
+ceiling returns the last response, not an error — browser-like);
+`redirect_auth_headers` keeps ureq's default. **Per-request** redirect policy
+remains a future interface field: the shared `roc-lang/http` `Request` has no
+redirect field, so it cannot be per-request without extending that type.
+
 ## Interface change summary (vs the frozen stub)
 
 - Primitive `roc:sync-http/HttpHost.send!`: response `body : List(U8)` →
@@ -149,8 +160,9 @@ the `to_host_method` u8 table + `method_ext` for `Unknown` carries over unchange
   `Response`; new `read_body_to_end!` and `to_http_response!`. `Http.roc` /
   `InternalHttp.roc` are no longer byte-verbatim from basic-cli.
 - Composer: new per-component `features` knob (H12).
-- New env: `HEMATITE_HTTP_EXTRA_CA` (H13). New Cargo feature: `http-host/tls`
-  (default on, H12). New crate: `tools/local-cert` + `just make-local-cert` (H14).
+- New env: `HEMATITE_HTTP_EXTRA_CA` (H13), `HEMATITE_HTTP_MAX_REDIRECTS` (H16).
+  New Cargo feature: `http-host/tls` (default on, H12). New crate:
+  `tools/local-cert` + `just make-local-cert` (H14).
 
 ## Non-goals this pass
 
