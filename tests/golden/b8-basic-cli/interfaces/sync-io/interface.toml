@@ -1,0 +1,15 @@
+# roc:sync-io/streams@0.1.0 -- blocking stream resources (P7 sync- prefix).
+module = "Streams"
+[[resources]]
+name = "InputStream"
+[[resources]]
+name = "OutputStream"
+[[hosted]]
+leaf = "read!"
+symbol_stem = "read"
+[[hosted]]
+leaf = "write!"
+symbol_stem = "write"
+[[hosted]]
+leaf = "read_until!"
+symbol_stem = "read_until"

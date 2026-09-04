@@ -1,0 +1,15 @@
+# roc:subprocess (roc-native, P3; seahaven's design). Program/args/envs cross
+# as Str (P11); outputs are byte lists + exit code.
+module = "SubprocessHost"
+[[hosted]]
+leaf = "exec_exit_code!"
+symbol_stem = "exec_exit_code"
+[[hosted]]
+leaf = "exec_status!"
+symbol_stem = "exec_status"
+[[hosted]]
+leaf = "exec_output!"
+symbol_stem = "exec_output"
+[[hosted]]
+leaf = "exec_output_inherit_stdin!"
+symbol_stem = "exec_output_inherit_stdin"

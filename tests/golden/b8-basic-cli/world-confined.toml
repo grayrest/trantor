@@ -1,0 +1,135 @@
+# roc:basic-cli — the all-in-one migration world (P14/P15): basic-cli 0.21's
+# surface minus Sqlite, plus Udp/Sockets/Streams/Temporal and the two
+# WASI-shaped path packages under their own names. Apps port by URL.
+[world]
+name = "basic-cli-confined"
+driver = "main-driver"
+exports = ["Cmd", "Env", "File", "Http", "IOErr", "Locale", "OsStr", "Path", "Random", "Sleep", "Stdin", "Stdout", "Stderr", "Tcp", "Tty", "Url", "Utc", "Udp", "Sockets", "Streams", "Temporal", "StrPath", "OsPath"]
+[components.main-driver]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+requires_uses = ["Stdout", "Stderr", "Stdin", "Env"]
+[interfaces.io]
+source = "roc:io/error@0.1.0"
+[interfaces.sync-io]
+source = "roc:sync-io/streams@0.1.0"
+[interfaces.cli-stdout]
+source = "roc:cli/stdout@0.1.0"
+[interfaces.cli-stdin]
+source = "roc:cli/stdin@0.1.0"
+[interfaces.cli-env]
+source = "roc:cli/environment@0.1.0"
+[interfaces.cli-tty]
+source = "roc:cli/terminal@0.1.0"
+[interfaces.fs]
+source = "roc:filesystem@0.1.0"
+[interfaces.cell]
+source = "roc:cell@0.1.0"
+[interfaces.clocks]
+source = "roc:clocks@0.1.0"
+[interfaces.random]
+source = "roc:random@0.1.0"
+[interfaces.locale]
+source = "roc:locale@0.1.0"
+[interfaces.subprocess]
+source = "roc:subprocess@0.1.0"
+[interfaces.sync-sockets]
+source = "roc:sync-sockets@0.1.0"
+[interfaces.sync-http]
+source = "roc:sync-http@0.1.0"
+[interfaces.temporal]
+source = "roc:temporal@0.1.0"
+[components.sync-io]
+kind = "host"
+lang = "rust"
+exports = ["sync-io"]
+[components.cli-host]
+kind = "host"
+lang = "rust"
+imports = ["sync-io"]
+exports = ["cli-stdout", "cli-stdin", "cli-env", "cli-tty"]
+[components.cell]
+kind = "host"
+lang = "rust"
+exports = ["cell"]
+[components.fs-confined]
+kind = "host"
+lang = "rust"
+imports = ["sync-io"]
+exports = ["fs"]
+[components.clocks-host]
+kind = "host"
+lang = "rust"
+exports = ["clocks"]
+[components.random-host]
+kind = "host"
+lang = "rust"
+exports = ["random"]
+[components.locale-host]
+kind = "host"
+lang = "rust"
+exports = ["locale"]
+[components.subprocess-host]
+kind = "host"
+lang = "rust"
+exports = ["subprocess"]
+[components.sockets-host]
+kind = "host"
+lang = "rust"
+imports = ["sync-io"]
+exports = ["sync-sockets"]
+[components.http-host]
+kind = "host"
+lang = "rust"
+exports = ["sync-http"]
+[components.temporal-host]
+kind = "host"
+lang = "rust"
+exports = ["temporal"]
+[components.host-shim]
+kind = "roc"
+exports = ["Host"]
+[components.basic-cli-lib]
+kind = "roc"
+exports = ["Path", "File", "Env"]
+[components.cmd-lib]
+kind = "roc"
+exports = ["Cmd", "OsStr"]
+[components.net-lib]
+kind = "roc"
+exports = ["Tcp", "Http", "InternalHttp", "Udp"]
+[components.basic-lib]
+kind = "roc"
+exports = ["Utc", "Sleep", "Random", "Locale", "Url", "InternalDateTime"]
+[components.fs-ops]
+kind = "roc"
+imports = ["fs", "cell"]
+exports = ["FsOps"]
+[components.path]
+kind = "roc"
+exports = ["Path as StrPath"]
+[components.os-path]
+kind = "roc"
+exports = ["OsPath"]
+[components.stdio-lib]
+kind = "roc"
+exports = ["Stdout", "Stderr", "Stdin", "Tty"]
+[wiring]
+sync-io = "sync-io"
+cli-stdout = "cli-host"
+cli-stdin = "cli-host"
+cli-env = "cli-host"
+cli-tty = "cli-host"
+cell = "cell"
+fs = "fs-confined"
+clocks = "clocks-host"
+random = "random-host"
+locale = "locale-host"
+subprocess = "subprocess-host"
+sync-sockets = "sockets-host"
+sync-http = "http-host"
+temporal = "temporal-host"
+
+[packages]
+http = "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst"

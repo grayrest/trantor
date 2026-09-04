@@ -278,6 +278,37 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
   unconfined fs, published via `hematite publish` (P14).
 - **Migration proof:** a real basic-cli example app builds and runs by changing
   **only** its platform URL.
+- **Amended 2026-09-04 (P15, user-approved "full fidelity"):** measured first —
+  with only the URL swapped, **1 of 29** basic-cli examples checked against the
+  B6 platform: 19 blocked solely by the driver's `main! : List(Str)` (basic-cli
+  passes `List(NativeOsStr)`), 9 by basic-cli's OsStr-backed `Path`
+  (`from_os_str`/`filename`/`ext`/literal-as-Path/`read_utf8!`), `File.Reader`,
+  and `Env.var_str!` — the surface P11 replaced with `roc:path`. So the
+  `roc:basic-cli` world ships **basic-cli's `Path.roc`/`File.roc`/`Env.roc`
+  byte-verbatim** (its `Path :=` is the same 3-variant union as `OsStr`, so it
+  maps onto B3's bytes primitives) exported as `Path`/`File`/`Env`; `roc:path`
+  and `roc:os-path` stay shipped as `StrPath`/`OsPath` (D14 rename). Underneath:
+  the shim gains basic-cli's 20 `Host` file/dir/env leaves in pure Roc over
+  `FsOps`/`CliEnv` (D2), `roc:sync-io` gains a buffered `read_until!` (gives
+  `File.Reader.read_line!`; `FileReader` aliases `InputStream`), `stat_at!` gains
+  accessed/created times, and the driver passes `List(NativeOsStr)`. seahaven's
+  `Cmd.roc` loses its `Env` bridge (basic-cli's `Env.var!` is OsStr-typed) and
+  gains a 2-constructor `Path` bridge. Exit strengthens to: every non-sqlite
+  example `roc check`s with only the URL changed, and the file/path ones run.
+
+> **Outcome ✅ COMPLETE 2026-09-04** ([note](../notes/2026-09-04-b8-basic-cli-world.md)):
+> **28/28 basic-cli 0.21.0 examples `roc check` with only the platform URL
+> changed** (from 1/29 before P15); **21 run** with basic-cli's output — argv
+> incl. argv[0], stdin, env, file read/write/replace/size/permissions, buffered
+> line reader, dirs, subprocess, url, random, time, locale. `hematite publish`
+> → `dist/` + `baseline.lock`; `hematite tier` → Tier 1 for a pure-Roc
+> extension. Confinement swap = one wiring line: the same escaping app is
+> `allowed` on the baseline, `denied` on `world-confined.toml`. 18 modules
+> byte-verbatim; `Cmd.roc` a 4-line bridge; 78 hosted symbols, 12 archives.
+> Host fixes the real apps forced: `cli-host` argv now includes argv[0] (B2
+> skipped it; every arg-taking example silently saw none), `dir_list!` joins
+> entries to their directory, `roc:sync-io/read_until!` (buffered `Input`),
+> `stat_at!` accessed/created times, driver takes `List(NativeOsStr)`.
 - **Confinement swap:** the same app world with the confined `roc:filesystem`
   impl wired instead — seahaven-as-a-component.
 - **Exit:** the example app runs unchanged on the baseline; the confined

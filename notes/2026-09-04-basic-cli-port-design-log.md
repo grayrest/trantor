@@ -179,6 +179,28 @@ baseline hands out a `/` preopen (ambient parity); seahaven's confinement is a
 so seahaven stops being a fork and becomes a component. This is the hematite
 thesis landing on the platform it was built for.
 
+**P15 — The `roc:basic-cli` world's app-facing `Path`/`File`/`Env` are
+basic-cli's own modules, verbatim, over the WASI-shaped primitives.**
+*(Decided 2026-09-04 during B8, user chose "full fidelity" over "args only"
+and "hello-world only".)* P11 chose the WASI-shaped `roc:path` (Str) and
+`roc:os-path` as the shipped path packages; B8's exit promised a real
+basic-cli app runs by changing only its URL. Measured, those conflict: 1/29
+examples checked. basic-cli's `Path := [Utf8(Str), Unix(List(U8)),
+Windows(List(U16))]` is the same shape as `OsStr` (byte-identical to seahaven's),
+and its 698-line `Path.roc` is pure Roc over ~20 `Host` file/dir leaves that
+take that union — exactly the D2 seam that made `Stdout`/`Tcp`/`Http` verbatim.
+So the world ships basic-cli's `Path`/`File`/`Env` verbatim as the front door,
+the shim implements the leaves over `FsOps`' bytes primitives, and P11's two
+packages remain shipped under `StrPath`/`OsPath` for apps that want them (a
+world-rename away from being `Path`, as P11 intended). seahaven's `Path.roc` was
+considered (a strict superset of basic-cli's, would make `Cmd.roc` fully
+verbatim) but its `PathErr(IOErr, Path)` payload diverges from basic-cli's
+`PathErr(IOErr)` — the migration front door follows basic-cli. The driver
+contract becomes basic-cli's `main! : List(NativeOsStr)`, which is also
+seahaven's. Two primitive additions fell out: `roc:sync-io/read_until!`
+(buffered delimiter reads — files, stdin and sockets all get line reads from one
+place) and accessed/created times on `stat_at!`.
+
 ## Open items (next session)
 
 1. ~~P14 baseline shape~~ — confirmed all-in-one-parity (2026-09-04).
