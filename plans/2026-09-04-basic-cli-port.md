@@ -130,6 +130,20 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
   unchanged** onto the `main!`-compat world and runs; the same logic runs as a
   `run!`-native app.
 
+> **Outcome ✅ COMPLETE 2026-09-04** ([note](../notes/2026-09-04-b2-cli.md)):
+> both worlds run with identical output (stdout `hello…`/`user: grayrest`/
+> `args: a,b`, stderr `(diagnostic on stderr)`, exit 0). basic-cli 0.21's
+> `Stdout`/`Stderr`/`Stdin`/`Tty` are **byte-identical to the cache** (`cmp`
+> in `verify.sh`) — zero edits, `import Host` intact — because B2 ships a
+> **pure-Roc `Host` module with bodies** reconstructing basic-cli's `Host`
+> surface over the WASI-shaped stream primitives (a second derived tier).
+> **R-B5 closed by construction:** args/env arrive as `count!`/`at!` primitives
+> and the derived `Env.args!`/`dict!` build the `List(Str)` in Roc — no host
+> `RocList<RocStr>` at all. `Env` is Str-based per P11 (its four `Path`-typed
+> fns move to B3). Compiler findings: `?` won't unify two open error rows
+> (use `??`); effectful helpers need `!`; `{} =>` is one unit arg.
+> `tests/golden/b2-cli/verify.sh` is the gate.
+
 ### B3 — `roc:filesystem` + `roc:path` + `roc:os-path` — the capability model
 
 - Primitive: `Descriptor` resource; `preopens.get-directories!`; `open-at!`
