@@ -1,5 +1,15 @@
 # Plan: `roc:sync-http` full streaming client (ureq)
 
+> **Status: COMPLETE** (HC0–HC5 all landed, full golden suite green). Two
+> plan-time forks were settled with the user during implementation — the
+> features knob rewrites the host crate's own `[features] default` (not a
+> driver→host edge), and the http examples run against an in-process testnet
+> (so they take a few streaming-adaptation lines, not a pure URL swap). Two
+> measured revisions are recorded in the design log: H9's body timeout is a
+> total budget (ureq 3.4 has no between-bytes timeout), and H13's additive
+> store is built via the `webpki-root-certs` crate. A `test_only` composer flag
+> was added so testnet-host links into apps but stays out of the baseline.
+
 Implements the [HTTP streaming design log](../notes/2026-09-04-http-streaming-design-log.md)
 (decisions H1–H16): replace the plaintext `std::net` stub with ureq, streaming
 the response body as a `roc:sync-io` `InputStream`, with TLS, redirects,
