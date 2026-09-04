@@ -1,0 +1,28 @@
+# HC0: the same world, but `marker` composed with its default features OFF.
+# `default_features = false` (with no `features`) is the "turn the authored
+# default off" spelling -> the generated Cargo.toml gets `default = []`, so the
+# `extra`-gated symbol is not compiled.
+
+[world]
+name = "hc0-features"
+driver = "drv"
+exports = ["Mark"]
+
+[interfaces.io]
+source = "roc:io/error@0.1.0"
+[interfaces.mark]
+source = "hc0:mark@0.1.0"
+
+[components.drv]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+
+[components.marker]
+kind = "host"
+lang = "rust"
+exports = ["mark"]
+default_features = false    # <-- the knob: compose `marker` with `extra` off
+
+[wiring]
+mark = "marker"

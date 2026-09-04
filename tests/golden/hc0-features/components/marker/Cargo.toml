@@ -1,0 +1,14 @@
+[package]
+name = "marker"
+version = "0.0.0"
+edition = "2021"
+publish = false
+[lib]
+crate-type = ["staticlib", "rlib"]
+[dependencies]
+hematite-abi = { path = "../../abi" }
+[features]
+default = ["extra"]
+# `extra` gates one extra `#[no_mangle]` symbol so the composed feature set is
+# visible in the archive (nm). The composer rewrites the `default` line above.
+extra = []

@@ -55,6 +55,17 @@ pub struct Component {
     #[serde(default)]
     #[allow(dead_code)]
     pub requires_uses: Vec<String>,
+    /// Per-component Cargo feature knob (HC0). `features` is the exact set of
+    /// the host crate's own Cargo features to make default-on in this
+    /// composition; the composer writes it as the crate's `[features] default`.
+    /// `default_features = false` is the "turn the authored default off"
+    /// spelling (with an empty `features`, `default = []`). Both omitted: the
+    /// component's authored `Cargo.toml` is left untouched. Host components
+    /// only; the general knob the `tls` feature rides (H12).
+    #[serde(default)]
+    pub features: Vec<String>,
+    #[serde(default)]
+    pub default_features: Option<bool>,
 }
 
 /// One interface's `interface.toml`: the Roc module it ships and the hosted

@@ -96,7 +96,64 @@ pub fn emit(
             }
         }
     }
+    // Per-component Cargo features (HC0/H12): a host component whose manifest
+    // sets `features`/`default_features` has its authored Cargo.toml re-emitted
+    // with the crate's `[features] default` rewritten to the composed set —
+    // everything else verbatim, so the crate's feature *definitions* and deps
+    // are untouched. Only the `default` line moves, so whole-workspace
+    // `cargo build` builds this member with exactly these features (no CLI
+    // flags, no cross-member unification). Components without the fields are
+    // left alone (zero churn). The driver's Cargo.toml is generated separately.
+    for (name, c) in &world.components {
+        if c.kind != "host" {
+            continue;
+        }
+        if c.features.is_empty() && c.default_features.is_none() {
+            continue;
+        }
+        let rel = format!("components/{name}/Cargo.toml");
+        let from = src.join(&rel);
+        let text = std::fs::read_to_string(&from)
+            .map_err(|e| format!("read {}: {e}", from.display()))?;
+        w(&rel, set_default_features(&text, &c.features))?;
+    }
     Ok(())
+}
+
+/// Rewrite a Cargo.toml's `[features] default = [...]` array to exactly
+/// `features`, preserving every other line (comments, feature definitions,
+/// dependencies). Inserts a `[features]` section or a `default` line if absent.
+/// Pure in `features`, so composing the same world is idempotent.
+fn set_default_features(cargo_toml: &str, features: &[String]) -> String {
+    let arr = features.iter().map(|f| format!("\"{f}\"")).collect::<Vec<_>>().join(", ");
+    let default_line = format!("default = [{arr}]");
+    let mut lines: Vec<String> = cargo_toml.lines().map(str::to_string).collect();
+    match lines.iter().position(|l| l.trim() == "[features]") {
+        Some(i) => {
+            let mut replaced = false;
+            let mut j = i + 1;
+            while j < lines.len() && !lines[j].trim_start().starts_with('[') {
+                if lines[j].split('=').next().map_or(false, |k| k.trim() == "default") {
+                    lines[j] = default_line.clone();
+                    replaced = true;
+                    break;
+                }
+                j += 1;
+            }
+            if !replaced {
+                lines.insert(i + 1, default_line);
+            }
+        }
+        None => {
+            lines.push("[features]".to_string());
+            lines.push(default_line);
+        }
+    }
+    let mut out = lines.join("\n");
+    if cargo_toml.ends_with('\n') {
+        out.push('\n');
+    }
+    out
 }
 
 /// Replace whole-identifier occurrences of `from` with `to`.

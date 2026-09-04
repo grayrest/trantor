@@ -1,0 +1,2 @@
+# io owns the shared IOErr nominal; no hosted symbols of its own.
+module = "IOErr"

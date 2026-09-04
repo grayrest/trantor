@@ -1,0 +1,4 @@
+module = "Mark"
+[[hosted]]
+leaf = "ping!"
+symbol_stem = "ping"
