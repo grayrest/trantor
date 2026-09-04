@@ -1,0 +1,7 @@
+module = "Cell"
+[[hosted]]
+leaf = "put!"
+symbol_stem = "put"
+[[hosted]]
+leaf = "get!"
+symbol_stem = "get"

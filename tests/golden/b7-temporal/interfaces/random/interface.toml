@@ -1,0 +1,7 @@
+module = "RandomHost"
+[[hosted]]
+leaf = "seed_u64!"
+symbol_stem = "seed_u64"
+[[hosted]]
+leaf = "seed_u32!"
+symbol_stem = "seed_u32"

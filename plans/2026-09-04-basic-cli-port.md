@@ -256,6 +256,22 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
   `ZonedDateTime` resources drop-balance; a world without `temporal` links no
   `temporal_rs` (`nm`).
 
+> **Outcome ✅ COMPLETE 2026-09-04** ([note](../notes/2026-09-04-b7-temporal.md)):
+> host compiled after one type fix — `2024-01-31 + 1 month = 2024-02-29`
+> (constrain), `until = 359 days`, ISO day-of-week, and
+> `2024-03-10T06:30Z` rendered as `01:30-05:00[America/New_York]` then
+> converted to `15:30+09:00[Asia/Tokyo]` with the epoch preserved; exit 0
+> (`live()==0`). `PlainDate`/`PlainTime`/`Duration` are plain records;
+> `ZonedDateTime`/`TimeZone`/`Calendar` are resources wrapping `temporal_rs`
+> values; calendar-aware ops take an explicit `Calendar`. `temporal_rs =0.2.6`
+> (default `sys-local`, bundled tzdb) is vendored by `temporal-host` only —
+> `verify.sh` `nm`s every archive and the temporal-less B4 binary (H0c ✅,
+> R-B2 resolved). **Findings:** glue emits tag names verbatim as Rust fields
+> (`Type` → `pub type:` won't parse; renamed `TypeErr`); glue dedups identical
+> result types (`zdt_with_time_zone!` returns `TemporalZdtFromEpochNsResult`);
+> `temporal_rs` keeps `ErrorKind` private (host classifies on Debug form);
+> the pinned compiler has `U8.to_str`/`I64.to_str`, not `Num.to_str`.
+
 ### B8 — `roc:basic-cli` world + the migration proof + the confinement swap
 
 - The all-in-one world: every package above + the `main!`-compat driver +
