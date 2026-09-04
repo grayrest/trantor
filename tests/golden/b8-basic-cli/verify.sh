@@ -70,6 +70,31 @@ has locale           "LANG=en_US.UTF-8 ../bin/ex-locale" "application: en-US"
 rm -rf demo-workspace out.txt greeting.txt; cd - >/dev/null
 echo "ok: 21 examples run with basic-cli's output (argv[0], stdin, env, files, dirs, subprocess, time, locale)"
 
+# ---- 2b. drop-balance gauge (env-gated alloc counter) ----
+# resource live() counts handles; it cannot see leaked RocStr/RocList DATA (the
+# B0 owned-arg leaks). HEMATITE_ALLOC_GAUGE makes the driver print allocs/
+# deallocs at exit; a heap-data leak shows live>0. gauge-app pushes a RUNTIME-
+# built (heap, not static-literal) string through an owned-RocStr host arg
+# (Env.set_cwd! -> Cell.put!); ex-file-read-write exercises fs/streams/
+# resources. Both must drop-balance to live=0. (The subprocess/http element
+# paths can't be gauged: the pinned compiler segfaults on a runtime Str into
+# Cmd.args, and small inline args don't heap-allocate -- see gauge-app.)
+cap "$ROC" build --output="$B/bin/ex-gauge" "$B/gauge-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build gauge-app"; exit 1; }
+balance() { # label ; env/args... (binary run from $B under the gauge)
+  local label="$1"; shift
+  local g; g=$( (cd "$B" && HEMATITE_ALLOC_GAUGE=1 "$@") 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
+  [[ -n "$g" ]] || { echo "FAIL: $label emitted no gauge line (driver not instrumented?)"; exit 1; }
+  local allocs live; allocs=$(sed -E 's/.*allocs=([0-9]+).*/\1/' <<<"$g"); live=$(sed -E 's/.*live=(-?[0-9]+).*/\1/' <<<"$g")
+  [[ "${allocs:-0}" -gt 0 ]] || { echo "FAIL: $label saw no allocations, gauge is vacuous: $g"; exit 1; }
+  [[ "$live" == "0" ]] || { echo "FAIL: $label leaked Roc heap allocations: $g"; exit 1; }
+  echo "ok: $label drop-balanced ($g)"
+}
+balance "owned RocStr host arg (set_cwd/cell)" env GAUGE_SEED="a-heap-seed-string-well-over-twenty-three-bytes-long-for-sure" ./bin/ex-gauge
+balance "fs read/write + streams + resources" ./bin/ex-file-read-write
+# gauge OFF prints nothing (env-gated):
+[[ -z "$( (cd "$B" && GAUGE_SEED=x-well-over-twenty-three-bytes-of-seed-value ./bin/ex-gauge >/dev/null) 2>&1 | grep '^\[alloc-gauge\]' || true)" ]] || { echo "FAIL: gauge printed while disabled"; exit 1; }
+echo "ok: gauge silent unless HEMATITE_ALLOC_GAUGE is set"
+
 # ---- 3. publish + tier ----
 ./target/release/hematite publish "$B" >/dev/null 2>&1
 [[ -f "$B/dist/baseline.lock" ]] && grep -q abi_fingerprint "$B/dist/baseline.lock" || { echo "FAIL: publish produced no baseline.lock"; exit 1; }

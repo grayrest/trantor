@@ -218,14 +218,14 @@ use hematite_abi as abi;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> *mut c_void {{
-    abi::DefaultAllocators::roc_alloc(ptr::null_mut(), length, alignment)
+    abi::gauge::roc_alloc(ptr::null_mut(), length, alignment)
 }}
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn roc_dealloc(ptr_: *mut c_void, alignment: usize) {{
     // P5/B0: a resource box's last Roc drop lands here with the allocation
     // base; run its destructor before freeing (the glue has no such hook).
     abi::resource::on_dealloc(ptr_);
-    abi::DefaultAllocators::roc_dealloc(ptr::null_mut(), ptr_, alignment)
+    abi::gauge::roc_dealloc(ptr::null_mut(), ptr_, alignment)
 }}
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn roc_realloc(ptr_: *mut c_void, new_length: usize, alignment: usize) -> *mut c_void {{
@@ -255,13 +255,15 @@ unsafe extern "C-unwind" {{
 #[unsafe(no_mangle)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {{
     let outcome = std::panic::catch_unwind(|| unsafe {{ roc_main() }});
-    match outcome {{
+    let code = match outcome {{
         Ok(code) => code,
         Err(_) => {{
             eprintln!("[hematite] a component panicked; driver caught it at the boundary");
             70
         }}
-    }}
+    }};
+    abi::gauge::report();
+    code
 }}
 "#
     )
@@ -293,7 +295,64 @@ static HOST: OnceLock<RocHost> = OnceLock::new();
 /// The process-wide RocHost (default allocators/handlers over the linker
 /// runtime symbols). Cached; used to build owned Roc values.
 pub fn host() -> &'static RocHost {{
-    HOST.get_or_init(|| make_roc_host(std::ptr::null_mut()))
+    HOST.get_or_init(|| {{
+        // Route the allocator hooks through the env-gated gauge so host-built
+        // Roc values (RocStr::from_str, allocate_box) are counted alongside
+        // Roc-initiated allocations (which enter via the driver's roc_alloc
+        // symbol). Inert unless HEMATITE_ALLOC_GAUGE is set.
+        let mut h = make_roc_host(std::ptr::null_mut());
+        h.roc_alloc = gauge::roc_alloc;
+        h.roc_dealloc = gauge::roc_dealloc;
+        h
+    }})
+}}
+
+/// Env-gated allocation gauge (test-only): counts Roc allocations vs frees so a
+/// verify script can assert drop-balance for refcounted DATA (RocStr/RocList) --
+/// the leaks the resource `live()` count cannot see. Every Roc allocation
+/// funnels through `DefaultAllocators::roc_alloc`, whether Roc-initiated (the
+/// driver's `roc_alloc` symbol) or host-initiated (the RocHost fn pointer), and
+/// both are wired here, so the balance is complete. Zero counting cost unless
+/// HEMATITE_ALLOC_GAUGE is set (the hooks still delegate, adding only a cached
+/// bool check and one relaxed atomic when enabled). `roc_realloc` is a resize,
+/// not a net alloc/free, so it is deliberately not counted.
+pub mod gauge {{
+    use super::*;
+    use core::ffi::c_void;
+    use core::sync::atomic::{{AtomicU64, Ordering}};
+    use std::sync::OnceLock;
+
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    static ALLOCS: AtomicU64 = AtomicU64::new(0);
+    static DEALLOCS: AtomicU64 = AtomicU64::new(0);
+
+    #[inline]
+    fn on() -> bool {{
+        *ENABLED.get_or_init(|| std::env::var_os("HEMATITE_ALLOC_GAUGE").is_some())
+    }}
+
+    #[inline]
+    pub extern "C" fn roc_alloc(host: *mut RocHost, length: usize, alignment: usize) -> *mut c_void {{
+        if on() {{ ALLOCS.fetch_add(1, Ordering::Relaxed); }}
+        DefaultAllocators::roc_alloc(host, length, alignment)
+    }}
+    #[inline]
+    pub extern "C" fn roc_dealloc(host: *mut RocHost, ptr: *mut c_void, alignment: usize) {{
+        if on() {{ DEALLOCS.fetch_add(1, Ordering::Relaxed); }}
+        DefaultAllocators::roc_dealloc(host, ptr, alignment)
+    }}
+
+    /// Roc allocations still live (allocs - deallocs); 0 at a clean exit.
+    pub fn live() -> i64 {{
+        ALLOCS.load(Ordering::Relaxed) as i64 - DEALLOCS.load(Ordering::Relaxed) as i64
+    }}
+    /// Print the balance to stderr when enabled; a no-op otherwise. Called from
+    /// the driver's main() after roc_main returns.
+    pub fn report() {{
+        if on() {{
+            eprintln!("[alloc-gauge] allocs={{}} deallocs={{}} live={{}}", ALLOCS.load(Ordering::Relaxed), DEALLOCS.load(Ordering::Relaxed), live());
+        }}
+    }}
 }}
 
 /// Resources (P5): a refcounted opaque host handle. Roc holds a `Box(U64)`

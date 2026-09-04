@@ -6,14 +6,14 @@ use hematite_abi as abi;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> *mut c_void {
-    abi::DefaultAllocators::roc_alloc(ptr::null_mut(), length, alignment)
+    abi::gauge::roc_alloc(ptr::null_mut(), length, alignment)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn roc_dealloc(ptr_: *mut c_void, alignment: usize) {
     // P5/B0: a resource box's last Roc drop lands here with the allocation
     // base; run its destructor before freeing (the glue has no such hook).
     abi::resource::on_dealloc(ptr_);
-    abi::DefaultAllocators::roc_dealloc(ptr::null_mut(), ptr_, alignment)
+    abi::gauge::roc_dealloc(ptr::null_mut(), ptr_, alignment)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn roc_realloc(ptr_: *mut c_void, new_length: usize, alignment: usize) -> *mut c_void {
@@ -43,11 +43,13 @@ unsafe extern "C-unwind" {
 #[unsafe(no_mangle)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
     let outcome = std::panic::catch_unwind(|| unsafe { roc_main() });
-    match outcome {
+    let code = match outcome {
         Ok(code) => code,
         Err(_) => {
             eprintln!("[hematite] a component panicked; driver caught it at the boundary");
             70
         }
-    }
+    };
+    abi::gauge::report();
+    code
 }
