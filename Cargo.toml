@@ -1,0 +1,17 @@
+[package]
+name = "hematite"
+version = "0.1.0"
+edition = "2021"
+description = "A build-time component composition system for Roc platforms."
+
+[[bin]]
+name = "hematite"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# This tool is its own workspace; the fixtures under tests/ have their own.
+[workspace]
+exclude = ["tests", "spikes"]

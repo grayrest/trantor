@@ -49,5 +49,5 @@ requires_uses = ["Path", "Stdio", "Env"]
 # Wiring: the DAG. fs is an interposer chain; the app sees one fs (D6).
 [wiring]
 stdio = "stdio"
-fs = "audit(capstdfs)"
+filesystem = "audit(capstdfs)"
 env = "env"

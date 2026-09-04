@@ -15,3 +15,4 @@ spikes/*/glue-out/
 spikes/*/comp-*/src/abi.rs
 spikes/*/target/
 spikes/*/bin/
+/target/
