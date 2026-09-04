@@ -1,0 +1,12 @@
+# roc:cli/stdin: the raw stream, plus a host-buffered line read (WASI leaves
+# line-splitting to libraries; a BufReader in the host is the honest sync form).
+module = "CliIn"
+[[hosted]]
+leaf = "get_stdin!"
+symbol_stem = "get_stdin"
+[[hosted]]
+leaf = "read_line!"
+symbol_stem = "read_line"
+[[hosted]]
+leaf = "read_to_end!"
+symbol_stem = "read_to_end"

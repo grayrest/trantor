@@ -186,6 +186,17 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
   package.
 - **Exit:** basic-cli `Utc`/`Sleep`/`Random`/`Locale`/`Url` app code unchanged.
 
+> **Outcome ✅ COMPLETE 2026-09-04** ([note](../notes/2026-09-04-b4-small-packages.md)):
+> seven checks correct, exit 0. **Six basic-cli modules ship byte-identical**
+> (`Utc`, `Sleep`, `Random`, `Locale` 324 lines, `Url` 1,391 lines pure,
+> `InternalDateTime`) — the `Host` shim grew six leaves, zero edits; verbatim
+> count now 10. `U128` crosses as `u128`. `locale_all!`'s `List(Str)` via
+> `count!`/`at!` (R-B5). Three per-package host crates. Findings: binding
+> modules take a `*Host` suffix where basic-cli owns the plain name (`Random`);
+> `() =>` is zero-arg (`Utc.now!()`); and **`roc check` fails on a warning** —
+> a constant-folded `match` is "unconditional" and silently stops `build.sh`
+> before `roc build` — fixed in the app (runtime input), discipline kept.
+
 ### B5 — `roc:subprocess` (seahaven's design)
 
 - seahaven's `Cmd.roc` (13 fns: exec/output/status/inherit-stdin + PATH
