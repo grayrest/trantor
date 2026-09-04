@@ -1,0 +1,13 @@
+# Rust
+target/
+# Roc build outputs
+*.o
+bin/
+# Generated composition artifacts (D23: never committed)
+target/hematite/
+# Generated glue
+**/targets/*/libhost.a
+**/targets/*/lib*.a
+**/targets/macos-sysroot/
+# OS
+.DS_Store
