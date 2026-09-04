@@ -1,9 +1,8 @@
 app [main!] { pf: platform "../platform/main.roc" }
 import pf.Stdout
-import pf.HttpHost
 import pf.Streams
 import pf.Sockets
-import pf.TestNet
+import pf.TempTest
 
 ## HC2: drive the streaming HTTP primitive directly — send!, then read the body
 ## InputStream in chunks. Exercises a large body (arrives whole), a redirect
@@ -12,7 +11,7 @@ import pf.TestNet
 ## cutoff (StreamErr on read, H15). Exit code == live resources (0 = balanced).
 main! : List(Str) => Try({}, [Exit(I32), ..])
 main! = |_args| {
-	port = TestNet.start_httpd!({})
+	port = TempTest.start_httpd!({})
 	base = Str.concat("http://127.0.0.1:", u16_str(port))
 
 	# Large body streamed in chunks; assert the whole thing arrives.
@@ -20,7 +19,7 @@ main! = |_args| {
 	Stdout.line!(Str.concat("large: ", u64_str(large.n))) ?? {}
 
 	# Redirect chain: followed to /final by default.
-	match HttpHost.send!(get_req(Str.concat(base, "/redirect"), 5000)) {
+	match TempTest.send!(get_req(Str.concat(base, "/redirect"), 5000)) {
 		Ok(resp) => {
 			d = drain!(resp.body_stream, 0, False)
 			Stdout.line!(Str.concat("redirect: ", Str.concat(u16_str(resp.status), Str.concat(" ", u64_str(d.n))))) ?? {}
@@ -29,7 +28,7 @@ main! = |_args| {
 	}
 
 	# Multi-value header: both X-Multi occurrences survive (NUL-joined -> '|').
-	match HttpHost.send!(get_req(Str.concat(base, "/multi"), 5000)) {
+	match TempTest.send!(get_req(Str.concat(base, "/multi"), 5000)) {
 		Ok(resp) => {
 			flat = flat_str(resp.headers_flat)
 			_ = drain!(resp.body_stream, 0, False)
@@ -45,7 +44,7 @@ main! = |_args| {
 	Stdout.line!(Str.concat("brotli: ", get_text!(Str.concat(base, "/brotli")))) ?? {}
 
 	# Mid-body cutoff: send! succeeds, a read partway through fails (StreamErr).
-	match HttpHost.send!(get_req(Str.concat(base, "/truncate"), 5000)) {
+	match TempTest.send!(get_req(Str.concat(base, "/truncate"), 5000)) {
 		Ok(resp) => {
 			d = drain!(resp.body_stream, 0, False)
 			Stdout.line!(Str.concat("truncate: ", Str.concat(u64_str(d.n), if d.errored { " errored" } else { " clean" }))) ?? {}
@@ -54,7 +53,7 @@ main! = |_args| {
 	}
 
 	# Stall: no response within the timeout -> send! reports Timeout.
-	stall = match HttpHost.send!(get_req(Str.concat(base, "/stall"), 300)) {
+	stall = match TempTest.send!(get_req(Str.concat(base, "/stall"), 300)) {
 		Ok(_) => "unexpected-ok"
 		Err(Timeout) => "timeout"
 		Err(NetworkError) => "network"
@@ -83,7 +82,7 @@ drain! = |stream, acc, _err| {
 
 send_and_drain! : Str, U64 => { n : U64, errored : Bool }
 send_and_drain! = |uri, timeout_ms| {
-	match HttpHost.send!(get_req(uri, timeout_ms)) {
+	match TempTest.send!(get_req(uri, timeout_ms)) {
 		Ok(resp) => drain!(resp.body_stream, 0, False)
 		Err(_) => { n: 0, errored: True }
 	}
@@ -92,7 +91,7 @@ send_and_drain! = |uri, timeout_ms| {
 ## GET a URL and return its (decoded) body as text.
 get_text! : Str => Str
 get_text! = |uri| {
-	match HttpHost.send!(get_req(uri, 5000)) {
+	match TempTest.send!(get_req(uri, 5000)) {
 		Ok(resp) => Str.from_utf8_lossy(collect_bytes!(resp.body_stream, []))
 		Err(_) => "err"
 	}

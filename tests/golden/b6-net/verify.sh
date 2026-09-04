@@ -28,7 +28,7 @@ echo "ok: tcp connect+echo, http GET (verb-checked), udp bind/send/recv, tcp lis
 echo "B6 PASS"
 
 # ---- HC2: the streaming HTTP primitive over ureq ----
-# http-stream-app drives HttpHost.send! + Streams.read! directly against the
+# http-stream-app drives TempTest.send! (the raw primitive, namespaced as test-
 # testnet: a large body arrives whole (streamed in chunks), a redirect chain is
 # followed, both occurrences of a repeated header survive, a mid-body cutoff
 # surfaces as StreamErr on read (H15), and a stall trips Timeout (H9). Exit code

@@ -2,7 +2,7 @@ platform ""
 	requires {
 		main! : List([Utf8(Str), UnixBytes(List(U8)), WindowsU16s(List(U16))]) => Try({}, [Exit(I32), ..])
 	}
-	exposes [Cmd, Env, File, Http, IOErr, Locale, OsStr, Path, Random, Sleep, Stdin, Stdout, Stderr, Tcp, Tty, Url, Utc, Udp, Sockets, Streams, Temporal, StrPath, OsPath, TestNet]
+	exposes [Cmd, Env, File, Http, IOErr, Locale, OsStr, Path, Random, Sleep, Stdin, Stdout, Stderr, Tcp, Tty, Url, Utc, Udp, Sockets, Streams, Temporal, StrPath, OsPath, TempTest]
 	packages {
 		http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	}
@@ -129,6 +129,7 @@ import Utc
 import Udp
 import StrPath
 import OsPath
+import TempTest
 
 main_for_host! : () => I32
 main_for_host! = || {

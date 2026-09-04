@@ -7,7 +7,7 @@ app [main!] {
 import pf.OsStr
 import pf.Http
 import pf.Stdout
-import pf.TestNet
+import pf.TempTest
 import http.Request
 import http.Response
 
@@ -24,7 +24,7 @@ main! = |_args| run_demo!()
 
 run_demo! : () => Try({}, _)
 run_demo! = || {
-	TestNet.start_test_server!({})
+	TempTest.start_test_server!({})
 
 	utf8 = Http.get_utf8!("http://127.0.0.1:9000/utf8test") ? |err| GetUtf8Failed(err)
 	write_line!("I received '${utf8}' from the server.")?

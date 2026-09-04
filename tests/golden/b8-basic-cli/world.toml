@@ -4,7 +4,7 @@
 [world]
 name = "basic-cli"
 driver = "main-driver"
-exports = ["Cmd", "Env", "File", "Http", "IOErr", "Locale", "OsStr", "Path", "Random", "Sleep", "Stdin", "Stdout", "Stderr", "Tcp", "Tty", "Url", "Utc", "Udp", "Sockets", "Streams", "Temporal", "StrPath", "OsPath", "TestNet"]
+exports = ["Cmd", "Env", "File", "Http", "IOErr", "Locale", "OsStr", "Path", "Random", "Sleep", "Stdin", "Stdout", "Stderr", "Tcp", "Tty", "Url", "Utc", "Udp", "Sockets", "Streams", "Temporal", "StrPath", "OsPath", "TempTest"]
 [components.main-driver]
 kind = "driver"
 lang = "rust"
@@ -98,6 +98,9 @@ test_only = true          # linked into apps, but excluded from the published ba
 [components.host-shim]
 kind = "roc"
 exports = ["Host"]
+[components.temptest]
+kind = "roc"
+exports = ["TempTest"]
 [components.basic-cli-lib]
 kind = "roc"
 exports = ["Path", "File", "Env"]

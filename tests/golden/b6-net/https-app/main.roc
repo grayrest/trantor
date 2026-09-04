@@ -1,8 +1,7 @@
 app [main!] { pf: platform "../platform/main.roc" }
 import pf.Stdout
-import pf.HttpHost
 import pf.Streams
-import pf.TestNet
+import pf.TempTest
 
 ## HC4: an https:// GET against the local rustls testnet, trusting its cert via
 ## HEMATITE_HTTP_EXTRA_CA. With the tls feature ON the handshake succeeds and the
@@ -10,13 +9,13 @@ import pf.TestNet
 ## rejects https:// up front ("https: other").
 main! : List(Str) => Try({}, [Exit(I32), ..])
 main! = |_args| {
-	port = TestNet.start_https_server!({})
+	port = TempTest.start_https_server!({})
 	if port == 0 {
 		Stdout.line!("https: no-cert") ?? {}
 		Err(Exit(1))
 	} else {
 		uri = Str.concat("https://localhost:", Str.concat(u16_str(port), "/"))
-		result = match HttpHost.send!({ method: 3, method_ext: "", headers: [], uri, body: [], timeout_ms: 5000 }) {
+		result = match TempTest.send!({ method: 3, method_ext: "", headers: [], uri, body: [], timeout_ms: 5000 }) {
 			Ok(resp) => {
 				body = collect!(resp.body_stream, [])
 				Str.concat(u16_str(resp.status), Str.concat(" ", Str.from_utf8_lossy(body)))

@@ -5,7 +5,7 @@ import pf.Http
 import pf.Udp
 import pf.Sockets
 import pf.Streams
-import pf.TestNet
+import pf.TempTest
 import pf.Url
 
 ## basic-cli-shaped networking: Tcp (verbatim), Http (verbatim), plus Udp and a
@@ -13,7 +13,7 @@ import pf.Url
 ## Exit code == live socket/stream resources at the end (0 = drop-balanced).
 main! : List(Str) => Try({}, [Exit(I32), ..])
 main! = |_args| {
-	echo_port = TestNet.start_tcp_echo!({})
+	echo_port = TempTest.start_tcp_echo!({})
 	tcp_line = match Tcp.connect!("127.0.0.1", echo_port, 2000) {
 		Ok(s) => {
 			Tcp.Stream.write_utf8!(s, "hi", 2000) ?? {}
@@ -26,7 +26,7 @@ main! = |_args| {
 	}
 	Stdout.line!(Str.concat("tcp-echo: ", tcp_line)) ?? {}
 
-	http_port = TestNet.start_httpd!({})
+	http_port = TempTest.start_httpd!({})
 	body = match Url.parse(Str.concat("http://127.0.0.1:", Str.concat(u16_str(http_port), "/"))) {
 		Ok(url) => {
 			match Http.get_utf8!(url) {
@@ -38,7 +38,7 @@ main! = |_args| {
 	}
 	Stdout.line!(Str.concat("http-get: ", body)) ?? {}
 
-	udp_port = TestNet.start_udp_echo!({})
+	udp_port = TempTest.start_udp_echo!({})
 	udp_line = match Udp.bind!("127.0.0.1", 0) {
 		Ok(u) => {
 			_ = Udp.send_to!(u, "127.0.0.1", udp_port, Str.to_utf8("dgram")) ?? 0
@@ -53,7 +53,7 @@ main! = |_args| {
 
 	accepted = match Sockets.tcp_listen!("127.0.0.1", 0) {
 		Ok(listener) => {
-			TestNet.connect_and_send_later!(Sockets.tcp_local_port!(listener), 50)
+			TempTest.connect_and_send_later!(Sockets.tcp_local_port!(listener), 50)
 			match Sockets.tcp_accept!(listener) {
 				Ok(conn) => Str.from_utf8_lossy(Streams.read!(Sockets.tcp_input!(conn), 64) ?? [])
 				Err(_) => "accept-failed"
