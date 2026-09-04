@@ -78,6 +78,18 @@ pub fn publish(dir: &Path) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
         }
     }
+    // Archives of test-only components (e.g. a testnet server) are linked into
+    // the app but MUST NOT ship in the baseline: collect their file names to skip.
+    let test_archives: std::collections::BTreeSet<String> =
+        match crate::manifest::load_world(dir, "world.toml") {
+            Ok(world) => world
+                .components
+                .iter()
+                .filter(|(_, c)| c.test_only)
+                .map(|(n, _)| format!("lib{}.a", crate::resolve::sanitize(n)))
+                .collect(),
+            Err(_) => std::collections::BTreeSet::new(),
+        };
     // copy prebuilt archives per target
     let tdir = pdir.join("targets");
     if let Ok(targets) = std::fs::read_dir(&tdir) {
@@ -88,7 +100,8 @@ pub fn publish(dir: &Path) -> Result<(), String> {
                 std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
                 for a in std::fs::read_dir(t.path()).map_err(|e| e.to_string())?.flatten() {
                     let ap = a.path();
-                    if ap.extension().map_or(false, |x| x == "a") {
+                    let is_test = ap.file_name().and_then(|f| f.to_str()).map_or(false, |f| test_archives.contains(f));
+                    if ap.extension().map_or(false, |x| x == "a") && !is_test {
                         std::fs::copy(&ap, dest.join(ap.file_name().unwrap()))
                             .map_err(|e| e.to_string())?;
                     }

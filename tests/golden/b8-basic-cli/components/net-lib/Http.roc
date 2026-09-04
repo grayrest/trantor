@@ -2,22 +2,26 @@ import Host
 import InternalHttp
 import Url
 import http.Request
-import http.Response
+import http.Header
+import Streams
 
 ## Send requests using the shared
-## [`roc-lang/http`](https://github.com/roc-lang/http) `Request` and `Response`
-## types. This module supplies effects and small JSON/UTF-8 conveniences while
-## leaving pure request and response construction to that package.
-##
-## See the [host runtime behavior](https://github.com/roc-lang/basic-cli#host-runtime-behavior)
-## for HTTP protocol, TLS trust-store, and timeout details.
+## [`roc-lang/http`](https://github.com/roc-lang/http) `Request` type. The
+## response is streaming (H5): `send!` returns as soon as the headers arrive and
+## the body is a `Streams.InputStream`. `read_body_to_end!` collects it;
+## `to_http_response!` bridges to the eager roc-lang/http `Response` for interop.
 Http :: [].{
 
 	## Errors raised by the host while sending a request, before a real HTTP
 	## response is available.
 	TransportErr : InternalHttp.TransportErr
 
-	## Validate and send an HTTP request.
+	## A streaming HTTP response: status + headers are available immediately, the
+	## body is read from `body` on demand (files/sockets/stdin share this
+	## InputStream substrate).
+	Response : { status : U16, headers : List(Header.Header), body : Streams.InputStream }
+
+	## Validate and send an HTTP request; the response body streams.
 	##
 	## The request URI must be an absolute HTTP or HTTPS URL accepted by Url.
 	## Invalid URLs return InvalidUrl before any host effect occurs. Fragments
@@ -26,6 +30,7 @@ Http :: [].{
 	## ```roc
 	## request = Request.from_method(GET).with_uri("https://www.roc-lang.org")
 	## response = Http.send!(request)?
+	## body = Http.read_body_to_end!(response)
 	## ```
 	send! : Request => Try(Response, [InvalidUrl(Url.ParseErr), HttpErr(TransportErr), ..])
 	send! = |request| {
@@ -34,7 +39,27 @@ Http :: [].{
 		canonical_request = request.with_uri(Url.to_str(canonical_url))
 		host_response = Host.http_send_request!(InternalHttp.to_host_request(canonical_request)) ? HttpErr
 
-		Ok(InternalHttp.from_host_response(host_response))
+		Ok(
+			{
+				status: host_response.status,
+				headers: InternalHttp.from_host_headers(host_response.headers),
+				body: host_response.body_stream,
+			},
+		)
+	}
+
+	## Collect a streaming response body to end (the "I want the whole thing"
+	## helper). A mid-stream failure (truncation/reset) ends the read with what
+	## arrived (H15).
+	read_body_to_end! : Response => List(U8)
+	read_body_to_end! = |response| collect_stream!(response.body, [])
+
+	## Bridge a streaming response into the eager roc-lang/http `Response` for
+	## interop with code that expects that shared type (reads the whole body).
+	to_http_response! : Response => InternalHttp.HttpResponse
+	to_http_response! = |response| {
+		body = read_body_to_end!(response)
+		InternalHttp.to_http_response(response.status, response.headers, body)
 	}
 
 	## Encode a value as JSON and set it as the request body.
@@ -71,7 +96,7 @@ Http :: [].{
 	get_utf8! : Url.Url => Try(Str, [BadBody(Str), InvalidUrl(Url.ParseErr), HttpErr(TransportErr), ..])
 	get_utf8! = |url| {
 		response = send!(Request.from_method(GET).with_uri(Url.to_str(url)))?
-		body = Str.from_utf8(Response.body(response)) ? |_| BadBody("get_utf8!: response body was not valid UTF-8")
+		body = Str.from_utf8(read_body_to_end!(response)) ? |_| BadBody("get_utf8!: response body was not valid UTF-8")
 
 		Ok(body)
 	}
@@ -80,9 +105,9 @@ Http :: [].{
 	##
 	## This uses Roc's builtin JSON parser, so the expected result type
 	## determines the parser through static dispatch.
-	decode_json_response : Response => Try(_, [BadBody(Str), JsonErr(_), ..])
-	decode_json_response = |response| {
-		body = Str.from_utf8(Response.body(response)) ? |_| BadBody("decode_json_response: response body was not valid UTF-8")
+	decode_json_response! : Response => Try(_, [BadBody(Str), JsonErr(_), ..])
+	decode_json_response! = |response| {
+		body = Str.from_utf8(read_body_to_end!(response)) ? |_| BadBody("decode_json_response: response body was not valid UTF-8")
 		decoded = Json.parse(body) ? JsonErr
 
 		Ok(decoded)
@@ -101,6 +126,17 @@ Http :: [].{
 	get! = |url| {
 		response = send!(Request.from_method(GET).with_uri(Url.to_str(url)))?
 
-		decode_json_response(response)
+		decode_json_response!(response)
+	}
+}
+
+## Drain a streaming InputStream to end. Threads the stream so Roc re-incs it
+## before each `read!` (owned per call), dropping it at a base case —
+## drop-balanced. A StreamErr ends the collect with what was read (H15).
+collect_stream! : Streams.InputStream, List(U8) => List(U8)
+collect_stream! = |stream, acc| {
+	match Streams.read!(stream, 65536) {
+		Ok(chunk) => if List.is_empty(chunk) { acc } else { collect_stream!(stream, List.concat(acc, chunk)) }
+		Err(_) => acc
 	}
 }

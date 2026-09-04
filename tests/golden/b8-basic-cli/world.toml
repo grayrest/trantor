@@ -4,7 +4,7 @@
 [world]
 name = "basic-cli"
 driver = "main-driver"
-exports = ["Cmd", "Env", "File", "Http", "IOErr", "Locale", "OsStr", "Path", "Random", "Sleep", "Stdin", "Stdout", "Stderr", "Tcp", "Tty", "Url", "Utc", "Udp", "Sockets", "Streams", "Temporal", "StrPath", "OsPath"]
+exports = ["Cmd", "Env", "File", "Http", "IOErr", "Locale", "OsStr", "Path", "Random", "Sleep", "Stdin", "Stdout", "Stderr", "Tcp", "Tty", "Url", "Utc", "Udp", "Sockets", "Streams", "Temporal", "StrPath", "OsPath", "TestNet"]
 [components.main-driver]
 kind = "driver"
 lang = "rust"
@@ -40,6 +40,8 @@ source = "roc:sync-sockets@0.1.0"
 source = "roc:sync-http@0.1.0"
 [interfaces.temporal]
 source = "roc:temporal@0.1.0"
+[interfaces.testnet]
+source = "roc:testnet@0.1.0"
 [components.sync-io]
 kind = "host"
 lang = "rust"
@@ -87,6 +89,11 @@ exports = ["sync-http"]
 kind = "host"
 lang = "rust"
 exports = ["temporal"]
+[components.testnet-host]
+kind = "host"
+lang = "rust"
+exports = ["testnet"]
+test_only = true          # linked into apps, but excluded from the published baseline
 [components.host-shim]
 kind = "roc"
 exports = ["Host"]
@@ -130,6 +137,7 @@ subprocess = "subprocess-host"
 sync-sockets = "sockets-host"
 sync-http = "http-host"
 temporal = "temporal-host"
+testnet = "testnet-host"
 
 [packages]
 http = "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst"

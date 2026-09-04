@@ -2,7 +2,7 @@ platform ""
 	requires {
 		main! : List([Utf8(Str), UnixBytes(List(U8)), WindowsU16s(List(U16))]) => Try({}, [Exit(I32), ..])
 	}
-	exposes [Cmd, Env, File, Http, IOErr, Locale, OsStr, Path, Random, Sleep, Stdin, Stdout, Stderr, Tcp, Tty, Url, Utc, Udp, Sockets, Streams, Temporal, StrPath, OsPath]
+	exposes [Cmd, Env, File, Http, IOErr, Locale, OsStr, Path, Random, Sleep, Stdin, Stdout, Stderr, Tcp, Tty, Url, Utc, Udp, Sockets, Streams, Temporal, StrPath, OsPath, TestNet]
 	packages {
 		http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	}
@@ -86,11 +86,12 @@ platform ""
 		"hematite__temporal_host__zdt_offset_seconds": Temporal.zdt_offset_seconds!,
 		"hematite__temporal_host__zdt_to_str": Temporal.zdt_to_str!,
 		"hematite__temporal_host__live": Temporal.live!,
+		"hematite__testnet_host__start_test_server": TestNet.start_test_server!,
 	}
 	targets: {
 		inputs_dir: "targets/",
-		arm64mac: { inputs: ["libcell.a", "libclocks_host.a", "libhttp_host.a", "liblocale_host.a", "librandom_host.a", "libsubprocess_host.a", "libsync_io.a", "libtemporal_host.a", "libcli_host.a", "libfs_unconfined.a", "libsockets_host.a", "libmain_driver.a", app] },
-		x64mac: { inputs: ["libcell.a", "libclocks_host.a", "libhttp_host.a", "liblocale_host.a", "librandom_host.a", "libsubprocess_host.a", "libsync_io.a", "libtemporal_host.a", "libcli_host.a", "libfs_unconfined.a", "libsockets_host.a", "libmain_driver.a", app] },
+		arm64mac: { inputs: ["libcell.a", "libclocks_host.a", "libhttp_host.a", "liblocale_host.a", "librandom_host.a", "libsubprocess_host.a", "libsync_io.a", "libtemporal_host.a", "libtestnet_host.a", "libcli_host.a", "libfs_unconfined.a", "libsockets_host.a", "libmain_driver.a", app] },
+		x64mac: { inputs: ["libcell.a", "libclocks_host.a", "libhttp_host.a", "liblocale_host.a", "librandom_host.a", "libsubprocess_host.a", "libsync_io.a", "libtemporal_host.a", "libtestnet_host.a", "libcli_host.a", "libfs_unconfined.a", "libsockets_host.a", "libmain_driver.a", app] },
 	}
 
 import Cell
@@ -107,6 +108,7 @@ import HttpHost
 import Streams
 import Sockets
 import Temporal
+import TestNet
 import Cmd
 import Env
 import File

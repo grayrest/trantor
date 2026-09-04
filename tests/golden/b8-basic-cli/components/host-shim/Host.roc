@@ -114,8 +114,10 @@ Host :: [].{
 
 	http_send_request! : InternalHttp.RequestToAndFromHost => Try(InternalHttp.ResponseToAndFromHost, InternalHttp.TransportErr)
 	http_send_request! = |req| {
+		# Pass the body stream through unchanged (H5); Http collects on demand
+		# via read_body_to_end!, so the shim no longer eagerly reads the body.
 		match HttpHost.send!(req) {
-			Ok(resp) => Ok({ status: resp.status, headers: split_headers(resp.headers_flat), body: resp.body })
+			Ok(resp) => Ok({ status: resp.status, headers: split_headers(resp.headers_flat), body_stream: resp.body_stream })
 			Err(e) => Err(e)
 		}
 	}

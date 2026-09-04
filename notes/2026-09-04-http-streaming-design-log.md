@@ -183,6 +183,32 @@ Trailers (H11), request-body streaming (H7), per-request redirect/TLS policy
 fields, HTTP/2, cookies, a replace-the-store TLS mode, proxies. All are clean
 future additions behind the shapes chosen here.
 
+## HC3 implementation notes (app-facing streaming Http in b8)
+
+- **`Response` name clash.** Http's local streaming `Response` type shadows the
+  `http.Response` module, so `Response.from_status` can't be called from Http.
+  The bridge builder (`to_http_response`) therefore lives in `InternalHttp`
+  (which has no local `Response`), and `Http.to_http_response!` forwards to it;
+  its return type is `InternalHttp.HttpResponse` (an alias for the http package's
+  `Response`). This Roc has no `import ... as` aliasing to resolve it otherwise.
+- **`decode_json_response!` gained a `!`.** It now reads the body stream, so it
+  is effectful; the http-client example's call gains the `!` — one of the
+  streaming adaptation lines.
+- **In-process testnet (user's choice at HC3).** The examples are standalone
+  binaries with hardcoded `:9000` URLs and start no server, so each adapts with
+  a `TestNet.start_test_server!({})` line (+ its import) plus the streaming
+  accessor edit — a handful of lines, not a pure URL swap. `testnet-host` serves
+  basic-cli's ci endpoints on :9000.
+- **`test_only` composer flag.** `testnet-host` is linked into apps but must not
+  ship in the baseline; a new `[components.X] test_only = true` manifest flag
+  makes `publish` omit that archive from `dist/` (b8's long-standing "no test
+  scaffolding in the baseline" guard now bites for real).
+- **Migration cost, measured.** Streaming drops Http + InternalHttp from the
+  byte-verbatim set and moves the 2 http examples from pure-URL-swap to
+  URL-swap + a few streaming lines; the other 26 non-sqlite examples still
+  migrate by URL alone, and the 2 http examples now RUN (they only checked
+  before).
+
 ## Open items
 
 1. **`get_utf8!` / http examples adaptation** — the exact minimal edit

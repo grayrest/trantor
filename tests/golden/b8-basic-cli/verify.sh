@@ -23,19 +23,24 @@ cargo build --release -q
 ( cd "$B" && rm -rf platform/targets && ./build.sh app b8 >/dev/null 2>&1 )
 
 # ---- 1. migration proof (URL swap only) ----
+# The two http examples (http-client, http-simple) are EXCLUDED here: choosing a
+# streaming Http.Response (H6) means they no longer pure-URL-swap — they take a
+# small, enumerated streaming adaptation and are built + RUN in the HC3 section
+# below. Every other non-sqlite example still migrates by URL alone.
 X="$B/examples-run"; rm -rf "$X"; mkdir -p "$X"
 pass=0; total=0; failed=""
 for f in $(git -C "$REPO" ls-tree --name-only "$TAG" examples/ | grep '\.roc$'); do
   n=$(basename "$f" .roc); [[ $n == sqlite-* ]] && continue
+  [[ $n == http-client || $n == http-simple ]] && continue   # adapted + run in HC3
   total=$((total+1)); mkdir -p "$X/$n"
   git -C "$REPO" show "${TAG}:${f}" | perl -pe 's|platform "[^"]+"|platform "../../platform/main.roc"|' > "$X/$n/main.roc"
   if cap "$ROC" check "$X/$n/main.roc" >/dev/null 2>&1; then pass=$((pass+1)); else failed="$failed $n"; fi
 done
 # Guard against a vacuous 0/0 pass (wrong tag, moved examples/, detached repo):
-# basic-cli 0.21.0 ships ~28 non-sqlite examples.
+# basic-cli 0.21.0 ships ~26 non-sqlite, non-http examples.
 [[ $total -ge 20 ]] || { echo "FAIL: only $total example(s) found at $TAG (expected >=20); migration proof would be vacuous"; exit 1; }
 [[ $pass -eq $total ]] || { echo "FAIL: $pass/$total examples check; failing:$failed"; exit 1; }
-echo "ok: $pass/$total basic-cli $TAG examples roc-check with only the platform URL changed"
+echo "ok: $pass/$total basic-cli $TAG non-http examples roc-check with only the platform URL changed"
 
 # ---- 2. runs ----
 build() { cap "$ROC" build --output="$B/bin/ex-$1" "$X/$1/main.roc" >/dev/null 2>&1 || { echo "FAIL: build $1"; exit 1; }; }
@@ -72,6 +77,44 @@ has time             "../bin/ex-time"                   "Completed in "
 has locale           "LANG=en_US.UTF-8 ../bin/ex-locale" "application: en-US"
 rm -rf demo-workspace out.txt greeting.txt; cd - >/dev/null
 echo "ok: 21 examples run with basic-cli's output (argv[0], stdin, env, files, dirs, subprocess, time, locale)"
+
+# ---- HC3: streaming Http; the http examples RUN against the in-process testnet ----
+# Http.Response is streaming now (H6): send! returns a body InputStream,
+# read_body_to_end! collects it, to_http_response! bridges to roc-lang/http's
+# eager Response. The two http examples adapt with a handful of streaming lines
+# (server start + streaming accessors) and run against the testnet HTTP server
+# (basic-cli's ci endpoints, in-process on :9000).
+grep -q 'ureq' "$B/components/http-host/Cargo.toml" || { echo "FAIL: b8 http-host is not over ureq"; exit 1; }
+grep -q 'body_stream' "$B/interfaces/sync-http/HttpHost.roc" || { echo "FAIL: HttpHost.Response is not streaming"; exit 1; }
+grep -q 'read_body_to_end!' "$B/components/net-lib/Http.roc" || { echo "FAIL: Http lacks read_body_to_end!"; exit 1; }
+grep -q 'to_http_response' "$B/components/net-lib/Http.roc" || { echo "FAIL: Http lacks the to_http_response! bridge"; exit 1; }
+# The adaptation vs the upstream example is a handful of streaming lines only.
+swap() { git -C "$REPO" show "${TAG}:examples/$1.roc" | perl -pe 's|platform "[^"]+"|platform "../platform/main.roc"|'; }
+for pair in "http-simple 6" "http-client 9"; do
+  set -- $pair; n=$1; bound=$2
+  d=$(diff <(swap "$n") "$B/http-examples/$n.roc" | grep -c '^[<>]' || true)
+  [[ "$d" -le "$bound" ]] || { echo "FAIL: $n adaptation is $d changed lines (> $bound); should be a small streaming edit"; diff <(swap "$n") "$B/http-examples/$n.roc" || true; exit 1; }
+done
+echo "ok: http examples adapt to streaming in a handful of lines (server start + streaming accessors)"
+
+for n in http-client http-simple http-bridge; do
+  cap "$ROC" build --output="$B/bin/$n" "$B/http-examples/$n.roc" >/dev/null 2>&1 || { echo "FAIL: build $n"; exit 1; }
+done
+hc=$(cd "$B" && ./bin/http-client 2>/dev/null || true)
+want_hc=$'I received \'Hello from the test server!\' from the server.\nThe json I received was: { foo: "json-root" }\nsend! returned status 200.\nsend_json! echoed: { foo: "Hello Json!" }.\ninvalid JSON was rejected.\ninvalid UTF-8 was rejected.\ninvalid request URL was rejected.'
+[[ "$hc" == "$want_hc" ]] || { echo "FAIL: http-client output"; diff <(echo "$want_hc") <(echo "$hc") || true; exit 1; }
+hs=$(cd "$B" && ./bin/http-simple 2>/dev/null || true)
+want_hs=$'I received \'Hello from the test server!\' from the server.\nThe json I received was: { foo: "json-root" }\nResponse body:\n<html><body>hi</body></html>'
+[[ "$hs" == "$want_hs" ]] || { echo "FAIL: http-simple output"; diff <(echo "$want_hs") <(echo "$hs") || true; exit 1; }
+hb=$(cd "$B" && ./bin/http-bridge 2>/dev/null || true)
+[[ "$hb" == "bridge: 200 Hello from the test server!" ]] || { echo "FAIL: to_http_response! bridge (got: $hb)"; exit 1; }
+echo "ok: http-client + http-simple run streaming against the testnet; to_http_response! round-trips into roc-lang/http Response"
+
+for n in http-client http-simple http-bridge; do
+  g=$(cd "$B" && HEMATITE_ALLOC_GAUGE=1 ./bin/$n 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
+  grep -q 'live=0' <<<"$g" || { echo "FAIL: $n leaked heap allocations: $g"; exit 1; }
+done
+echo "ok: http examples drop-balance across the streaming paths (alloc-gauge live=0)"
 
 # ---- 2a. Env.set_cwd! propagates to the subprocess working directory ----
 cap "$ROC" build --output="$B/bin/ex-cwd" "$B/cwd-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build cwd-app"; exit 1; }

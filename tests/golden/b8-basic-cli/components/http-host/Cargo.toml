@@ -8,3 +8,7 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 hematite-abi = { path = "../../abi" }
 sync-io-core = { path = "../sync-io-core" }
+# The blocking HTTP client (H1/H2). Chunked decode is built in; gzip/brotli
+# decompress transparently. TLS is added behind a default-on `tls` feature in
+# HC4 (this HC2 build is plaintext http:// only).
+ureq = { version = "=3.4.0", default-features = false, features = ["gzip", "brotli"] }

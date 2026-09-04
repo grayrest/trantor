@@ -2,9 +2,12 @@ import http.Header
 import http.Method
 import http.Request
 import http.Response
+import Streams
 
-## Define host-ABI HTTP types and convert them to the shared HTTP package types.
-## These records map directly to the generated Rust glue types.
+## Define host-ABI HTTP types and convert them to/from the shared HTTP package
+## types. The response body is a streaming `Streams.InputStream` (H5): the host
+## crossing carries the stream, and `Http` builds its streaming `Response` from
+## it (so `from_host_response` no longer collects into a roc-lang/http Response).
 InternalHttp :: [].{
 
 	## Errors raised by the host while sending a request, before a real HTTP
@@ -26,7 +29,7 @@ InternalHttp :: [].{
 	ResponseToAndFromHost : {
 		status : U16,
 		headers : List(HostHeaderTuple),
-		body : List(U8),
+		body_stream : Streams.InputStream,
 	}
 
 	to_host_request : Request -> RequestToAndFromHost
@@ -42,12 +45,6 @@ InternalHttp :: [].{
 		}
 	}
 
-	from_host_response : ResponseToAndFromHost -> Response
-	from_host_response = |response|
-		Response.from_status(response.status)
-			.with_headers(from_host_headers(response.headers))
-			.with_body(response.body)
-
 	to_host_headers : List(Header.Header) -> List(HostHeaderTuple)
 	to_host_headers = |headers|
 		headers.map(|{ name, value }| (name, value))
@@ -55,6 +52,17 @@ InternalHttp :: [].{
 	from_host_headers : List(HostHeaderTuple) -> List(Header.Header)
 	from_host_headers = |headers|
 		headers.map(|(name, value)| { name, value })
+
+	## The eager roc-lang/http `Response`. Http's streaming `Response` names a
+	## different local type, so the bridge that builds this shared type lives
+	## here (where `Response` resolves to the http package, not the local type).
+	HttpResponse : Response.Response
+
+	to_http_response : U16, List(Header.Header), List(U8) -> HttpResponse
+	to_http_response = |status, headers, body|
+		Response.from_status(status)
+			.with_headers(headers)
+			.with_body(body)
 }
 
 to_host_method : Method.Method -> U8

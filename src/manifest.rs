@@ -66,6 +66,11 @@ pub struct Component {
     pub features: Vec<String>,
     #[serde(default)]
     pub default_features: Option<bool>,
+    /// Test-only scaffolding (e.g. an HTTP test server). The app still links it
+    /// (roc needs its symbols), but `publish` omits its archive from the
+    /// baseline so test peers never ship. Default false.
+    #[serde(default)]
+    pub test_only: bool,
 }
 
 /// One interface's `interface.toml`: the Roc module it ships and the hosted

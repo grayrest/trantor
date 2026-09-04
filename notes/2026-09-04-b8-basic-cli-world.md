@@ -88,3 +88,22 @@ archives; the shim is ~300 lines of pure Roc.
 `verify.sh`: 28/28 check, 22 exact/substring run assertions, publish
 artifacts + Tier 1, confinement swap (allowed → denied), default world left
 composed.
+
+## HC3 addendum — streaming Http (the http examples now RUN)
+
+Choosing a streaming `Http.Response` (design log H6) reshapes the migration
+story for the two http examples:
+
+- **Http + InternalHttp leave the byte-verbatim set.** `Http.Response` is now
+  `{ status, headers, body : Streams.InputStream }`; `send!` returns it,
+  `read_body_to_end!` collects, `to_http_response!` bridges to roc-lang/http's
+  eager `Response`. `http-host` is rewritten over ureq (HC2's primitive).
+- **26/26 non-http still pure-URL-swap; the 2 http examples adapt + RUN.**
+  http-client/http-simple take a handful of streaming lines (start the
+  in-process `TestNet` server on :9000, then `response.status` /
+  `read_body_to_end!` / `decode_json_response!`) and run against the testnet
+  serving basic-cli's ci endpoints — they only *checked* before. Everything
+  drop-balances (alloc-gauge live=0).
+- **`test_only` composer flag.** `testnet-host` links into apps but a new
+  `[components.X] test_only = true` keeps its archive out of the published
+  baseline — the "no test scaffolding in dist" guard now bites for real.
