@@ -75,8 +75,47 @@ it must never rely on Roc unwinding its resources. Partial teardown was observed
 to be *safe* here (B's frame cleaned, driver caught, no corruption), so "catch
 at the boundary and continue/report" is a viable driver policy, not forced abort.
 
-## Still open in H0 (this note updated as they land)
+## H0c — duplicate vendored natives ⚠ PASS-WITH-POLICY (the footgun is real)
 
-- **H0b** — framework sysroot union (macOS `.tbd` stub union).
-- **H0c** — duplicate vendored natives (two archives each bundling sqlite):
-  link error, silent first-wins, or fine? Expected to need a *policy*.
+`spikes/h0c/`. Two components each `cc`-compile a C object defining the **same**
+symbol `vendored_answer` (simulating two archives each bundling sqlite). Each
+component's hosted fn calls its own copy, forcing both objects to load.
+
+First, a false alarm worth recording: an early run reported "missing host symbol
+`hematite__a__ping`" and looked like a roc-linker duplicate-symbol failure. It
+was not — a bad edit had orphaned the `#[unsafe(no_mangle)]`, so ping got
+mangled and genuinely left the archive. **The roc error was correct.** Lesson
+for codegen: a dropped `no_mangle` presents exactly as a missing-host-symbol
+link error; hematite's generated host stubs must carry it unconditionally.
+
+The real result, once the spike was correct:
+
+- Single archive + vendored `cc` object → **links and runs fine** (`spikes/h0c2/`,
+  output 40). Vendoring itself is not the problem; `cargo` bundles the `cc`
+  object into the crate's staticlib (`nm` confirms `_vendored_answer` inside
+  `libcomp_a.a`).
+- Two archives, **same** vendored symbol → **links silently, first-in-`inputs`
+  wins.** `["liba.a","libb.a",app]` → output **80** (both calls hit comp-a's
+  copy, 40+40). Swap to `["libb.a","liba.a",app]` → output **4** (both hit
+  comp-b's, 2+2). No error, no warning; the loser's calls are silently
+  dispatched to the winner's code.
+
+**Why it matters:** two components bundling *different versions* of the same
+native lib (two sqlites with different struct layouts) would silently share one
+version — memory-unsafe, and invisible at link time. The roc linker will not
+catch this. Neither will `ld`.
+
+**Policy (H0c's required deliverable):** at compose time hematite must scan each
+component archive's defined global symbols (`nm`) and **reject any non-hosted,
+non-runtime symbol defined by more than one component**, unless the world
+explicitly declares it a shared/deduplicated native dependency. Corollary: the
+"exactly one runtime provider" rule (roc_alloc … from H0a) is *not* enforced by
+the linker either — two archives defining `roc_alloc` would also silently
+first-wins — so hematite must own that as the same compose-time check.
+
+## Still open in H0
+
+- **H0b** — framework sysroot union (macOS `.tbd` stub union). Lowest risk; the
+  single-framework mechanism already works in roc-solid's `sysroot` recipe, the
+  open question is only whether the *union* of two components' framework sets
+  links.
