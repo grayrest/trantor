@@ -1,0 +1,5 @@
+# roc:cli/filesystem@0.1.0 — binding module + its hosted leaf.
+module = "Fs"
+[[hosted]]
+leaf = "file_read!"          # Fs.file_read!
+symbol_stem = "file_read"    # mangled: hematite__<component>__file_read

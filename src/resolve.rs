@@ -29,6 +29,10 @@ pub struct Resolved {
     pub driver: String,
     /// Interface name -> its shipped Roc module (for copying binding modules).
     pub interface_modules: BTreeMap<String, String>,
+    /// Roc-implemented wiring points: (module, providing component). The module
+    /// is copied from the shim component (it ships the binding module WITH
+    /// bodies), and it gets NO hosted{} entry (D13: a Roc shim forwards).
+    pub roc_impls: Vec<(String, String)>,
 }
 
 /// Parse a wiring expression like `audit(capstdfs)` or `stdio`. Returns the
@@ -52,17 +56,25 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
     // --- hosted symbol map, in interface-name order (deterministic) ---
     let mut hosted = Vec::new();
     let mut interface_modules = BTreeMap::new();
+    let mut roc_impls = Vec::new();
     for (iface_name, chain_expr) in &world.wiring {
         let chain = parse_chain(chain_expr);
         let head = chain.first().ok_or_else(|| format!("empty wiring for {iface_name}"))?;
         let iface: Interface = crate::manifest::load_interface(dir, iface_name)?;
         interface_modules.insert(iface_name.clone(), iface.module.clone());
-        for HostedLeaf { leaf, symbol_stem } in &iface.hosted {
-            hosted.push(HostedBinding {
-                symbol: format!("hematite__{head}__{symbol_stem}"),
-                module: iface.module.clone(),
-                leaf: leaf.clone(),
-            });
+        let head_kind = world.components.get(head).map(|c| c.kind.as_str()).unwrap_or("host");
+        if head_kind == "roc" {
+            // D19: a Roc shim serves Roc consumers. It ships the binding module
+            // WITH bodies (forwarding to its own impl), so no hosted symbol.
+            roc_impls.push((iface.module.clone(), head.clone()));
+        } else {
+            for HostedLeaf { leaf, symbol_stem } in &iface.hosted {
+                hosted.push(HostedBinding {
+                    symbol: format!("hematite__{head}__{symbol_stem}"),
+                    module: iface.module.clone(),
+                    leaf: leaf.clone(),
+                });
+            }
         }
     }
     // io and any hosted-less interface still ships a module (e.g. IOErr); record it.
@@ -201,5 +213,6 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
         imports,
         driver: driver_name,
         interface_modules,
+        roc_impls,
     })
 }

@@ -43,8 +43,22 @@ pub fn emit(
     w("abi/Cargo.toml", abi_cargo())?;
     w("abi/src/lib.rs", abi_lib())?;
 
-    // Copy interface binding modules into platform/.
+    // Roc-implemented wiring points: the shim ships the binding module WITH
+    // bodies; copy it from the shim component, and skip the interface's
+    // declaration-only version (D13, D19).
+    let roc_modules: std::collections::BTreeSet<&str> =
+        r.roc_impls.iter().map(|(m, _)| m.as_str()).collect();
+    for (module, component) in &r.roc_impls {
+        let from = src.join("components").join(component).join(format!("{module}.roc"));
+        if from.exists() {
+            copy(&from, &format!("platform/{module}.roc"))?;
+        }
+    }
+    // Copy interface binding modules into platform/ (host impls + shared types).
     for (iface, module) in &r.interface_modules {
+        if roc_modules.contains(module.as_str()) {
+            continue; // provided by the shim above
+        }
         let from = src.join("interfaces").join(iface).join(format!("{module}.roc"));
         if from.exists() {
             copy(&from, &format!("platform/{module}.roc"))?;

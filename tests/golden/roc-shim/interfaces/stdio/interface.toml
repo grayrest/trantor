@@ -1,0 +1,4 @@
+module = "Stdio"
+[[hosted]]
+leaf = "line!"
+symbol_stem = "stdout_line"

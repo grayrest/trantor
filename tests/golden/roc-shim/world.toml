@@ -1,0 +1,51 @@
+# roc-shim world: the filesystem interface is fulfilled by a pure-Roc shim
+# (memfs) instead of a host component. Path.roc is byte-identical to the
+# two-component fixture -- the whole point (D2/D19).
+
+[world]
+name = "reader-memfs"
+driver = "cli"
+exports = ["Path", "Stdio", "Env"]
+
+[interfaces.io]
+source = "roc:cli/io@0.1.0"
+[interfaces.filesystem]
+source = "roc:cli/filesystem@0.1.0"
+[interfaces.stdio]
+source = "roc:cli/stdio@0.1.0"
+[interfaces.env]
+source = "roc:cli/env@0.1.0"
+[interfaces.cell]
+source = "roc:cli/cell@0.1.0"
+
+[components.stdio]
+kind = "host"
+lang = "rust"
+exports = ["stdio"]
+[components.env]
+kind = "host"
+lang = "rust"
+exports = ["env"]
+[components.cell]
+kind = "host"
+lang = "rust"
+exports = ["cell"]
+[components.memfs]
+kind = "roc"                 # the Roc shim -- no host archive
+imports = ["cell"]
+exports = ["filesystem"]
+[components.pathlib]
+kind = "roc"
+imports = ["filesystem"]
+exports = ["Path"]
+[components.cli]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+requires_uses = ["Path", "Stdio", "Env"]
+
+[wiring]
+stdio = "stdio"
+filesystem = "memfs"          # Roc shim, not audit(capstdfs)
+env = "env"
+cell = "cell"
