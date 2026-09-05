@@ -1,0 +1,10 @@
+[package]
+name = "turso-host"
+version = "0.0.0"
+edition = "2021"
+publish = false
+[lib]
+crate-type = ["staticlib", "rlib"]
+[dependencies]
+hematite-abi = { path = "../../abi" }
+turso_sdk_kit = "0.7"

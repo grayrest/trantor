@@ -1,0 +1,31 @@
+# roc:sqlite-unsound — its own world (P3), rusqlite backend (SQ1). SQ2 adds a
+# turso wiring. rusqlite-host is the sole vendor of libsqlite3 (H0c).
+[world]
+name = "sqlite-unsound-turso"
+driver = "drv"
+exports = ["Sql", "Report"]
+
+[interfaces.io]
+source = "roc:io/error@0.1.0"
+[interfaces.sqlite]
+source = "roc:sqlite-unsound@0.1.0"
+[interfaces.report]
+source = "test:report@0.1.0"
+
+[components.drv]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+
+[components.turso-host]
+kind = "host"
+lang = "rust"
+exports = ["sqlite"]
+[components.report-host]
+kind = "host"
+lang = "rust"
+exports = ["report"]
+
+[wiring]
+sqlite = "turso-host"
+report = "report-host"
