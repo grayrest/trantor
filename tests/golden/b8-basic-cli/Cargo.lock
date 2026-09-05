@@ -177,20 +177,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs-confined"
+version = "0.0.0"
+dependencies = [
+ "fs-core",
+ "hematite-abi",
+ "sync-io-core",
+]
+
+[[package]]
 name = "fs-core"
 version = "0.0.0"
 dependencies = [
  "hematite-abi",
  "paste",
- "sync-io-core",
-]
-
-[[package]]
-name = "fs-unconfined"
-version = "0.0.0"
-dependencies = [
- "fs-core",
- "hematite-abi",
  "sync-io-core",
 ]
 
