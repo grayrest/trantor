@@ -112,3 +112,31 @@ echo "ok: vector search runs on turso (near,mid,far), rejected by rusqlite — b
 rm -f /tmp/hematite-sq1.db*
 ( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
 echo "SQ3 PASS"
+
+# ---- SQ4: roc:turso scalar UDF leaf (the turso superset) ----
+# A Roc closure registered as a turso SQL scalar, invoked from a SELECT and a
+# CREATE TRIGGER body. The rusqlite world does not expose roc:turso.
+./target/release/hematite compose "$S" --world world-turso.toml >/dev/null
+grep -q 'turso_register_scalar' "$S/interfaces/turso/Turso.roc" || { echo "FAIL: no turso_register_scalar leaf"; exit 1; }
+( cd "$S" && ./build.sh udf-app udf-turso >/dev/null 2>&1 ) || { echo "FAIL: build udf-app (turso)"; exit 1; }
+uo=$(cd "$S" && ./bin/udf-turso 2>/dev/null || true)
+want_udf=$'triple-sum: 24\ntrigger-val: 30'
+[[ "$uo" == "$want_udf" ]] || { echo "FAIL: Roc scalar from query/trigger (got: $uo)"; diff <(echo "$want_udf") <(echo "$uo") || true; exit 1; }
+echo "ok: a Roc closure runs as a turso SQL scalar from a SELECT (24) and a TRIGGER (30)"
+
+# The registered scalar is retained for the process by design: exactly one live
+# allocation (the closure box), not a leak.
+ug=$(cd "$S" && HEMATITE_ALLOC_GAUGE=1 ./bin/udf-turso 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
+grep -q 'live=1' <<<"$ug" || { echo "FAIL: udf balance expected live=1 (the one registered closure): $ug"; exit 1; }
+echo "ok: exactly the one registered scalar closure is retained ($ug)"
+
+# The rusqlite world is not a turso superset: no Turso module, so udf-app can't build there.
+./target/release/hematite compose "$S" >/dev/null
+grep -q 'Turso' "$S/platform/main.roc" && { echo "FAIL: rusqlite world exposes Turso"; exit 1; } || true
+( cd "$S" && ./build.sh udf-app udf-rusqlite >/dev/null 2>&1 ) && { echo "FAIL: udf-app built on rusqlite (roc:turso should be unavailable)"; exit 1; } || true
+echo "ok: rusqlite world has no roc:turso — udf-app only builds on the turso superset"
+
+# leave the default (rusqlite) world composed + built.
+rm -f /tmp/hematite-sq1.db*
+( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
+echo "SQ4 PASS"

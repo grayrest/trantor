@@ -16,7 +16,108 @@ use abi::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use turso_sdk_kit::rsapi::{EncryptionOpts, TursoDatabase, TursoDatabaseConfig, TursoStatusCode, Value};
+use turso_sdk_kit::rsapi::{
+    ContextDestructor, EncryptionOpts, ExtensionValue, TursoConnection, TursoDatabase,
+    TursoDatabaseConfig, TursoStatusCode, Value, ValueDestructor,
+};
+
+/// Roc closures registered as SQL scalar functions (roc:turso, S10): (name,
+/// closure-pointer-as-usize). The closure is BORROWED on each call (never
+/// decref'd) and lives for the process; the registry owns it. Re-registered on
+/// every fresh connection so a per-call connect still sees them.
+static SCALARS: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
+
+/// Register every recorded Roc scalar on a freshly-opened connection.
+fn register_scalars(conn: &TursoConnection) {
+    for (name, ctx) in SCALARS.lock().unwrap().iter() {
+        // argc -1 = variadic; deterministic false; `ctx` carries the Roc closure
+        // pointer to the trampoline; no destructors (the closure outlives calls).
+        let _ = conn.register_external_scalar_function(name.clone(), -1, false, *ctx, roc_scalar_trampoline, None, None);
+    }
+}
+
+/// One argument in Roc order for the scalar closure `List(SqlValue) -> SqlValue`.
+#[repr(C)]
+struct ScalarArgs {
+    arg0: RocList<Cell>,
+}
+
+/// turso invokes this per SQL call of a registered Roc scalar. `context` is the
+/// Roc closure pointer. Build the args as a borrowed `List(SqlValue)`, invoke
+/// the closure (borrowed — never decref'd), convert its returned SqlValue to a
+/// turso value. Runs INSIDE the VDBE (re-entrant, R-SQ4).
+unsafe extern "C" fn roc_scalar_trampoline(
+    context: usize,
+    argc: i32,
+    argv: *const ExtensionValue,
+    _cd: Option<ContextDestructor>,
+    _vd: Option<ValueDestructor>,
+) -> ExtensionValue {
+    let host = abi::host();
+    let closure = context as RocErasedCallable;
+    let args = std::slice::from_raw_parts(argv, argc.max(0) as usize);
+
+    let list = RocList::<Cell>::allocate(args.len(), host);
+    for (i, v) in args.iter().enumerate() {
+        // Text is borrowed from the live turso value (valid during this call);
+        // Integer/Real are inline. to_integer is the type check (no coercion).
+        let cell = if let Some(n) = v.to_integer() {
+            Cell { payload: CellPayload { integer: ManuallyDrop::new(n) }, tag: CellTag::Integer }
+        } else if let Some(s) = v.to_text() {
+            Cell { payload: CellPayload { text: ManuallyDrop::new(abi::borrow::borrowed_str(s.as_ptr(), s.len())) }, tag: CellTag::Text }
+        } else if let Some(f) = v.to_float() {
+            Cell { payload: CellPayload { real: ManuallyDrop::new(f) }, tag: CellTag::Real }
+        } else {
+            Cell { payload: CellPayload { null: [] }, tag: CellTag::Null }
+        };
+        list.elements.add(i).write(cell);
+    }
+
+    // Invoke the closure `(row) -> SqlValue` (borrow the closure: null reuse).
+    let call_args = ScalarArgs { arg0: list };
+    let mut ret = MaybeUninit::<Cell>::uninit();
+    let payload = abi::roc_erased_callable_payload_ptr(closure);
+    let capture = abi::roc_erased_callable_capture_ptr(closure);
+    ((*payload).callable_fn_ptr)(
+        host as *const RocHost as *mut RocHost,
+        ret.as_mut_ptr() as *mut u8,
+        &call_args as *const ScalarArgs as *const u8,
+        capture,
+        core::ptr::null_mut(),
+        core::ptr::null_mut(),
+    );
+    let cell = ret.assume_init();
+
+    // Convert the returned SqlValue to a turso value, releasing a refcounted
+    // Text/Blob payload after copying it out.
+    match cell.tag {
+        CellTag::Integer => ExtensionValue::from_integer(*cell.borrow_payload_integer_unchecked()),
+        CellTag::Real => ExtensionValue::from_float(*cell.borrow_payload_real_unchecked()),
+        CellTag::Text => {
+            let s = cell.borrow_payload_text_unchecked().as_str().to_string();
+            (*(&cell as *const Cell as *mut Cell)).take_payload_text_unchecked().decref(host);
+            ExtensionValue::from_text(s)
+        }
+        CellTag::Blob => {
+            (*(&cell as *const Cell as *mut Cell)).take_payload_blob_unchecked().decref(host);
+            ExtensionValue::null()
+        }
+        CellTag::Null => ExtensionValue::null(),
+    }
+}
+
+/// `Turso.turso_register_scalar! : Str, Box((List(SqlValue) -> SqlValue)) => Try({}, Str)`
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn hematite__turso_host__turso_register_scalar(name: RocStr, closure: RocErasedCallable) -> abi::TursoTursoRegisterScalarResult {
+    // Record the closure (kept alive for the process; the registry owns it, so
+    // it is NOT decref'd here). The name is copied out then released.
+    SCALARS.lock().unwrap().push((name.as_str().to_string(), closure as usize));
+    unsafe { name.decref(abi::host()); }
+    abi::TursoTursoRegisterScalarResult {
+        payload: abi::TursoTursoRegisterScalarResultPayload { ok: [] },
+        tag: abi::TursoTursoRegisterScalarResultTag::Ok,
+    }
+}
 
 // turso pulls `iana_time_zone`, which needs macOS CoreFoundation. It declares
 // that via a build-script directive (`cargo:rustc-link-lib`), which is lost when
@@ -149,6 +250,7 @@ pub extern "C-unwind" fn hematite__turso_host__sql_exec(a: SqlSqlExecArgs) -> Sq
     let result: Result<(), String> = (|| {
         let db = get_db(&db_s)?;
         let conn = db.connect().map_err(|e| format!("{e:?}"))?;
+        register_scalars(&conn);
         let mut stmt = conn.prepare_cached(&sql).map_err(|e| format!("{e:?}"))?;
         for (i, v) in values.into_iter().enumerate() {
             stmt.bind_positional(i + 1, v).map_err(|e| format!("bind {}: {e:?}", i + 1))?;
@@ -175,6 +277,7 @@ pub extern "C-unwind" fn hematite__turso_host__sql_fold(a: FoldArgsIn, initial: 
     let result: Result<RocBox, String> = (|| {
         let db = get_db(&db_s)?;
         let conn = db.connect().map_err(|e| format!("{e:?}"))?;
+        register_scalars(&conn);
         let mut stmt = conn.prepare_cached(&sql).map_err(|e| format!("{e:?}"))?;
         for (i, v) in values.into_iter().enumerate() {
             stmt.bind_positional(i + 1, v).map_err(|e| format!("bind {}: {e:?}", i + 1))?;

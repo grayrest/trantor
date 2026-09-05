@@ -3,12 +3,14 @@
 [world]
 name = "sqlite-unsound-turso"
 driver = "drv"
-exports = ["Sql", "Report"]
+exports = ["Sql", "Report", "Turso"]
 
 [interfaces.io]
 source = "roc:io/error@0.1.0"
 [interfaces.sqlite]
 source = "roc:sqlite-unsound@0.1.0"
+[interfaces.turso]
+source = "roc:turso@0.1.0"
 [interfaces.report]
 source = "test:report@0.1.0"
 
@@ -20,7 +22,7 @@ provides_runtime = true
 [components.turso-host]
 kind = "host"
 lang = "rust"
-exports = ["sqlite"]
+exports = ["sqlite", "turso"]
 [components.report-host]
 kind = "host"
 lang = "rust"
@@ -28,4 +30,5 @@ exports = ["report"]
 
 [wiring]
 sqlite = "turso-host"
+turso = "turso-host"
 report = "report-host"

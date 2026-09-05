@@ -1,0 +1,8 @@
+# roc:turso — the one turso-only Roc leaf (S10). Register a Roc closure as a SQL
+# scalar function, callable from SELECT and from CREATE TRIGGER bodies. Uses the
+# same erased-callable mechanism as the fold reducer. turso-host only; the
+# rusqlite world does not expose this.
+module = "Turso"
+[[hosted]]
+leaf = "turso_register_scalar!"
+symbol_stem = "turso_register_scalar"
