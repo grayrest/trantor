@@ -1,0 +1,5 @@
+# Test-only: print a line host-side (this fixture has no stdio host).
+module = "Report"
+[[hosted]]
+leaf = "print!"
+symbol_stem = "print"

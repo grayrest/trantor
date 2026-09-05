@@ -1,0 +1,10 @@
+# roc:sqlite-unsound — borrowed-slice cursor fold (SQ1). SqlValue cells cross by
+# value; Text/Blob are zero-copy borrows into the live engine buffer, valid only
+# for one reducer call (see the abi `borrow` module). Encapsulated: no handle.
+module = "Sql"
+[[hosted]]
+leaf = "sql_exec!"
+symbol_stem = "sql_exec"
+[[hosted]]
+leaf = "sql_fold!"
+symbol_stem = "sql_fold"

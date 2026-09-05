@@ -1,0 +1,3 @@
+Report :: [].{
+	print! : Str => {}
+}
