@@ -25,6 +25,7 @@ exports = ["sqlite"]
 kind = "host"
 lang = "rust"
 exports = ["report"]
+test_only = true
 
 [wiring]
 sqlite = "rusqlite-host"

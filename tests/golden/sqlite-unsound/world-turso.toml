@@ -27,6 +27,7 @@ exports = ["sqlite", "turso"]
 kind = "host"
 lang = "rust"
 exports = ["report"]
+test_only = true
 
 [wiring]
 sqlite = "turso-host"

@@ -140,3 +140,36 @@ echo "ok: rusqlite world has no roc:turso — udf-app only builds on the turso s
 rm -f /tmp/hematite-sq1.db*
 ( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
 echo "SQ4 PASS"
+
+# ---- SQ5: clone-on-incref target (documented) + publish + tier ----
+# The ergonomic record decode type-checks (the API shape supports it) but is NOT
+# run — it retains borrowed cells, unsound until upstream clone-on-incref.
+grep -q 'clone-on-incref' "$S/record-app/main.roc" || { echo "FAIL: record-app not marked the clone-on-incref target"; exit 1; }
+( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
+cap "$ROC" check "$S/record-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: record decode does not type-check (API shape broken)"; exit 1; }
+echo "ok: record decode type-checks (API shape) — the documented clone-on-incref target, not run"
+
+# Publish the rusqlite world: engine + lock, no test scaffolding; Tier 2.
+./target/release/hematite publish "$S" >/dev/null 2>&1
+D="$S/dist/platform/targets/arm64mac"
+{ [[ -f "$S/dist/baseline.lock" ]] && grep -q abi_fingerprint "$S/dist/baseline.lock"; } || { echo "FAIL: rusqlite publish produced no baseline.lock"; exit 1; }
+[[ -f "$D/librusqlite_host.a" ]] || { echo "FAIL: rusqlite baseline lacks the engine archive"; exit 1; }
+[[ ! -f "$D/libreport_host.a" ]] || { echo "FAIL: test-only report-host leaked into the baseline"; exit 1; }
+./target/release/hematite tier "$S" | grep -q '^Tier 2' || { echo "FAIL: sqlite world should tier as Tier 2 (host code)"; exit 1; }
+echo "ok: rusqlite baseline publishes (engine + lock, no test scaffolding); Tier 2"
+
+# Publish the turso world: turso engine + Turso module, no rusqlite, no scaffolding.
+./target/release/hematite compose "$S" --world world-turso.toml >/dev/null
+( cd "$S" && ./build.sh app sq-turso >/dev/null 2>&1 )
+./target/release/hematite publish "$S" >/dev/null 2>&1
+{ [[ -f "$D/libturso_host.a" ]] && [[ ! -f "$D/librusqlite_host.a" ]]; } || { echo "FAIL: turso baseline should ship turso, not rusqlite"; exit 1; }
+[[ -f "$S/dist/platform/Turso.roc" ]] || { echo "FAIL: turso baseline lacks the roc:turso module"; exit 1; }
+echo "ok: turso baseline publishes (turso engine + Turso module, no rusqlite, no test scaffolding)"
+
+grep -q 'clone-on-incref' notes/2026-09-05-sqlite-unsound-design-log.md || { echo "FAIL: design log missing the clone-on-incref record"; exit 1; }
+
+# leave the committed default (rusqlite) world composed + built.
+./target/release/hematite compose "$S" >/dev/null
+rm -f /tmp/hematite-sq1.db*
+( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
+echo "SQ5 PASS"
