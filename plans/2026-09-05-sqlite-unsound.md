@@ -1,5 +1,15 @@
 # Plan: `roc:sqlite-unsound` — borrowed-slice cursor fold, two engines
 
+> **Status: COMPLETE** (SQ0–SQ5 landed, full golden suite green). Design log:
+> [`notes/2026-09-05-sqlite-unsound-design-log.md`](../notes/2026-09-05-sqlite-unsound-design-log.md).
+> All five risks settled: R-SQ1 (rc==0 immortal slices work on the pinned 84812227
+> compiler), R-SQ2 (turso links via a generated `macos-sysroot` for CoreFoundation;
+> blocking `turso_core` via `turso_sdk_kit`), R-SQ3 (fixture SQL stays in turso's
+> subset), R-SQ4 (the scalar trampoline re-enters Roc from inside the VDBE),
+> R-SQ5 (`abi::borrow` is composer-emitted, never glue-clobbered). The one thing
+> intentionally left unsound — retaining a borrowed cell into `state` — is the
+> documented clone-on-incref target (`record-app`, type-checks, not run).
+
 A new SQLite namespace for hematite, built on tower-platform's **H3 spike**
 (`spike(host): internal-iteration cursor fold with borrowed-slice rows`), not
 basic-cli's `Sqlite.roc`. Two interchangeable host backends — **rusqlite** and
