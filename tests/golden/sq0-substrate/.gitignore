@@ -1,0 +1,17 @@
+target/
+bin/
+glue-out/
+Cargo.lock
+abi/src/generated.rs
+# composed / regenerated into platform/ and the workspace (marker/Cargo.toml is
+# AUTHORED — the composer only rewrites its `[features] default` line in place —
+# so it stays tracked; only the fully-generated crates are ignored).
+platform/main.roc
+platform/Probe.roc
+platform/IOErr.roc
+platform/targets/
+/Cargo.toml
+abi/Cargo.toml
+abi/src/lib.rs
+components/drv/Cargo.toml
+components/drv/src/

@@ -1,0 +1,24 @@
+# SQ0 substrate world: one host (probe-host) exercising the borrowed-slice and
+# erased-callable mechanisms that roc:sqlite-unsound is built on.
+[world]
+name = "sq0-substrate"
+driver = "drv"
+exports = ["Probe"]
+
+[interfaces.io]
+source = "roc:io/error@0.1.0"
+[interfaces.probe]
+source = "sq0:probe@0.1.0"
+
+[components.drv]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+
+[components.probe-host]
+kind = "host"
+lang = "rust"
+exports = ["probe"]
+
+[wiring]
+probe = "probe-host"

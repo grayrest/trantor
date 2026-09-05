@@ -187,3 +187,58 @@ pub mod resource {
         REGISTRY.lock().unwrap().as_ref().map_or(0, |m| m.len())
     }
 }
+
+/// Zero-copy borrowed slices into host-owned buffers (roc:sqlite-unsound). A
+/// `RocStr`/`RocList` whose `bytes` aims at a host buffer (e.g. a live DB cell)
+/// while its alloc-ptr aims at a shared, process-global, zero-filled block whose
+/// refcount word reads 0 == REFCOUNT_STATIC_DATA: the compiler's own generated
+/// incref/decref return without touching a count, so Roc reads the value with
+/// native ops but never frees or mutates it. Zero per-cell allocation.
+///
+/// UNSOUND if a borrow is RETAINED past the host buffer's lifetime (the next
+/// step/finalize invalidates a DB cell): the retained value then dangles. The
+/// containment discipline (consume-in-place, internal iteration) keeps today's
+/// safe uses safe; upstream `clone-on-incref` (an incref of a borrow deep-copies)
+/// closes the retain hazard. Hand-written by the composer; the glue never
+/// regenerates it.
+pub mod borrow {
+    use super::{RocListWith, RocStr};
+
+    /// Low bit of `capacity_or_alloc_ptr` marks a seamless slice (mirrors the
+    /// generated `ROC_SEAMLESS_SLICE_TAG`). Slice allocations are word-aligned,
+    /// so the low bit is always free.
+    const ROC_SEAMLESS_SLICE_TAG: usize = 1;
+
+    /// Shared, process-global, zero-filled backing for every borrow. A seamless
+    /// slice whose alloc-ptr is `&BORROW_BACKING[1]` reads its refcount at
+    /// `&BORROW_BACKING[0]` == 0 == REFCOUNT_STATIC_DATA. Only ever read.
+    static BORROW_BACKING: [usize; 2] = [0, 0];
+
+    /// Build a `RocStr` that BORROWS `len` bytes at `ptr` without copying, as a
+    /// seamless slice over the shared static (rc==0) backing.
+    ///
+    /// # Safety
+    /// `ptr..ptr+len` must be valid UTF-8 that stays alive and unchanged for as
+    /// long as any Roc reference to the returned string can exist; the string
+    /// MUST NOT outlive the borrowed bytes.
+    pub unsafe fn borrowed_str(ptr: *const u8, len: usize) -> RocStr {
+        if len == 0 {
+            return RocStr::empty();
+        }
+        let slot = core::ptr::addr_of!(BORROW_BACKING[1]) as usize;
+        RocStr { bytes: ptr as *mut u8, capacity_or_alloc_ptr: slot | ROC_SEAMLESS_SLICE_TAG, length: len }
+    }
+
+    /// Build a `List(U8)` that BORROWS `len` bytes at `ptr` — the blob
+    /// counterpart to [`borrowed_str`], a seamless slice over the same backing.
+    ///
+    /// # Safety
+    /// Same contract as [`borrowed_str`].
+    pub unsafe fn borrowed_bytes(ptr: *const u8, len: usize) -> RocListWith<u8, false> {
+        if len == 0 {
+            return RocListWith::empty();
+        }
+        let slot = core::ptr::addr_of!(BORROW_BACKING[1]) as usize;
+        RocListWith { elements: ptr as *mut u8, length: len, capacity_or_alloc_ptr: slot | ROC_SEAMLESS_SLICE_TAG }
+    }
+}

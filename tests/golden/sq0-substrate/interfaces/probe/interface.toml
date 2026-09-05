@@ -1,0 +1,14 @@
+# SQ0 substrate probes: the two load-bearing mechanisms for roc:sqlite-unsound,
+# proven in isolation before any DB. `borrow_str!` returns a zero-copy borrowed
+# slice (rc==0 immortal). `apply_i64!` invokes a boxed Roc closure from the host
+# (erased callable). `print!` writes host-side (no stdio host needed).
+module = "Probe"
+[[hosted]]
+leaf = "borrow_str!"
+symbol_stem = "borrow_str"
+[[hosted]]
+leaf = "apply_i64!"
+symbol_stem = "apply_i64"
+[[hosted]]
+leaf = "print!"
+symbol_stem = "print"
