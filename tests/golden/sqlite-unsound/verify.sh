@@ -75,3 +75,40 @@ echo "ok: sole-vendor — rusqlite app links rusqlite ($r_rus)/turso(0); turso a
 rm -f /tmp/hematite-sq1.db*
 ( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
 echo "SQ2 PASS"
+
+# ---- SQ3: turso vector (base SQL) + encryption (host-side), no Roc leaf ----
+# Vector search rides the base sql_fold! on turso; rusqlite rejects vector32.
+# Encryption is host-side (key from env): correct reads, ciphertext at rest.
+./target/release/hematite compose "$S" --world world-turso.toml >/dev/null
+( cd "$S" && ./build.sh vector-app vec-turso >/dev/null 2>&1 ) || { echo "FAIL: build vector-app (turso)"; exit 1; }
+vt=$(cd "$S" && ./bin/vec-turso 2>/dev/null || true)
+[[ "$vt" == "vector: near,mid,far" ]] || { echo "FAIL: turso vector ordering (got: $vt)"; exit 1; }
+
+KEY=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+ENCDB=/tmp/hematite-sq3-enc.db
+( cd "$S" && ./build.sh enc-app enc-turso >/dev/null 2>&1 ) || { echo "FAIL: build enc-app"; exit 1; }
+# control: no key -> plaintext leaks into the file/wal (so the check isn't vacuous).
+rm -f "$ENCDB" "$ENCDB"-wal "$ENCDB"-shm
+( cd "$S" && ./bin/enc-turso >/dev/null 2>&1 ) || true
+plain=$(strings "$ENCDB" "$ENCDB"-wal 2>/dev/null | grep -c topsecret || true)
+[[ "${plain:-0}" -gt 0 ]] || { echo "FAIL: unencrypted control shows no plaintext — the check is vacuous"; exit 1; }
+# with key -> correct read, no plaintext at rest.
+rm -f "$ENCDB" "$ENCDB"-wal "$ENCDB"-shm
+er=$(cd "$S" && HEMATITE_TURSO_ENCRYPTION_HEXKEY="$KEY" ./bin/enc-turso 2>/dev/null || true)
+[[ "$er" == "enc-read: topsecret-alice" ]] || { echo "FAIL: encrypted read (got: $er)"; exit 1; }
+cipher=$(strings "$ENCDB" "$ENCDB"-wal 2>/dev/null | grep -c topsecret || true)
+[[ "${cipher:-0}" -eq 0 ]] || { echo "FAIL: plaintext leaked in the encrypted db/wal ($cipher)"; exit 1; }
+rm -f "$ENCDB" "$ENCDB"-wal "$ENCDB"-shm
+echo "ok: turso encryption host-side — correct reads with the key, ciphertext at rest ($plain plaintext unencrypted vs 0 encrypted)"
+
+# rusqlite rejects vector SQL (the negative half).
+./target/release/hematite compose "$S" >/dev/null
+( cd "$S" && ./build.sh vector-app vec-rusqlite >/dev/null 2>&1 ) || { echo "FAIL: build vector-app (rusqlite)"; exit 1; }
+vr=$(cd "$S" && ./bin/vec-rusqlite 2>/dev/null || true)
+[[ "$vr" == "vector: unsupported" ]] || { echo "FAIL: rusqlite should reject vector32 (got: $vr)"; exit 1; }
+echo "ok: vector search runs on turso (near,mid,far), rejected by rusqlite — base SQL, no Roc leaf; encryption env-side"
+
+# leave the default (rusqlite) world composed + built.
+rm -f /tmp/hematite-sq1.db*
+( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
+echo "SQ3 PASS"

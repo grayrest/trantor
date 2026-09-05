@@ -16,7 +16,7 @@ use abi::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use turso_sdk_kit::rsapi::{TursoDatabase, TursoDatabaseConfig, TursoStatusCode, Value};
+use turso_sdk_kit::rsapi::{EncryptionOpts, TursoDatabase, TursoDatabaseConfig, TursoStatusCode, Value};
 
 // turso pulls `iana_time_zone`, which needs macOS CoreFoundation. It declares
 // that via a build-script directive (`cargo:rustc-link-lib`), which is lost when
@@ -35,11 +35,22 @@ fn get_db(path: &str) -> Result<Arc<TursoDatabase>, String> {
     if let Some(db) = map.get(path) {
         return Ok(db.clone());
     }
+    // Encryption is HOST-SIDE and env-gated (S9): a deploy secret, never a Roc
+    // value. With HEMATITE_TURSO_ENCRYPTION_HEXKEY set, the db is opened
+    // encrypted (aes256gcm) and reads/writes are transparent to the app; the
+    // on-disk file is ciphertext.
+    let (experimental, encryption) = match std::env::var("HEMATITE_TURSO_ENCRYPTION_HEXKEY") {
+        Ok(hexkey) if !hexkey.is_empty() => (
+            Some("encryption".to_string()),
+            Some(EncryptionOpts { cipher: "aes256gcm".to_string(), hexkey }),
+        ),
+        _ => (None, None),
+    };
     let db = TursoDatabase::new(TursoDatabaseConfig {
         path: path.to_string(),
-        experimental_features: None,
+        experimental_features: experimental,
         async_io: false,
-        encryption: None,
+        encryption,
         vfs: None,
         io: None,
         db_file: None,
