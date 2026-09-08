@@ -26,6 +26,16 @@ pub struct WorldMeta {
     pub driver: String,
     #[serde(default)]
     pub exports: Vec<String>,
+    /// Symbols the world explicitly declares as a shared/deduplicated native
+    /// dependency, exempting them from the H0c archive collision scan (the
+    /// escape hatch the policy names). Each entry is a source symbol name
+    /// (no leading `_`), either exact (`sqlite3_open`) or a trailing-`*` prefix
+    /// glob (`sqlite3_*`) to cover a whole vendored library. Empty by default;
+    /// no baseline world needs it (sole-vendor), but a world that intends to
+    /// share one native across two components declares that intent here rather
+    /// than letting the linker first-wins silently.
+    #[serde(default)]
+    pub shared_symbols: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

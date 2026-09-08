@@ -21,6 +21,7 @@ cargo build --release -q
 
 ./target/release/hematite compose "$B" >/dev/null
 ( cd "$B" && rm -rf platform/targets && ./build.sh app b8 >/dev/null 2>&1 )
+if ! _sc=$(./target/release/hematite scan "$B" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
 
 # ---- 1. migration proof (URL swap only) ----
 # The two http examples (http-client, http-simple) are EXCLUDED here: choosing a
@@ -161,6 +162,7 @@ echo "ok: published dist/ with baseline.lock (no test scaffolding); pure-Roc ext
 [[ "$(cd "$B" && ./bin/b8-escape-open)" == "escape: allowed" ]] || { echo "FAIL: baseline should allow the escaping write"; exit 1; }
 ./target/release/hematite compose "$B" --world world-confined.toml >/dev/null
 ( cd "$B" && ./build.sh app-escape b8-escape-confined >/dev/null 2>&1 && ./build.sh app b8-confined >/dev/null 2>&1 )
+if ! _sc=$(./target/release/hematite scan "$B" --world world-confined.toml 2>&1); then echo "FAIL: nm-scan [world-confined]" >&2; echo "$_sc" >&2; exit 1; fi
 [[ "$(cd "$B" && ./bin/b8-escape-confined)" == "escape: denied" ]] || { echo "FAIL: confined world should deny the escaping write"; exit 1; }
 [[ "$(cd "$B" && ./bin/b8-confined | tail -1)" == 'I read the file back. Its contents are: "a string!"' ]] || { echo "FAIL: confined world should allow in-cwd writes"; exit 1; }
 rm -f "$B/../b8-escape.txt" "$B/out.txt"

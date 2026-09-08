@@ -16,6 +16,7 @@ echo "ok: OsStr.roc verbatim; Cmd.roc = seahaven's + 2 bridged call sites + an a
 
 ./target/release/hematite compose "$B" >/dev/null
 ( cd "$B" && ./build.sh app b5 >/dev/null 2>&1 )
+if ! _sc=$(./target/release/hematite scan "$B" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
 set +e; out=$(cd "$B" && ./bin/b5 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code"; echo "$out"; exit 1; }
 want=$'output: hello from a child\nexit-code: 7\npath-search: ok'

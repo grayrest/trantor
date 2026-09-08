@@ -11,6 +11,7 @@ cargo build --release -q
 
 ./target/release/hematite compose "$B" >/dev/null
 ( cd "$B" && ./build.sh app b7 >/dev/null 2>&1 )
+if ! _sc=$(./target/release/hematite scan "$B" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
 set +e; out=$(cd "$B" && ./bin/b7 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code (1-9 = a step failed; >9 = leaked handles)"; echo "$out"; exit 1; }
 want=$'date-add: 2024-02-29\ndate-until-days: 359\nday-of-week: 4\nzdt-ny: 2024-03-10T01:30:00-05:00[America/New_York]\nzdt-ny-hour: 1\nzdt-ny-offset-s: -18000\nzdt-tokyo: 2024-03-10T15:30:00+09:00[Asia/Tokyo]\nzdt-tokyo-date: 2024-03-10\nsame-instant: yes\ntz-id: Asia/Tokyo'

@@ -21,6 +21,7 @@ run() { # $1 world  $2 out  $3 expected escape line  $4 expected Path decl
   local decl; decl=$(grep -m1 -E '^(Path|OsPath) :=' "$B/platform/Path.roc")
   [[ "$decl" == "$4"* ]] || { echo "FAIL [$1]: platform Path.roc decl is '$decl', want '$4'"; exit 1; }
   ( cd "$B" && ./build.sh app "$2" >/dev/null 2>&1 )
+  local _sc; if ! _sc=$(./target/release/hematite scan "$B" --world "$1" 2>&1); then echo "FAIL: nm-scan [$1]" >&2; echo "$_sc" >&2; exit 1; fi
   local out code
   set +e; out=$(cd "$B" && ./bin/$2 2>/dev/null); code=$?; set -e
   [[ $code -eq 0 ]] || { echo "FAIL [$1]: exit $code (live descriptors leaked)"; echo "$out"; exit 1; }

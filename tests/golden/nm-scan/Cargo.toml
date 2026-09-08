@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = ["components/probe-a", "components/probe-b", "components/probe-c"]
+
+[profile.release]
+panic = "unwind"

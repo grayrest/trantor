@@ -14,6 +14,7 @@ cargo build --release -q
 
 ./target/release/hematite compose "$S" >/dev/null
 ( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 ) || { echo "FAIL: build sq1"; exit 1; }
+if ! _sc=$(./target/release/hematite scan "$S" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
 
 rm -f /tmp/hematite-sq1.db
 set +e; out=$(cd "$S" && ./bin/sq1 2>/dev/null); code=$?; set -e
@@ -49,6 +50,7 @@ grep -q 'turso' "$S/components/turso-host/Cargo.toml" || { echo "FAIL: no turso-
 ./target/release/hematite compose "$S" --world world-turso.toml >/dev/null
 rm -f /tmp/hematite-sq1.db*
 ( cd "$S" && ./build.sh app sq-turso >/dev/null 2>&1 ) || { echo "FAIL: build turso world (framework link? R-SQ2)"; exit 1; }
+if ! _sc=$(./target/release/hematite scan "$S" --world world-turso.toml 2>&1); then echo "FAIL: nm-scan [world-turso]" >&2; echo "$_sc" >&2; exit 1; fi
 rm -f /tmp/hematite-sq1.db*
 set +e; tout=$(cd "$S" && ./bin/sq-turso 2>/dev/null); tcode=$?; set -e
 [[ $tcode -eq 0 ]] || { echo "FAIL: sq-turso exit $tcode"; echo "$tout"; exit 1; }

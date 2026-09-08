@@ -1,0 +1,15 @@
+# nm-scan CLEAN case: two host components that share no unmangled global
+# (probe-c defines only its own uniquely-named symbol). `hematite scan` must
+# pass — the positive control that ordinary distinct components are not flagged.
+[world]
+name = "nm-scan-clean"
+driver = "probe-a"
+
+[components.probe-a]
+kind = "host"
+lang = "rust"
+[components.probe-c]
+kind = "host"
+lang = "rust"
+
+[wiring]

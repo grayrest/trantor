@@ -14,6 +14,7 @@ mod codegen;
 mod manifest;
 mod publish;
 mod resolve;
+mod scan;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -33,12 +34,30 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut it = args.iter().skip(1);
     let cmd = it
         .next()
-        .ok_or("usage: hematite <compose|publish|tier> <world-dir> [flags]")?;
+        .ok_or("usage: hematite <compose|publish|tier|scan> <world-dir> [flags]")?;
     let dir = PathBuf::from(it.next().ok_or("missing <world-dir>")?);
 
     match cmd.as_str() {
         "compose" => {}
         "publish" => return publish::publish(&dir),
+        "scan" => {
+            // H0c archive symbol-collision scan. Runs after cargo builds the
+            // component archives (unlike compose, which stops at sources).
+            let mut world_file = String::from("world.toml");
+            let mut targets_dir: Option<PathBuf> = None;
+            let mut target = String::from("arm64mac");
+            while let Some(f) = it.next() {
+                match f.as_str() {
+                    "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
+                    "--targets-dir" => {
+                        targets_dir = Some(PathBuf::from(it.next().ok_or("--targets-dir: missing path")?))
+                    }
+                    "--target" => target = it.next().ok_or("--target: missing triple")?.clone(),
+                    other => return Err(format!("unknown flag {other:?}")),
+                }
+            }
+            return scan::scan(&dir, &world_file, targets_dir, &target);
+        }
         "tier" => {
             // classify an extension world's additions (D11): Tier 1 (pure-Roc,
             // no toolchain) vs Tier 2 (host code, full source composition).

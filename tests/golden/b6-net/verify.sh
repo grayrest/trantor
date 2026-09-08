@@ -20,6 +20,7 @@ grep -q 'packages' "$B/world.toml" || { echo "FAIL: world lacks [packages] (verb
 
 ./target/release/hematite compose "$B" >/dev/null
 ( cd "$B" && ./build.sh app b6 >/dev/null 2>&1 )
+if ! _sc=$(./target/release/hematite scan "$B" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
 set +e; out=$(cd "$B" && ./bin/b6 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code (nonzero = leaked socket resources or a failed step)"; echo "$out"; exit 1; }
 want=$'tcp-echo: hi\nhttp-get: hello-http\nudp-echo: dgram\ntcp-accept: ping'

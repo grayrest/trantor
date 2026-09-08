@@ -18,6 +18,7 @@ echo "ok: derived layer == seahaven upstream Stdout.roc"
 run_world() { # $1 world file -> stdout
   ./target/release/hematite compose "$FIX" --world "$1" >/dev/null
   ( cd "$FIX" && ./build.sh >/dev/null 2>&1 )
+  if ! _sc=$(./target/release/hematite scan "$FIX" --world "$1" 2>&1); then echo "FAIL: nm-scan [$1]" >&2; echo "$_sc" >&2; exit 1; fi
   "$FIX/bin/reader" 2>/dev/null
 }
 std=$(run_world world.toml | head -1)

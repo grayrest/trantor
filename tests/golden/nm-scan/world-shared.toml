@@ -1,0 +1,16 @@
+# nm-scan HATCH case: the same colliding pair as world.toml, but the world
+# declares the shared symbol as a native it deliberately deduplicates. The
+# trailing-`*` glob covers the whole family; `hematite scan` must then pass.
+[world]
+name = "nm-scan-shared"
+driver = "probe-a"
+shared_symbols = ["hematite_probe_*"]
+
+[components.probe-a]
+kind = "host"
+lang = "rust"
+[components.probe-b]
+kind = "host"
+lang = "rust"
+
+[wiring]

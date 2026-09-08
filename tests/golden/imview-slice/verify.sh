@@ -8,6 +8,7 @@ cargo build --release -q
 ./target/release/hematite compose "$FIX" >/dev/null
 grep -q "imview driver HOST" "$FIX/components/imview/src/lib.rs" || { echo "FAIL: authored host clobbered"; exit 1; }
 ( cd "$FIX" && ./build.sh >/dev/null 2>&1 )
+if ! _sc=$(./target/release/hematite scan "$FIX" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
 out=$("$FIX/bin/imview")
 [[ "$out" == "[hi | width-derived]" ]] || { echo "FAIL: got '$out'"; exit 1; }
 echo "ok: [Model : model] reactor driver composes + runs — '$out'"
