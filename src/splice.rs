@@ -18,8 +18,9 @@
 //! declaring a splice point in its own contract.
 //!
 //! Also here: the P0-measured rule that a spliced union must have two or more
-//! variants (glue unwraps a single-variant union to its payload and mis-types a
-//! multi-field one as `u64`; its own size assert then fails the build).
+//! variants. glue unwraps a single-variant union to its payload — the named
+//! Rust type the shim dispatches on then does not exist at all, and a
+//! multi-field payload is mis-typed as `u64` besides.
 
 use crate::resolve::Service;
 
@@ -214,17 +215,18 @@ pub fn union_variants(text: &str, name: &str) -> Option<Vec<usize>> {
     None
 }
 
-/// The P0 rule: a spliced union crosses glue intact only with two or more
-/// variants, or one variant carrying exactly one field.
+/// The P0 rule, tightened in P4: a spliced union crosses glue as a NAMED type
+/// only with two or more variants — a single-variant union is unwrapped to
+/// its payload and the shim would have nothing to name.
 pub fn check_spliceable(text: &str, name: &str) -> Result<(), String> {
     let Some(variants) = union_variants(text, name) else {
         return Err(format!("`{name}` is not a tag union (`{name} := [...]`)"));
     };
-    match variants.as_slice() {
-        [] => Err(format!("`{name}` has no variants")),
-        [one] if *one > 1 => Err(format!(
-            "`{name}` has ONE variant with {one} fields: glue unwraps a single-variant union and \
-             mis-types a multi-field payload (P0). Add a second variant or make the payload one record."
+    match variants.len() {
+        0 => Err(format!("`{name}` has no variants")),
+        1 => Err(format!(
+            "`{name}` has ONE variant: glue unwraps a single-variant union to its payload, so no \
+             `{name}` type exists for the service shim. Give it a second variant."
         )),
         _ => Ok(()),
     }
@@ -280,9 +282,9 @@ mod tests {
     }
 
     #[test]
-    fn single_multi_field_variant_is_rejected() {
+    fn single_variant_unions_are_rejected() {
         assert!(check_spliceable("Net := [Http(U64, Str, Str)]", "Net").is_err());
-        assert!(check_spliceable("Net := [Http({ a : U64 })]", "Net").is_ok());
+        assert!(check_spliceable("Net := [Http({ a : U64 })]", "Net").is_err()); // still one variant
         assert!(check_spliceable("Net := [Http(U64, Str), Stop]", "Net").is_ok());
     }
 

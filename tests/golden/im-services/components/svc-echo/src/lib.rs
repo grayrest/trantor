@@ -50,7 +50,7 @@ pub extern "C-unwind" fn hematite__svc_echo__cmd(_request: u64, cmd: Echo) -> Ro
 /// driver: the contract is uniform, so the shim can be generated without
 /// knowing which services are asynchronous.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_echo__complete(_token: *mut c_void) -> services::Completion<EchoEvent> {
+pub extern "C-unwind" fn hematite__svc_echo__complete(_token: *mut c_void) -> RocList<services::Completion<EchoEvent>> {
     unreachable!("svc-echo answers synchronously and never wakes the driver")
 }
 

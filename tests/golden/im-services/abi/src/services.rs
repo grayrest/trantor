@@ -23,9 +23,11 @@ pub struct Answer<E: Copy> {
     pub event: E,
 }
 
-/// What `complete` returns for a token the component woke the driver with.
+/// One of the completions `complete` returns for a token the component woke
+/// the driver with (zero or more per wake, in order; D-H7-20).
 #[repr(C)]
-pub struct Completion<E> {
+#[derive(Clone, Copy)]
+pub struct Completion<E: Copy> {
     pub request: u64,
     pub route_key: RocStr,
     pub event: E,
@@ -45,7 +47,7 @@ static CTX_ECHO: HostCtx = HostCtx { component_id: 1, wake: courier };
 unsafe extern "C-unwind" {
     fn hematite__svc_echo__init(ctx: *const HostCtx);
     fn hematite__svc_echo__cmd(request: u64, cmd: Echo) -> RocList<Answer<EchoEvent>>;
-    fn hematite__svc_echo__complete(token: *mut c_void) -> Completion<EchoEvent>;
+    fn hematite__svc_echo__complete(token: *mut c_void) -> RocList<Completion<EchoEvent>>;
     fn hematite__svc_echo__gate(name: RocStr, argv: RocList<RocStr>) -> i32;
 }
 
@@ -54,7 +56,7 @@ static CTX_TICK: HostCtx = HostCtx { component_id: 2, wake: courier };
 unsafe extern "C-unwind" {
     fn hematite__svc_tick__init(ctx: *const HostCtx);
     fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> RocList<Answer<TickEvent>>;
-    fn hematite__svc_tick__complete(token: *mut c_void) -> Completion<TickEvent>;
+    fn hematite__svc_tick__complete(token: *mut c_void) -> RocList<Completion<TickEvent>>;
     fn hematite__svc_tick__env() -> TickEnv;
     fn hematite__svc_tick__gate(name: RocStr, argv: RocList<RocStr>) -> i32;
 }
@@ -103,18 +105,24 @@ pub fn dispatch(cmd: &mut Cmd, request: u64) -> Option<Vec<(RocStr, Event)>> {
 }
 
 /// The runtime-thread half of a wake (D9): the component turns its token
-/// into a Roc event; the shim wraps it. `None` for an unknown component id.
-pub fn on_wake(component_id: u32, token: *mut c_void) -> Option<(u64, RocStr, Event)> {
+/// into zero or more Roc events, in order (D-H7-20); the shim wraps each.
+/// Empty for an unknown component id.
+pub fn on_wake(component_id: u32, token: *mut c_void) -> Vec<(u64, RocStr, Event)> {
+    let host = host();
     match component_id {
         ECHO_ID => {
-            let c = unsafe { hematite__svc_echo__complete(token) };
-            Some((c.request, c.route_key, Event { payload: EventPayload { echo: ManuallyDrop::new(c.event) }, tag: EventTag::Echo }))
+            let done = unsafe { hematite__svc_echo__complete(token) };
+            let out: Vec<(u64, RocStr, Event)> = done.as_slice().iter().map(|c| (c.request, c.route_key, Event { payload: EventPayload { echo: ManuallyDrop::new(c.event) }, tag: EventTag::Echo })).collect();
+            unsafe { done.decref(host) }; // shallow: each completion was copied out
+            out
         }
         TICK_ID => {
-            let c = unsafe { hematite__svc_tick__complete(token) };
-            Some((c.request, c.route_key, Event { payload: EventPayload { tick: ManuallyDrop::new(c.event) }, tag: EventTag::Tick }))
+            let done = unsafe { hematite__svc_tick__complete(token) };
+            let out: Vec<(u64, RocStr, Event)> = done.as_slice().iter().map(|c| (c.request, c.route_key, Event { payload: EventPayload { tick: ManuallyDrop::new(c.event) }, tag: EventTag::Tick })).collect();
+            unsafe { done.decref(host) }; // shallow: each completion was copied out
+            out
         }
-        _ => None,
+        _ => Vec::new(),
     }
 }
 

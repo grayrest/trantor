@@ -110,9 +110,10 @@ fn run() -> i32 {
     model = m;
     for _ in 0..promised {
         let Wake(id, token) = rx.recv().expect("wake channel closed");
-        let (_request, route_key, event) = services::on_wake(id, token).expect("unknown component woke");
-        unsafe { route_key.decref(host) };
-        model = unsafe { roc_im_route(model, event) };
+        for (_request, route_key, event) in services::on_wake(id, token) {
+            unsafe { route_key.decref(host) };
+            model = unsafe { roc_im_route(model, event) };
+        }
     }
     let view = unsafe { roc_im_view(model, env()) };
     println!("{}", render(&view.tree));

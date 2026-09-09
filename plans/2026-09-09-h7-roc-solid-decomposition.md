@@ -1,6 +1,8 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0–P3 DONE 2026-09-09; P4 (spawn) next.** P3: `notes` is the
+> **Status: P0–P4 DONE 2026-09-09; P5 (dbx) next.** P4: `spawn` is the first
+> asynchronous service out — wake courier, list-valued `complete` (D-H7-20),
+> `Stop` (D-H7-21). P3: `notes` is the
 > first service out (`crates/svc-notes`, `platform/interfaces/notes`), typed
 > end to end through the generated shim on the real host; D-H7-17/18/19 in
 > the log. P2: roc-solid's
@@ -101,7 +103,7 @@ mangled `hematite__<sanitize(component)>__<fn>`:
 | --- | --- | --- |
 | `init` | `(*const HostCtx)` | once, before the first frame; the component keeps the ctx |
 | `cmd` | `(request: u64, cmd: <Svc>Cmd) -> RocList<Answer>` where `Answer { route_key, event: <Svc>Event }` — the route key is the service's own payload field, returned per answer (D-H7-17) | each drained wrapper command; sync answers returned |
-| `complete` | `(token: *mut c_void) -> Completion { request, route_key, event: <Svc>Event }` | on the runtime thread after `ctx.wake(id, token)` |
+| `complete` | `(token: *mut c_void) -> RocList<Completion { request, route_key, event: <Svc>Event }>` — zero or more per wake, in order (D-H7-20) | on the runtime thread after `ctx.wake(id, token)` |
 | `env` | `() -> <Svc>Env` | once per frame, env components only |
 | `gate` | `(name: RocStr, argv: RocList<RocStr>) -> i32` | argv dispatch; −1 = not mine |
 
@@ -224,6 +226,15 @@ clean over 2 archives; `im-notesviewer` + `notesviewer-probe` green.
 `Spawn.Cmd := [Run(U64, Str, List(Str))]`, `Spawn.Event := [Line({ seq, last, ok, body })]`;
 `JobStream` polling moves behind `complete` (the child's reader thread wakes).
 Exit: `im-spawn`.
+
+**Outcome ✅ 2026-09-09.** As built: `crates/svc-spawn` (`spawn.rs`: the
+reader thread owns the child, coalesces wakes, reaps at EOF; `contract.rs`),
+`platform/interfaces/spawn/{Spawn,SpawnEvent}.roc` — `Spawn := [Run(U64,
+Str, Str, List(Str)), Stop(U64, Str)]` (D-H7-21), `SpawnEvent := [Lines(U64,
+List(Str)), Exited(U64, I32), Failed(Str)]`; `complete` returns a list
+(D-H7-20); the engine's `JobStream`/`pump_jobs` are gone and
+`pump_service_wakes` + the window nudge carry every async service from here.
+Scan clean over 3 archives; `im-spawn` green.
 
 ### P5 — `svc-dbx` (async + the exit's sqlite)
 

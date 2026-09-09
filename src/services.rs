@@ -6,14 +6,16 @@
 //! component's contract — `hematite__<c>__init(*const HostCtx)`,
 //! `__cmd(request, M) -> RocList<Answer<MEvent>>` (the route key lives in the
 //! service's own payload and comes back in each `Answer`; D-H7-17),
-//! `__complete(token) -> Completion<MEvent>`, `__env() -> MEnv`,
+//! `__complete(token) -> RocList<Completion<MEvent>>` (a wake yields 0..n
+//! completions, in order — a coalesced no-op says nothing, a dying child's
+//! last lines precede its exit; D-H7-20), `__env() -> MEnv`,
 //! `__gate(name, argv) -> i32` — and gives the driver:
 //!   - `init(wake)`: hands every component its `HostCtx` (D8);
 //!   - `dispatch(&mut cmd, request)`: one arm per wrapper variant,
 //!     moving the payload to the component and wrapping its answers back into
 //!     the world's `Event`; `None` for a core variant (the driver's own);
 //!   - `on_wake(id, token)`: the runtime-thread half of D9 — the component's
-//!     `complete` builds the Roc value, the shim wraps it;
+//!     `complete` builds the Roc values, the shim wraps each;
 //!   - `env_<m>()`: each env block, for the driver's per-frame `Env` assembly;
 //!   - `gate(name, argv)`: the chain, components before the driver (D-H7-8).
 //!
@@ -68,9 +70,11 @@ pub struct Answer<E: Copy> {
     pub event: E,
 }
 
-/// What `complete` returns for a token the component woke the driver with.
+/// One of the completions `complete` returns for a token the component woke
+/// the driver with (zero or more per wake, in order; D-H7-20).
 #[repr(C)]
-pub struct Completion<E> {
+#[derive(Clone, Copy)]
+pub struct Completion<E: Copy> {
     pub request: u64,
     pub route_key: RocStr,
     pub event: E,
@@ -103,7 +107,7 @@ fn component_decls(svc: &Service, id: u32) -> String {
         Some(ev) => {
             s.push_str(&format!(
                 "    fn {p}cmd(request: u64, cmd: {m}) -> RocList<Answer<{ev}>>;\n\
-                 \x20   fn {p}complete(token: *mut c_void) -> Completion<{ev}>;\n"
+                 \x20   fn {p}complete(token: *mut c_void) -> RocList<Completion<{ev}>>;\n"
             ));
         }
         None => s.push_str(&format!("    fn {p}cmd(request: u64, cmd: {m});\n")),
@@ -178,19 +182,23 @@ fn dispatch_fn(services: &[Service]) -> String {
 fn on_wake_fn(services: &[Service]) -> String {
     let mut s = String::from(
         "/// The runtime-thread half of a wake (D9): the component turns its token\n\
-         /// into a Roc event; the shim wraps it. `None` for an unknown component id.\n\
-         pub fn on_wake(component_id: u32, token: *mut c_void) -> Option<(u64, RocStr, Event)> {\n    match component_id {\n",
+         /// into zero or more Roc events, in order (D-H7-20); the shim wraps each.\n\
+         /// Empty for an unknown component id.\n\
+         pub fn on_wake(component_id: u32, token: *mut c_void) -> Vec<(u64, RocStr, Event)> {\n\
+         \x20   let host = host();\n    match component_id {\n",
     );
     for svc in services.iter().filter(|s| s.event_module.is_some()) {
         s.push_str(&format!(
-            "        {id}_ID => {{\n            let c = unsafe {{ {p}complete(token) }};\n\
-             \x20           Some((c.request, c.route_key, {ev}))\n        }}\n",
+            "        {id}_ID => {{\n            let done = unsafe {{ {p}complete(token) }};\n\
+             \x20           let out: Vec<(u64, RocStr, Event)> = done.as_slice().iter().map(|c| (c.request, c.route_key, {ev})).collect();\n\
+             \x20           unsafe {{ done.decref(host) }}; // shallow: each completion was copied out\n\
+             \x20           out\n        }}\n",
             id = upper(&svc.module),
             p = svc.symbol_prefix(),
             ev = wrap_event(svc, "c.event")
         ));
     }
-    s.push_str("        _ => None,\n    }\n}\n\n");
+    s.push_str("        _ => Vec::new(),\n    }\n}\n\n");
     s
 }
 

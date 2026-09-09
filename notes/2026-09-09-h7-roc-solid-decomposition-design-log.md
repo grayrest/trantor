@@ -405,6 +405,36 @@ host-minted request as `route`'s parameter, exactly as before. A wake courier
 asynchronous service. roc's warnings-fail discipline caught the one app-side
 slip (a shadowed name).
 
+## P4 decisions (2026-09-09) — the first asynchronous service
+
+**D-H7-20 — `complete(token) -> RocList<Completion<E>>`: a wake yields zero or
+more completions, in order.** A child's reader thread coalesces wakes (a burst
+of lines costs one), and at EOF it must deliver the last lines AND the exit —
+the invariant the whole process split exists for. One completion per wake
+loses that tail; a coalesced no-op wake has no representation. General for
+every later async service (dbx rows then done, net chunks). Amends D-H7-7.
+
+**D-H7-21 — A spliced union needs two or more variants, full stop.** P0's
+allowance for "one single-field variant" was wrong for the shim: glue
+unwraps a single-variant union to its payload, so the named Rust type the
+shim dispatches on does not exist at all. `Spawn` had one command; its second
+is `Stop(job, route_key)` — kill the child — a real, small capability its own
+doc reasons about, answered like any signal death (`Exited(seq, -1)`).
+Rejected: two shapes of `Run` (an artificial split); waiting on an upstream
+glue change (stalls every one-command service).
+
+**Measured on the real host:** the stream is typed — `SpawnEvent.Lines(seq,
+List(Str))` batches, `Exited(seq, code)`, `Failed(reason)` — and reaches the
+app through `HostCtx.wake` → `take_wakes` → `on_wake` → `route`, with the
+window nudged through the same `EventLoopProxy` the SQL worker uses
+(`set_service_nudge`); headless gates just pump. The engine's `JobStream`,
+`pump_jobs` and its per-frame `Poll` mode for children are gone (audio still
+polls). The reader thread now OWNS the child and reaps it at EOF, so the exit
+is never reported before the last line is taken. `im-spawn` passes unchanged
+in what it asserts: order, a killed job's partial output, a failed start
+answered. Tokens are `Box<u64>` job ids, allocated per wake in the component
+and freed in `complete` (D9) — the first time that rule runs for real.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

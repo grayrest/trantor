@@ -50,18 +50,22 @@ pub extern "C-unwind" fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> Roc
     RocList::empty()
 }
 
-/// Runtime thread only: turn the token into a Roc event and free the token.
+/// Runtime thread only: turn the token into Roc events and free the token.
+/// One wake, one tick here; a wake may carry several (or none) in general
+/// (D-H7-20), hence the list.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_tick__complete(token: *mut c_void) -> Completion {
+pub extern "C-unwind" fn hematite__svc_tick__complete(token: *mut c_void) -> RocList<Completion> {
     // SAFETY: `token` came from `Box::into_raw` in this crate and is handed
     // back exactly once.
     let p = unsafe { Box::from_raw(token as *mut Pending) };
     TICKS.fetch_add(1, Ordering::Relaxed);
-    Completion {
+    let host = abi::host();
+    let done = [Completion {
         request: p.request,
-        route_key: RocStr::from_str(&p.route_key, abi::host()),
+        route_key: RocStr::from_str(&p.route_key, host),
         event: TickEvent { payload: TickEventPayload { ticked: core::mem::ManuallyDrop::new(p.n) }, tag: TickEventTag::Ticked },
-    }
+    }];
+    unsafe { RocList::from_slice(&done, host) }
 }
 
 /// The env block: read once per frame by the driver's env assembly.
