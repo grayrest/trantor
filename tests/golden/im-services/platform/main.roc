@@ -19,8 +19,8 @@ platform ""
 	}
 	targets: {
 		inputs_dir: "targets/",
-		arm64mac: { inputs: ["libsvc_echo.a", "libsvc_tick.a", "libimview.a", app] },
-		x64mac: { inputs: ["libsvc_echo.a", "libsvc_tick.a", "libimview.a", app] },
+		arm64mac: { inputs: ["libimview.a", "libsvc_echo.a", "libsvc_tick.a", app] },
+		x64mac: { inputs: ["libimview.a", "libsvc_echo.a", "libsvc_tick.a", app] },
 	}
 
 import Element

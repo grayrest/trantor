@@ -1,4 +1,4 @@
 module = "Tick"
-cmd = "Cmd"
-event = "Event"
-env = "Env"
+kind = "service"
+event_module = "TickEvent"
+env_module = "TickEnv"

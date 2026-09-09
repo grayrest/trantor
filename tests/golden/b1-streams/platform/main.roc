@@ -14,8 +14,8 @@ platform ""
 	}
 	targets: {
 		inputs_dir: "targets/",
-		arm64mac: { inputs: ["libsync_io.a", "libfile.a", "libmemory.a", "libcli.a", app] },
-		x64mac: { inputs: ["libsync_io.a", "libfile.a", "libmemory.a", "libcli.a", app] },
+		arm64mac: { inputs: ["libcli.a", "libsync_io.a", "libfile.a", "libmemory.a", app] },
+		x64mac: { inputs: ["libcli.a", "libsync_io.a", "libfile.a", "libmemory.a", app] },
 	}
 
 import FileIo

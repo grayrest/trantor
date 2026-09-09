@@ -6,17 +6,11 @@ use core::ffi::c_void;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use hematite_abi as abi;
+use abi::services::{self, HostCtx};
 use abi::{Echo, EchoEvent, EchoEventPayload, EchoEventTag, EchoTag, RocList, RocStr};
 
-#[repr(C)]
-pub struct HostCtx {
-    pub component_id: u32,
-    pub wake: extern "C" fn(u32, *mut c_void),
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Answer { pub route_key: RocStr, pub event: EchoEvent }
+/// The contract types come from the generated shim (D-H7-7).
+type Answer = services::Answer<EchoEvent>;
 
 static CTX: AtomicPtr<HostCtx> = AtomicPtr::new(core::ptr::null_mut());
 
@@ -48,6 +42,14 @@ pub extern "C-unwind" fn hematite__svc_echo__cmd(_request: u64, route_key: RocSt
     unsafe { cmd.decref(host) };
     let answers = [Answer { route_key, event }];
     unsafe { RocList::from_slice(&answers, host) }
+}
+
+/// A service with events must export `complete` even when it never wakes the
+/// driver: the contract is uniform, so the shim can be generated without
+/// knowing which services are asynchronous.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn hematite__svc_echo__complete(_token: *mut c_void) -> services::Completion<EchoEvent> {
+    unreachable!("svc-echo answers synchronously and never wakes the driver")
 }
 
 /// Gate hook (D-H7-8): −1 = not mine.

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# P0 spike (plan 2026-09-09 H7, D-H7-5/7/8/11): a reactor driver + two service
-# components with per-component unions spliced into the world's Cmd/Event/Env.
-# Measures: (1) the nested-union wrapper crossing OUT (List(Cmd)) and IN
+# H7 service components (plan 2026-09-09, D-H7-5/6/7/8/13): a reactor driver
+# + two service components. The driver ships Cmd/Event/Env with splice markers
+# hematite fills; the abi crate's generated services.rs shim carries the
+# contract. Asserts: (1) the wrapper unions cross OUT (List(Cmd)) and IN
 # (Event) of Roc; (2) HostCtx.wake from a worker thread -> runtime-thread
-# complete; (3) the env block; (4) the gate hook chain; (5) the allocator-shim
-# symbol class per archive (recorded, not asserted).
+# complete; (3) the env block; (4) the gate hook chain; (5) records the
+# allocator-shim symbol class per archive (one first-wins v0-mangled symbol —
+# the reason the driver archive is linked first).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 FIX=tests/golden/im-services
@@ -31,7 +33,7 @@ echo "ok: gate chain — component answered echo-gate (7), driver answered drive
 # (5) allocator shims: which class does each archive define them in? Feeds
 # D-H7-11 (per-archive allocators) and the H0c exemption model.
 for a in "$FIX"/platform/targets/arm64mac/lib*.a; do
-	cls=$( { nm -m "$a" 2>/dev/null || true; } | { grep -E " ___(rust_alloc|rdl_alloc|rg_oom)\b" || true; } | sed -E 's/^[^)]*\) ([a-z ]+external|non-external).*/\1/' | sort -u | tr '\n' ',' )
+	cls=$( { nm -m "$a" 2>/dev/null || true; } | { grep -E "___rust_alloc$" || true; } | sed -E 's/^[^)]*\) ([a-z ]+external|non-external).*/\1/' | sort -u | tr '\n' ',' )
 	echo "   $(basename "$a"): rust_alloc shims = ${cls:-absent}"
 done
-echo "H7 P0 (service components: unions, wake, env, gates) PASS"
+echo "H7 service components (spliced unions, generated shim, wake, env, gates) PASS"

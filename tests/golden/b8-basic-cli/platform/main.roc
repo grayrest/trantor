@@ -90,8 +90,8 @@ platform ""
 	}
 	targets: {
 		inputs_dir: "targets/",
-		arm64mac: { inputs: ["libcell.a", "libclocks_host.a", "libhttp_host.a", "liblocale_host.a", "librandom_host.a", "libsubprocess_host.a", "libsync_io.a", "libtemporal_host.a", "libtestnet_host.a", "libcli_host.a", "libfs_unconfined.a", "libsockets_host.a", "libmain_driver.a", app] },
-		x64mac: { inputs: ["libcell.a", "libclocks_host.a", "libhttp_host.a", "liblocale_host.a", "librandom_host.a", "libsubprocess_host.a", "libsync_io.a", "libtemporal_host.a", "libtestnet_host.a", "libcli_host.a", "libfs_unconfined.a", "libsockets_host.a", "libmain_driver.a", app] },
+		arm64mac: { inputs: ["libmain_driver.a", "libcell.a", "libclocks_host.a", "libhttp_host.a", "liblocale_host.a", "librandom_host.a", "libsubprocess_host.a", "libsync_io.a", "libtemporal_host.a", "libtestnet_host.a", "libcli_host.a", "libfs_unconfined.a", "libsockets_host.a", app] },
+		x64mac: { inputs: ["libmain_driver.a", "libcell.a", "libclocks_host.a", "libhttp_host.a", "liblocale_host.a", "librandom_host.a", "libsubprocess_host.a", "libsync_io.a", "libtemporal_host.a", "libtestnet_host.a", "libcli_host.a", "libfs_unconfined.a", "libsockets_host.a", app] },
 	}
 
 import Cell

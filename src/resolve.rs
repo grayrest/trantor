@@ -1,5 +1,5 @@
 //! Resolution: parse the wiring DAG, compute the mangled hosted-symbol map,
-//! order the archives topologically (driver last), and run the compose-time
+//! order the archives (driver first, then topologically), and run the compose-time
 //! checks the linker will NOT do (H0c): exactly one runtime provider, and no
 //! duplicate ownership of a hosted symbol.
 
@@ -20,8 +20,9 @@ pub struct HostedBinding {
 pub struct Resolved {
     /// Hosted bindings, in a deterministic order (by interface name).
     pub hosted: Vec<HostedBinding>,
-    /// Host/driver component archive base names, topologically ordered
-    /// (a component appears after the ones it imports from), driver LAST.
+    /// Host/driver component archive base names: the driver FIRST (D-H7-13:
+    /// its allocator shims win the first-wins link), then the hosts
+    /// topologically (a component appears after the ones it imports from).
     pub archive_order: Vec<String>,
     /// Roc modules to import in the composed main.roc.
     pub imports: Vec<String>,
@@ -33,6 +34,31 @@ pub struct Resolved {
     /// is copied from the shim component (it ships the binding module WITH
     /// bodies), and it gets NO hosted{} entry (D13: a Roc shim forwards).
     pub roc_impls: Vec<(String, String)>,
+    /// Service components (D-H7-5/7), in interface-name order: each one's
+    /// wrapper is spliced into the driver's Cmd/Event/Env and the generated
+    /// `abi/src/services.rs` shim dispatches to its contract symbols.
+    pub services: Vec<Service>,
+    /// Extra interface modules to copy into platform/ beyond `interface_modules`
+    /// (a service's event/env modules): (interface name, module).
+    pub extra_modules: Vec<(String, String)>,
+}
+
+/// One service component and the modules it ships (D-H7-5, one nominal per
+/// module: `Notes` is the command union, `NotesEvent` the events, `NotesEnv`
+/// the ambient block).
+#[derive(Debug, Clone)]
+pub struct Service {
+    pub component: String,
+    pub module: String,
+    pub event_module: Option<String>,
+    pub env_module: Option<String>,
+}
+
+impl Service {
+    /// The mangled prefix of the component's contract symbols.
+    pub fn symbol_prefix(&self) -> String {
+        format!("hematite__{}__", sanitize(&self.component))
+    }
 }
 
 /// Sanitize a component name into the identifier segment of a mangled linker
@@ -66,12 +92,35 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
     let mut hosted = Vec::new();
     let mut interface_modules = BTreeMap::new();
     let mut roc_impls = Vec::new();
+    let mut services = Vec::new();
+    let mut extra_modules = Vec::new();
     for (iface_name, chain_expr) in &world.wiring {
         let chain = parse_chain(chain_expr);
         let head = chain.first().ok_or_else(|| format!("empty wiring for {iface_name}"))?;
         let iface: Interface = crate::manifest::load_interface(dir, iface_name)?;
         interface_modules.insert(iface_name.clone(), iface.module.clone());
         let head_kind = world.components.get(head).map(|c| c.kind.as_str()).unwrap_or("host");
+        if iface.is_service() {
+            // D-H7-5: a service ships unions the driver's Cmd/Event splice; the
+            // wired component implements the D-H7-7 contract, not hosted leaves.
+            if head_kind != "host" || chain.len() != 1 {
+                return Err(format!(
+                    "service interface `{iface_name}` must be wired to exactly one host component \
+                     (got `{chain_expr}`)"
+                ));
+            }
+            check_service_unions(dir, iface_name, &iface)?;
+            for m in [&iface.event_module, &iface.env_module].into_iter().flatten() {
+                extra_modules.push((iface_name.clone(), m.clone()));
+            }
+            services.push(Service {
+                component: head.clone(),
+                module: iface.module.clone(),
+                event_module: iface.event_module.clone(),
+                env_module: iface.env_module.clone(),
+            });
+            continue;
+        }
         if head_kind == "roc" {
             // D19: a Roc shim serves Roc consumers. It ships the binding module
             // WITH bodies (forwarding to its own impl), so no hosted symbol.
@@ -192,7 +241,11 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
             return Err(format!("cycle in host component imports among {host_like:?}"));
         }
     }
-    ordered.push(driver_name.clone()); // driver archive last
+    // The driver archive FIRST (D-H7-13): the Rust allocator shims are one
+    // first-wins symbol per link, so the driver's `#[global_allocator]` is the
+    // binary's only if its archive is scanned first. Hosted symbols resolve
+    // lazily in both directions (H0e, P0), so order never carried them.
+    ordered.insert(0, driver_name.clone());
 
     // --- imports for main.roc: hosted binding modules (wiring order),
     //     pure-Roc exported modules, then shared type modules (io etc.) ---
@@ -223,5 +276,21 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
         driver: driver_name,
         interface_modules,
         roc_impls,
+        services,
+        extra_modules,
     })
+}
+
+/// The P0 rule for a service's spliced unions: two or more variants (or one
+/// single-field variant), checked against the interface's shipped modules
+/// before roc or glue ever run.
+fn check_service_unions(dir: &Path, iface_name: &str, iface: &Interface) -> Result<(), String> {
+    let idir = dir.join("interfaces").join(iface_name);
+    for module in [Some(&iface.module), iface.event_module.as_ref()].into_iter().flatten() {
+        let p = idir.join(format!("{module}.roc"));
+        let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
+        crate::splice::check_spliceable(&text, module)
+            .map_err(|e| format!("service `{iface_name}`: {e} (in {})", p.display()))?;
+    }
+    Ok(())
 }

@@ -12,8 +12,8 @@ platform ""
 	}
 	targets: {
 		inputs_dir: "targets/",
-		arm64mac: { inputs: ["libcapstdfs.a", "libenv.a", "libstdio.a", "libaudit.a", "libcli.a", app] },
-		x64mac: { inputs: ["libcapstdfs.a", "libenv.a", "libstdio.a", "libaudit.a", "libcli.a", app] },
+		arm64mac: { inputs: ["libcli.a", "libcapstdfs.a", "libenv.a", "libstdio.a", "libaudit.a", app] },
+		x64mac: { inputs: ["libcli.a", "libcapstdfs.a", "libenv.a", "libstdio.a", "libaudit.a", app] },
 	}
 
 import Env

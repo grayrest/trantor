@@ -15,8 +15,8 @@ platform ""
 	}
 	targets: {
 		inputs_dir: "targets/",
-		arm64mac: { inputs: ["libstd_stdio.a", "libcli.a", app] },
-		x64mac: { inputs: ["libstd_stdio.a", "libcli.a", app] },
+		arm64mac: { inputs: ["libcli.a", "libstd_stdio.a", app] },
+		x64mac: { inputs: ["libcli.a", "libstd_stdio.a", app] },
 	}
 
 import Stdio

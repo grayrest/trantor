@@ -4,6 +4,7 @@
 #![allow(dead_code, non_camel_case_types, improper_ctypes, improper_ctypes_definitions, unexpected_cfgs)]
 mod generated;
 pub use generated::*;
+pub mod services;
 
 use std::sync::OnceLock;
 

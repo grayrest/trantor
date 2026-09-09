@@ -21,6 +21,8 @@ mod manifest;
 mod publish;
 mod resolve;
 mod scan;
+mod services;
+mod splice;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -114,7 +116,7 @@ fn run(args: &[String]) -> Result<(), String> {
     }
 
     let world = manifest::load_world(&dir, &world_file)?;
-    let driver = manifest::load_driver(&dir, &world.world.driver)?;
+    let driver = manifest::load_driver(&dir, &world)?;
     let resolved = resolve::resolve(&dir, &world, &driver)?;
     codegen::emit(&dir, &out, &world, &driver, &resolved)?;
 

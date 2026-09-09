@@ -38,6 +38,7 @@ main = {
 			Event.Echo(EchoEvent.Pong(s)) => "pong:${s}"
 			Event.Echo(EchoEvent.Shouted(s, n)) => "shouted:${s}:${n.to_str()}"
 			Event.Tick(TickEvent.Ticked(n)) => "tick:${n.to_str()}"
+			Event.Tick(TickEvent.Stopped) => "stopped"
 		}
 		{ ..model, log: List.append(model.log, line), outbox: [] }
 	},

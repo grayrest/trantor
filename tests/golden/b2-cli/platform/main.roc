@@ -24,8 +24,8 @@ platform ""
 	}
 	targets: {
 		inputs_dir: "targets/",
-		arm64mac: { inputs: ["libsync_io.a", "libcli_host.a", "libmain_driver.a", app] },
-		x64mac: { inputs: ["libsync_io.a", "libcli_host.a", "libmain_driver.a", app] },
+		arm64mac: { inputs: ["libmain_driver.a", "libsync_io.a", "libcli_host.a", app] },
+		x64mac: { inputs: ["libmain_driver.a", "libsync_io.a", "libcli_host.a", app] },
 	}
 
 import CliEnv

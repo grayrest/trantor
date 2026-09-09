@@ -1,5 +1,6 @@
-# P0 spike world (plan 2026-09-09 H7): imview-slice + two service components,
-# hand-wired the way P1's generated services shim will wire them.
+# H7 service-component fixture (plan 2026-09-09): imview-slice + a sync service
+# (echo) and an async one with an env block (tick). P0 hand-wired it; P1 wires
+# it through the generated abi/src/services.rs shim and the splice markers.
 [world]
 name = "imsvc"
 driver = "imview"
@@ -7,27 +8,17 @@ exports = ["Element", "Env", "Cmd", "Event", "Echo", "EchoEvent", "Tick", "TickE
 
 [interfaces.ui]
 source = "roc:ui/element@0.1.0"
-[interfaces.env]
-source = "roc:ui/env@0.1.0"
-[interfaces.cmd]
-source = "roc:ui/cmd@0.1.0"
-[interfaces.event]
-source = "roc:ui/event@0.1.0"
 [interfaces.echo]
 source = "test:echo@0.1.0"
 [interfaces.tick]
 source = "test:tick@0.1.0"
-[interfaces.echo-event]
-source = "test:echo/event@0.1.0"
-[interfaces.tick-event]
-source = "test:tick/event@0.1.0"
-[interfaces.tick-env]
-source = "test:tick/env@0.1.0"
 
 [components.imview]
 kind = "driver"
 lang = "rust"
 provides_runtime = true
+# The driver ships its contract modules; Cmd/Event/Env carry splice markers.
+exports = ["Cmd", "Event", "Env"]
 requires_uses = ["Env", "Element", "Cmd", "Event"]
 
 [components.svc-echo]

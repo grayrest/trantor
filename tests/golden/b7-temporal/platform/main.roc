@@ -68,8 +68,8 @@ platform ""
 	}
 	targets: {
 		inputs_dir: "targets/",
-		arm64mac: { inputs: ["libcell.a", "libclocks_host.a", "liblocale_host.a", "librandom_host.a", "libsync_io.a", "libtemporal_host.a", "libcli_host.a", "libfs_unconfined.a", "libmain_driver.a", app] },
-		x64mac: { inputs: ["libcell.a", "libclocks_host.a", "liblocale_host.a", "librandom_host.a", "libsync_io.a", "libtemporal_host.a", "libcli_host.a", "libfs_unconfined.a", "libmain_driver.a", app] },
+		arm64mac: { inputs: ["libmain_driver.a", "libcell.a", "libclocks_host.a", "liblocale_host.a", "librandom_host.a", "libsync_io.a", "libtemporal_host.a", "libcli_host.a", "libfs_unconfined.a", app] },
+		x64mac: { inputs: ["libmain_driver.a", "libcell.a", "libclocks_host.a", "liblocale_host.a", "librandom_host.a", "libsync_io.a", "libtemporal_host.a", "libcli_host.a", "libfs_unconfined.a", app] },
 	}
 
 import Cell

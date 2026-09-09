@@ -13,8 +13,8 @@ platform ""
 	}
 	targets: {
 		inputs_dir: "targets/",
-		arm64mac: { inputs: ["libcell.a", "libenv.a", "libstdio.a", "libcli.a", app] },
-		x64mac: { inputs: ["libcell.a", "libenv.a", "libstdio.a", "libcli.a", app] },
+		arm64mac: { inputs: ["libcli.a", "libcell.a", "libenv.a", "libstdio.a", app] },
+		x64mac: { inputs: ["libcli.a", "libcell.a", "libenv.a", "libstdio.a", app] },
 	}
 
 import Cell

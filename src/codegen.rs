@@ -7,7 +7,7 @@
 //!   - components/<driver>/…        (the driver crate: runtime + main)
 //!   - abi/Cargo.toml, abi/src/lib.rs
 
-use crate::manifest::{Driver, World};
+use crate::manifest::{component_dir, module_path, Driver, World};
 use crate::resolve::Resolved;
 use std::path::Path;
 
@@ -38,14 +38,39 @@ pub fn emit(
 
     w("platform/main.roc", main_roc(world, driver, r))?;
     w("Cargo.toml", workspace_toml(world, r))?;
-    w(&format!("components/{}/Cargo.toml", r.driver), driver_cargo(&r.driver))?;
-    // A CLI driver's host is generated; a reactor driver (authored_host) ships
-    // its own src/lib.rs and hematite must not clobber it (H7 finding).
-    if !driver.authored_host {
-        w(&format!("components/{}/src/lib.rs", r.driver), driver_lib(driver))?;
+    // A driver living at its own `path` is an authored crate end to end:
+    // hematite writes nothing into it (D-H7-4). Otherwise the crate manifest is
+    // generated, and so is the host unless the driver authors it (a reactor
+    // driver ships its own src/lib.rs; H7 finding).
+    let driver_component = &world.components[&r.driver];
+    if driver_component.path.is_none() {
+        w(&format!("components/{}/Cargo.toml", r.driver), driver_cargo(&r.driver))?;
+        if !driver.authored_host {
+            w(&format!("components/{}/src/lib.rs", r.driver), driver_lib(driver))?;
+        }
     }
     w("abi/Cargo.toml", abi_cargo())?;
-    w("abi/src/lib.rs", abi_lib())?;
+    let shim = crate::services::services_rs(r);
+    w("abi/src/lib.rs", abi_lib(shim.is_some()))?;
+    if let Some(text) = shim {
+        w("abi/src/services.rs", text)?;
+    }
+    // A service's event/env modules ship beside its command module.
+    for (iface, module) in &r.extra_modules {
+        let from = src.join("interfaces").join(iface).join(format!("{module}.roc"));
+        copy(&from, &format!("platform/{module}.roc"))?;
+    }
+    // The driver's own contract modules (Cmd/Event/Env/…): copied from its
+    // crate with the `## @hematite(...)` blocks filled (D-H7-6).
+    let ddir = component_dir(src, &r.driver, driver_component);
+    for module in &driver_component.exports {
+        let from = module_path(&ddir, module);
+        let text = std::fs::read_to_string(&from)
+            .map_err(|e| format!("driver `{}` exports `{module}`: read {}: {e}", r.driver, from.display()))?;
+        let spliced = crate::splice::splice(&text, &r.services)
+            .map_err(|e| format!("{}: {e}", from.display()))?;
+        w(&format!("platform/{module}.roc"), spliced)?;
+    }
 
     // Roc-implemented wiring points: the shim ships the binding module WITH
     // bodies; copy it from the shim component, and skip the interface's
@@ -53,7 +78,7 @@ pub fn emit(
     let roc_modules: std::collections::BTreeSet<&str> =
         r.roc_impls.iter().map(|(m, _)| m.as_str()).collect();
     for (module, component) in &r.roc_impls {
-        let from = src.join("components").join(component).join(format!("{module}.roc"));
+        let from = module_path(&component_dir(src, component, &world.components[component]), module);
         if from.exists() {
             copy(&from, &format!("platform/{module}.roc"))?;
         }
@@ -81,7 +106,7 @@ pub fn emit(
                     Some((m, a)) => (m.trim(), a.trim()),
                     None => (entry.as_str(), entry.as_str()),
                 };
-                let from = src.join("components").join(name).join(format!("{module}.roc"));
+                let from = module_path(&component_dir(src, name, c), module);
                 if !from.exists() {
                     continue;
                 }
@@ -110,6 +135,14 @@ pub fn emit(
         }
         if c.features.is_empty() && c.default_features.is_none() {
             continue;
+        }
+        if c.path.is_some() {
+            // The rewrite edits the crate's own Cargo.toml; a crate at its own
+            // path is shared between worlds, which must not fight over it.
+            return Err(format!(
+                "component `{name}`: `features`/`default_features` are not supported with `path` \
+                 (the knob rewrites the crate's Cargo.toml in place)"
+            ));
         }
         let rel = format!("components/{name}/Cargo.toml");
         let from = src.join(&rel);
@@ -227,6 +260,15 @@ fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {
     s.push_str("\t\tinputs_dir: \"targets/\",\n");
     s.push_str(&format!("\t\tarm64mac: {{ inputs: {inputs} }},\n"));
     s.push_str(&format!("\t\tx64mac: {{ inputs: {inputs} }},\n"));
+    if !driver.wasm_exports.is_empty() {
+        // ONE merged host.wasm (D-H7-9 revised): roc links wasm inputs
+        // --whole-archive, so per-component inputs collide; `build` merges.
+        let exports: Vec<String> = driver.wasm_exports.iter().map(|e| format!("\"{e}\"")).collect();
+        s.push_str(&format!(
+            "\t\twasm32: {{ inputs: [\"host.wasm\", app], output: Shared, exports: [{}] }},\n",
+            exports.join(", ")
+        ));
+    }
     s.push_str("\t}\n\n");
     for m in &r.imports {
         s.push_str(&format!("import {m}\n"));
@@ -243,7 +285,10 @@ fn workspace_toml(world: &World, r: &Resolved) -> String {
     let mut members = vec!["\"abi\"".to_string()];
     for (name, c) in &world.components {
         if c.kind != "roc" {
-            members.push(format!("\"components/{name}\""));
+            match &c.path {
+                Some(p) => members.push(format!("\"{p}\"")),
+                None => members.push(format!("\"components/{name}\"")),
+            }
         }
     }
     let _ = r;
@@ -333,7 +378,10 @@ fn abi_cargo() -> String {
     )
 }
 
-fn abi_lib() -> String {
+fn abi_lib(with_services: bool) -> String {
+    // Byte-identical to the pre-services output when the world has none (the
+    // byte-for-byte goldens compare this file).
+    let services_mod = if with_services { "pub mod services;\n" } else { "" };
     format!(
         r#"{GEN_RS}
 //! The one ABI crate (D4/D10): `roc glue` output (generated.rs) plus this thin
@@ -341,7 +389,7 @@ fn abi_lib() -> String {
 #![allow(dead_code, non_camel_case_types, improper_ctypes, improper_ctypes_definitions, unexpected_cfgs)]
 mod generated;
 pub use generated::*;
-
+{services_mod}
 use std::sync::OnceLock;
 
 unsafe impl Sync for RocHost {{}}

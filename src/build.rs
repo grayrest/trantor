@@ -83,7 +83,7 @@ pub fn build(
 ) -> Result<(), String> {
     // 1. compose (in-process).
     let world = crate::manifest::load_world(dir, world_file)?;
-    let driver = crate::manifest::load_driver(dir, &world.world.driver)?;
+    let driver = crate::manifest::load_driver(dir, &world)?;
     let resolved = crate::resolve::resolve(dir, &world, &driver)?;
     crate::codegen::emit(dir, dir, &world, &driver, &resolved)?;
     eprintln!("hematite build: composed `{}`", world.world.name);

@@ -9,20 +9,12 @@
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use hematite_abi as abi;
-use abi::{RocList, RocStr, Tick, TickEnv, TickTag};
+use abi::services::{self, HostCtx};
+use abi::{RocList, RocStr, Tick, TickEnv, TickEvent, TickEventPayload, TickEventTag, TickTag};
 
-#[repr(C)]
-pub struct HostCtx {
-    pub component_id: u32,
-    pub wake: extern "C" fn(u32, *mut c_void),
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Answer { pub route_key: RocStr, pub event: u64 }
-
-#[repr(C)]
-pub struct Completion { pub request: u64, pub route_key: RocStr, pub event: u64 }
+/// The contract types come from the generated shim (D-H7-7).
+type Answer = services::Answer<TickEvent>;
+type Completion = services::Completion<TickEvent>;
 
 /// Component-owned; travels as the opaque wake token.
 struct Pending { request: u64, route_key: String, n: u64 }
@@ -67,7 +59,11 @@ pub extern "C-unwind" fn hematite__svc_tick__complete(token: *mut c_void) -> Com
     // back exactly once.
     let p = unsafe { Box::from_raw(token as *mut Pending) };
     TICKS.fetch_add(1, Ordering::Relaxed);
-    Completion { request: p.request, route_key: RocStr::from_str(&p.route_key, abi::host()), event: p.n }
+    Completion {
+        request: p.request,
+        route_key: RocStr::from_str(&p.route_key, abi::host()),
+        event: TickEvent { payload: TickEventPayload { ticked: core::mem::ManuallyDrop::new(p.n) }, tag: TickEventTag::Ticked },
+    }
 }
 
 /// The env block: read once per frame by the driver's env assembly.

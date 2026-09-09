@@ -5,7 +5,7 @@
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 pub struct World {
@@ -90,6 +90,32 @@ pub struct Component {
     /// `#[link(name = "…", kind = "framework")]`. Host components only.
     #[serde(default)]
     pub frameworks: Vec<String>,
+    /// Where the component lives, relative to the world dir, when it is not
+    /// under `components/<name>/` (D-H7-4: a crate has one home —
+    /// `path = "../../crates/svc-notes"`). Its Roc modules are looked up in
+    /// `<dir>/roc/` first, then `<dir>/` (see `module_path`).
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+/// The directory a component's sources live in: `path` if declared, else
+/// `components/<name>/` under the world dir.
+pub fn component_dir(world_dir: &Path, name: &str, c: &Component) -> PathBuf {
+    match &c.path {
+        Some(p) => world_dir.join(p),
+        None => world_dir.join("components").join(name),
+    }
+}
+
+/// A component's Roc module file: `<dir>/roc/<Module>.roc` when the component
+/// keeps its Roc beside its Rust (a driver crate shipping its contract
+/// modules), else `<dir>/<Module>.roc` (the fixtures' flat layout).
+pub fn module_path(component_dir: &Path, module: &str) -> PathBuf {
+    let nested = component_dir.join("roc").join(format!("{module}.roc"));
+    if nested.exists() {
+        return nested;
+    }
+    component_dir.join(format!("{module}.roc"))
 }
 
 /// One interface's `interface.toml`: the Roc module it ships and the hosted
@@ -106,6 +132,27 @@ pub struct Interface {
     #[serde(default)]
     #[allow(dead_code)]
     pub resources: Vec<ResourceDecl>,
+    /// `kind = "service"` (D-H7-5): the interface is a service whose command
+    /// union is `module`'s nominal, spliced into the driver's `Cmd` as the
+    /// wrapper variant `<Module>(<Module>)`; the wired component implements the
+    /// D-H7-7 contract (`hematite__<c>__init/cmd/complete/gate`, `env`) instead
+    /// of hosted leaves. Absent: an ordinary hosted interface.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// A service's event union module (`NotesEvent`), spliced into the driver's
+    /// `Event` as `<Module>(<EventModule>)`. One nominal per module (P0).
+    #[serde(default)]
+    pub event_module: Option<String>,
+    /// A service's ambient block module (`AudioEnv`), spliced into the driver's
+    /// `Env` record as `<snake(module)> : <EnvModule>`, read once per frame.
+    #[serde(default)]
+    pub env_module: Option<String>,
+}
+
+impl Interface {
+    pub fn is_service(&self) -> bool {
+        self.kind.as_deref() == Some("service")
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -146,6 +193,11 @@ pub struct Driver {
     /// body. A CLI driver leaves this false and hematite generates the body.
     #[serde(default)]
     pub authored_host: bool,
+    /// Functions the driver exports from a wasm32 module (roc's `exports:`
+    /// target field, required on this compiler). Empty: the world emits no
+    /// wasm32 target.
+    #[serde(default)]
+    pub wasm_exports: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -181,8 +233,13 @@ pub fn load_interface(dir: &Path, name: &str) -> Result<Interface, String> {
     toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
 }
 
-pub fn load_driver(dir: &Path, component: &str) -> Result<Driver, String> {
-    let p = dir.join("components").join(component).join("driver.toml");
+pub fn load_driver(dir: &Path, world: &World) -> Result<Driver, String> {
+    let name = &world.world.driver;
+    let c = world
+        .components
+        .get(name)
+        .ok_or_else(|| format!("[world].driver `{name}` is not a declared component"))?;
+    let p = component_dir(dir, name, c).join("driver.toml");
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
 }
