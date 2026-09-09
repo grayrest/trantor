@@ -19,9 +19,8 @@ cap() { perl -e 'alarm shift; exec @ARGV' 90 "$@"; }
 [[ -d $REPO/.git ]] || { echo "FAIL: basic-cli repo not at $REPO (needed for the migration proof)"; exit 1; }
 cargo build --release -q
 
-./target/release/hematite compose "$B" >/dev/null
-( cd "$B" && rm -rf platform/targets && ./build.sh app b8 >/dev/null 2>&1 )
-if ! _sc=$(./target/release/hematite scan "$B" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
+( cd "$B" && rm -rf platform/targets )
+if ! _b=$(./target/release/hematite build "$B" --app app --out b8 2>&1); then echo "FAIL: build b8" >&2; echo "$_b" >&2; exit 1; fi
 
 # ---- 1. migration proof (URL swap only) ----
 # The two http examples (http-client, http-simple) are EXCLUDED here: choosing a
@@ -158,14 +157,13 @@ echo "ok: gauge silent unless HEMATITE_ALLOC_GAUGE is set"
 echo "ok: published dist/ with baseline.lock (no test scaffolding); pure-Roc extension is Tier 1"
 
 # ---- 4. confinement swap ----
-( cd "$B" && ./build.sh app-escape b8-escape-open >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$B" --app app-escape --out b8-escape-open 2>&1); then echo "FAIL: build b8-escape-open" >&2; echo "$_b" >&2; exit 1; fi
 [[ "$(cd "$B" && ./bin/b8-escape-open)" == "escape: allowed" ]] || { echo "FAIL: baseline should allow the escaping write"; exit 1; }
-./target/release/hematite compose "$B" --world world-confined.toml >/dev/null
-( cd "$B" && ./build.sh app-escape b8-escape-confined >/dev/null 2>&1 && ./build.sh app b8-confined >/dev/null 2>&1 )
-if ! _sc=$(./target/release/hematite scan "$B" --world world-confined.toml 2>&1); then echo "FAIL: nm-scan [world-confined]" >&2; echo "$_sc" >&2; exit 1; fi
+if ! _b=$(./target/release/hematite build "$B" --world world-confined.toml --app app-escape --out b8-escape-confined 2>&1); then echo "FAIL: build b8-escape-confined" >&2; echo "$_b" >&2; exit 1; fi
+if ! _b=$(./target/release/hematite build "$B" --world world-confined.toml --app app --out b8-confined 2>&1); then echo "FAIL: build b8-confined" >&2; echo "$_b" >&2; exit 1; fi
 [[ "$(cd "$B" && ./bin/b8-escape-confined)" == "escape: denied" ]] || { echo "FAIL: confined world should deny the escaping write"; exit 1; }
 [[ "$(cd "$B" && ./bin/b8-confined | tail -1)" == 'I read the file back. Its contents are: "a string!"' ]] || { echo "FAIL: confined world should allow in-cwd writes"; exit 1; }
 rm -f "$B/../b8-escape.txt" "$B/out.txt"
-./target/release/hematite compose "$B" >/dev/null   # leave the committed default world composed
+if ! _b=$(./target/release/hematite build "$B" --app app --out b8 2>&1); then echo "FAIL: build b8 (default)" >&2; echo "$_b" >&2; exit 1; fi   # leave the committed default world composed + built
 echo "ok: same app, fs-confined wired instead of fs-unconfined: escape denied, cwd writes allowed"
 echo "B8 PASS"

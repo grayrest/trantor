@@ -14,9 +14,7 @@ done
 echo "ok: Stdout/Stderr/Stdin/Tty byte-identical to basic-cli 0.21 (zero edits)"
 
 check() { # $1 world, $2 app, $3 out
-  ./target/release/hematite compose "$B" --world "$1" >/dev/null
-  ( cd "$B" && ./build.sh "$2" "$3" >/dev/null 2>&1 )
-  local _sc; if ! _sc=$(./target/release/hematite scan "$B" --world "$1" 2>&1); then echo "FAIL: nm-scan [$1]" >&2; echo "$_sc" >&2; exit 1; fi
+  if ! _b=$(./target/release/hematite build "$B" --world "$1" --app "$2" --out "$3" 2>&1); then echo "FAIL: build $3" >&2; echo "$_b" >&2; exit 1; fi
   local out err code
   set +e
   out=$(cd "$B" && USER=grayrest ./bin/$3 a b 2>/tmp/b2verr); code=$?

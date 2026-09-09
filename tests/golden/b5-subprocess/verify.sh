@@ -14,9 +14,7 @@ changed=$(diff "$S/Cmd.roc" "$B/components/cmd-lib/Cmd.roc" | grep -cE '^<' || t
 [[ "$changed" == "2" ]] || { echo "FAIL: Cmd.roc has $changed removed/changed seahaven lines (expected exactly 2)"; diff "$S/Cmd.roc" "$B/components/cmd-lib/Cmd.roc" | grep -E '^<' | head; exit 1; }
 echo "ok: OsStr.roc verbatim; Cmd.roc = seahaven's + 2 bridged call sites + an appended helper"
 
-./target/release/hematite compose "$B" >/dev/null
-( cd "$B" && ./build.sh app b5 >/dev/null 2>&1 )
-if ! _sc=$(./target/release/hematite scan "$B" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
+if ! _b=$(./target/release/hematite build "$B" --app app --out b5 2>&1); then echo "FAIL: build b5" >&2; echo "$_b" >&2; exit 1; fi
 set +e; out=$(cd "$B" && ./bin/b5 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code"; echo "$out"; exit 1; }
 want=$'output: hello from a child\nexit-code: 7\npath-search: ok'

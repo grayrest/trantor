@@ -9,9 +9,7 @@ cd "$(dirname "$0")/../../.."
 B=tests/golden/b7-temporal
 cargo build --release -q
 
-./target/release/hematite compose "$B" >/dev/null
-( cd "$B" && ./build.sh app b7 >/dev/null 2>&1 )
-if ! _sc=$(./target/release/hematite scan "$B" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
+if ! _b=$(./target/release/hematite build "$B" --app app --out b7 2>&1); then echo "FAIL: build b7" >&2; echo "$_b" >&2; exit 1; fi
 set +e; out=$(cd "$B" && ./bin/b7 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code (1-9 = a step failed; >9 = leaked handles)"; echo "$out"; exit 1; }
 want=$'date-add: 2024-02-29\ndate-until-days: 359\nday-of-week: 4\nzdt-ny: 2024-03-10T01:30:00-05:00[America/New_York]\nzdt-ny-hour: 1\nzdt-ny-offset-s: -18000\nzdt-tokyo: 2024-03-10T15:30:00+09:00[Asia/Tokyo]\nzdt-tokyo-date: 2024-03-10\nsame-instant: yes\ntz-id: Asia/Tokyo'
@@ -25,7 +23,7 @@ for a in "$T"/lib*.a; do
   [[ "$(basename "$a")" == "libtemporal_host.a" ]] && continue
   if ar t "$a" | grep "^temporal_rs-" >/dev/null; then echo "FAIL: $(basename "$a") also carries temporal_rs"; exit 1; fi
 done
-[[ -x tests/golden/b4-small/bin/b4 ]] || ( cd tests/golden/b4-small && ./build.sh app b4 >/dev/null 2>&1 )
+[[ -x tests/golden/b4-small/bin/b4 ]] || ./target/release/hematite build tests/golden/b4-small --app app --out b4 >/dev/null 2>&1
 # A stripped binary would make the negative grep pass vacuously; assert the
 # symbol table is actually present first, then that it carries no temporal_rs.
 b4syms=$(nm tests/golden/b4-small/bin/b4 2>/dev/null | grep -c .)

@@ -18,9 +18,7 @@ echo "ok: Tcp.roc, Http.roc, InternalHttp.roc byte-verbatim from basic-cli 0.21"
 grep -q '"CONNECT", "DELETE", "QUERY", "GET"' "$B/components/http-host/src/lib.rs" || { echo "FAIL: method table is not basic-cli's to_host_method encoding"; exit 1; }
 grep -q 'packages' "$B/world.toml" || { echo "FAIL: world lacks [packages] (verbatim Http.roc needs import http.*)"; exit 1; }
 
-./target/release/hematite compose "$B" >/dev/null
-( cd "$B" && ./build.sh app b6 >/dev/null 2>&1 )
-if ! _sc=$(./target/release/hematite scan "$B" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
+if ! _b=$(./target/release/hematite build "$B" --app app --out b6 2>&1); then echo "FAIL: build b6" >&2; echo "$_b" >&2; exit 1; fi
 set +e; out=$(cd "$B" && ./bin/b6 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code (nonzero = leaked socket resources or a failed step)"; echo "$out"; exit 1; }
 want=$'tcp-echo: hi\nhttp-get: hello-http\nudp-echo: dgram\ntcp-accept: ping'
@@ -36,7 +34,7 @@ echo "B6 PASS"
 # is the live resource count (0 = drop-balanced).
 grep -q 'ureq' "$B/components/http-host/Cargo.toml" || { echo "FAIL: http-host is not built over ureq"; exit 1; }
 grep -q 'body_stream' "$B/interfaces/sync-http/HttpHost.roc" || { echo "FAIL: HttpHost.Response is not a streaming body"; exit 1; }
-( cd "$B" && ./build.sh http-stream-app b6-httpstream >/dev/null 2>&1 ) || { echo "FAIL: build http-stream-app"; exit 1; }
+if ! _b=$(./target/release/hematite build "$B" --app http-stream-app --out b6-httpstream 2>&1); then echo "FAIL: build http-stream-app" >&2; echo "$_b" >&2; exit 1; fi
 set +e; sout=$(cd "$B" && ./bin/b6-httpstream 2>/dev/null); scode=$?; set -e
 [[ $scode -eq 0 ]] || { echo "FAIL: http-stream-app exit $scode (leaked stream/socket resources)"; echo "$sout"; exit 1; }
 grep -qxF 'large: 100000' <<<"$sout" || { echo "FAIL: large body not streamed whole"; echo "$sout"; exit 1; }
@@ -74,7 +72,7 @@ just make-local-cert "$CERT" >/dev/null 2>&1 || { echo "FAIL: just make-local-ce
 # default world = tls on.
 ./target/release/hematite compose "$B" >/dev/null
 grep -q '^default = \["tls"\]' "$B/components/http-host/Cargo.toml" || { echo "FAIL: default world should compose http-host with tls"; exit 1; }
-( cd "$B" && ./build.sh app b6 >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$B" --app app --out b6 2>&1); then echo "FAIL: build b6" >&2; echo "$_b" >&2; exit 1; fi
 cap "$ROC" build --output="$B/bin/https-app" "$B/https-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build https-app"; exit 1; }
 tls_on=$({ ar t "$B/platform/targets/arm64mac/libhttp_host.a" 2>/dev/null || true; } | grep -icE 'rustls|webpki' || true)
 [[ "$tls_on" -gt 0 ]] || { echo "FAIL: tls-on http-host bundles no rustls (not self-contained)"; exit 1; }
@@ -96,7 +94,7 @@ echo "ok: https streaming path drop-balances ($g)"
 # tls-OFF world (HC0 knob): reject https with Other, shed rustls/webpki.
 ./target/release/hematite compose "$B" --world world-notls.toml >/dev/null
 grep -q '^default = \[\]' "$B/components/http-host/Cargo.toml" || { echo "FAIL: world-notls should compose http-host with tls off"; exit 1; }
-( cd "$B" && ./build.sh app b6 >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$B" --world world-notls.toml --app app --out b6 2>&1); then echo "FAIL: build b6 (tls off)" >&2; echo "$_b" >&2; exit 1; fi
 cap "$ROC" build --output="$B/bin/https-app" "$B/https-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build https-app (tls off)"; exit 1; }
 hn=$(cd "$B" && HEMATITE_TEST_CERT="$CERT" HEMATITE_HTTP_EXTRA_CA="$CERT" ./bin/https-app 2>/dev/null || true)
 [[ "$hn" == "https: other" ]] || { echo "FAIL: tls-off world should reject https with Other (got: $hn)"; exit 1; }
@@ -105,7 +103,7 @@ tls_off=$({ ar t "$B/platform/targets/arm64mac/libhttp_host.a" 2>/dev/null || tr
 echo "ok: tls-off world rejects https:// with Other(msg) and sheds the crypto stack (rustls/webpki members: $tls_on on, $tls_off off)"
 
 # H0c: a world WITHOUT sync-http links no ureq/rustls at all.
-[[ -x tests/golden/b4-small/bin/b4 ]] || ( cd tests/golden/b4-small && ./build.sh app b4 >/dev/null 2>&1 )
+[[ -x tests/golden/b4-small/bin/b4 ]] || ./target/release/hematite build tests/golden/b4-small --app app --out b4 >/dev/null 2>&1
 b4syms=$({ nm tests/golden/b4-small/bin/b4 2>/dev/null || true; } | grep -c . || true)
 [[ "$b4syms" -gt 100 ]] || { echo "FAIL: b4 has $b4syms symbols (stripped?) — the check would be vacuous"; exit 1; }
 b4net=$({ nm tests/golden/b4-small/bin/b4 2>/dev/null || true; } | grep -icE 'ureq|rustls' || true)
@@ -113,8 +111,7 @@ b4net=$({ nm tests/golden/b4-small/bin/b4 2>/dev/null || true; } | grep -icE 'ur
 echo "ok: a world without sync-http links no ureq/rustls (H0c)"
 
 # leave the committed default (tls-on) world composed + built.
-./target/release/hematite compose "$B" >/dev/null
-( cd "$B" && ./build.sh app b6 >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$B" --app app --out b6 2>&1); then echo "FAIL: build b6 (default)" >&2; echo "$_b" >&2; exit 1; fi
 echo "HC4 PASS"
 
 # ---- HC5: transparent decode over the stream (chunked / gzip / brotli) ----

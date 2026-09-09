@@ -16,9 +16,7 @@ cargo build --release -q
 # the borrow module ships in the composer-emitted abi (hand-written, not glue).
 grep -q 'pub mod borrow' src/codegen.rs || { echo "FAIL: composer emits no borrow module"; exit 1; }
 
-./target/release/hematite compose "$S" >/dev/null
-( cd "$S" && ./build.sh app sq0 >/dev/null 2>&1 ) || { echo "FAIL: build sq0"; exit 1; }
-if ! _sc=$(./target/release/hematite scan "$S" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
+if ! _b=$(./target/release/hematite build "$S" --app app --out sq0 2>&1); then echo "FAIL: build sq0" >&2; echo "$_b" >&2; exit 1; fi
 # the glue generated the erased-callable ABI (apply_i64! takes a Box(closure)).
 grep -q 'RocErasedCallableFn' "$S/abi/src/generated.rs" || { echo "FAIL: no erased-callable ABI generated"; exit 1; }
 

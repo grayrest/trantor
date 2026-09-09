@@ -6,9 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 B=tests/golden/b1-streams
 cargo build --release -q
-./target/release/hematite compose "$B" >/dev/null
-( cd "$B" && ./build.sh >/dev/null 2>&1 )
-if ! _sc=$(./target/release/hematite scan "$B" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
+if ! _b=$(./target/release/hematite build "$B" --app app --out b1 2>&1); then echo "FAIL: build b1" >&2; echo "$_b" >&2; exit 1; fi
 want_file=$(wc -c < "$B/world.toml" | tr -d ' ')
 set +e
 err=$(cd "$B" && ./bin/b1 2>&1 >/dev/null); code=$?

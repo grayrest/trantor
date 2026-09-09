@@ -1,15 +1,21 @@
 //! hematite — a build-time component composition system for Roc platforms.
 //!
-//! v1 subcommand:
-//!   hematite compose <world-dir> [--out <dir>]
+//! Subcommands:
+//!   hematite compose <world-dir> [--out <dir>] [--world <w>]
 //!     Read <world-dir>/world.toml + interfaces + components, generate the
-//!     composed platform's files into <out> (default: <world-dir>).
-//!
-//! Only the composition-specific files are generated (main.roc, the workspace,
-//! the driver crate, the abi wrapper); interface binding modules and pure-Roc
-//! components are copied verbatim (D13). `roc glue` and `cargo`/`roc build` are
-//! left to the build step (see the fixture's build.sh) — hematite emits sources.
+//!     composed platform's files into <out> (default: <world-dir>). Only the
+//!     composition-specific files are generated (main.roc, the workspace, the
+//!     driver crate, the abi wrapper); interface binding modules and pure-Roc
+//!     components are copied verbatim (D13) — compose emits sources only.
+//!   hematite build <world-dir> [--app <dir>] [--out <name>] [--world <w>]
+//!     The full pipeline: compose + roc glue + cargo + stage + optional
+//!     prelink.sh + the H0c symbol scan + roc check + roc build. This is the
+//!     tool driving the toolchain (superseding the fixtures' build.sh); the
+//!     scan runs between cargo and the link (see build.rs).
+//!   hematite scan <world-dir>   — the H0c archive symbol-collision scan alone.
+//!   hematite publish / tier     — baseline packaging + tier classification.
 
+mod build;
 mod codegen;
 mod manifest;
 mod publish;
@@ -34,12 +40,29 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut it = args.iter().skip(1);
     let cmd = it
         .next()
-        .ok_or("usage: hematite <compose|publish|tier|scan> <world-dir> [flags]")?;
+        .ok_or("usage: hematite <compose|build|publish|tier|scan> <world-dir> [flags]")?;
     let dir = PathBuf::from(it.next().ok_or("missing <world-dir>")?);
 
     match cmd.as_str() {
         "compose" => {}
         "publish" => return publish::publish(&dir),
+        "build" => {
+            // The full pipeline: compose + glue + cargo + scan + roc check/build.
+            let mut world_file = String::from("world.toml");
+            let mut app = String::from("app");
+            let mut out = String::from("app");
+            let mut target = String::from("arm64mac");
+            while let Some(f) = it.next() {
+                match f.as_str() {
+                    "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
+                    "--app" => app = it.next().ok_or("--app: missing dir")?.clone(),
+                    "--out" => out = it.next().ok_or("--out: missing name")?.clone(),
+                    "--target" => target = it.next().ok_or("--target: missing triple")?.clone(),
+                    other => return Err(format!("unknown flag {other:?}")),
+                }
+            }
+            return build::build(&dir, &world_file, &app, &out, &target);
+        }
         "scan" => {
             // H0c archive symbol-collision scan. Runs after cargo builds the
             // component archives (unlike compose, which stops at sources).

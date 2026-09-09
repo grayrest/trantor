@@ -12,9 +12,7 @@ ROC="${ROC:-$HOME/.bin/roc}"
 cap() { perl -e 'alarm shift; exec @ARGV' 120 "$@"; }
 cargo build --release -q
 
-./target/release/hematite compose "$S" >/dev/null
-( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 ) || { echo "FAIL: build sq1"; exit 1; }
-if ! _sc=$(./target/release/hematite scan "$S" 2>&1); then echo "FAIL: nm-scan (H0c symbol collision)" >&2; echo "$_sc" >&2; exit 1; fi
+if ! _b=$(./target/release/hematite build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1" >&2; echo "$_b" >&2; exit 1; fi
 
 rm -f /tmp/hematite-sq1.db
 set +e; out=$(cd "$S" && ./bin/sq1 2>/dev/null); code=$?; set -e
@@ -47,10 +45,8 @@ echo "SQ1 PASS"
 # world's app links exactly one engine.
 grep -q 'turso' "$S/components/turso-host/Cargo.toml" || { echo "FAIL: no turso-host"; exit 1; }
 [[ "$(diff <(sed -n '4p' "$S/world.toml") <(sed -n '4p' "$S/world-turso.toml"))" ]] || true  # names differ
-./target/release/hematite compose "$S" --world world-turso.toml >/dev/null
 rm -f /tmp/hematite-sq1.db*
-( cd "$S" && ./build.sh app sq-turso >/dev/null 2>&1 ) || { echo "FAIL: build turso world (framework link? R-SQ2)"; exit 1; }
-if ! _sc=$(./target/release/hematite scan "$S" --world world-turso.toml 2>&1); then echo "FAIL: nm-scan [world-turso]" >&2; echo "$_sc" >&2; exit 1; fi
+if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app app --out sq-turso 2>&1); then echo "FAIL: build turso world (framework link? R-SQ2)" >&2; echo "$_b" >&2; exit 1; fi
 rm -f /tmp/hematite-sq1.db*
 set +e; tout=$(cd "$S" && ./bin/sq-turso 2>/dev/null); tcode=$?; set -e
 [[ $tcode -eq 0 ]] || { echo "FAIL: sq-turso exit $tcode"; echo "$tout"; exit 1; }
@@ -73,22 +69,20 @@ t_tur=$({ nm "$S/bin/sq-turso" 2>/dev/null || true; } | grep -icE 'turso_core|tu
 echo "ok: sole-vendor — rusqlite app links rusqlite ($r_rus)/turso(0); turso app links turso ($t_tur)/rusqlite(0)"
 
 # leave the committed default (rusqlite) world composed + built.
-./target/release/hematite compose "$S" >/dev/null
 rm -f /tmp/hematite-sq1.db*
-( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1 (default)" >&2; echo "$_b" >&2; exit 1; fi
 echo "SQ2 PASS"
 
 # ---- SQ3: turso vector (base SQL) + encryption (host-side), no Roc leaf ----
 # Vector search rides the base sql_fold! on turso; rusqlite rejects vector32.
 # Encryption is host-side (key from env): correct reads, ciphertext at rest.
-./target/release/hematite compose "$S" --world world-turso.toml >/dev/null
-( cd "$S" && ./build.sh vector-app vec-turso >/dev/null 2>&1 ) || { echo "FAIL: build vector-app (turso)"; exit 1; }
+if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app vector-app --out vec-turso 2>&1); then echo "FAIL: build vector-app (turso)" >&2; echo "$_b" >&2; exit 1; fi
 vt=$(cd "$S" && ./bin/vec-turso 2>/dev/null || true)
 [[ "$vt" == "vector: near,mid,far" ]] || { echo "FAIL: turso vector ordering (got: $vt)"; exit 1; }
 
 KEY=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 ENCDB=/tmp/hematite-sq3-enc.db
-( cd "$S" && ./build.sh enc-app enc-turso >/dev/null 2>&1 ) || { echo "FAIL: build enc-app"; exit 1; }
+if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app enc-app --out enc-turso 2>&1); then echo "FAIL: build enc-app" >&2; echo "$_b" >&2; exit 1; fi
 # control: no key -> plaintext leaks into the file/wal (so the check isn't vacuous).
 rm -f "$ENCDB" "$ENCDB"-wal "$ENCDB"-shm
 ( cd "$S" && ./bin/enc-turso >/dev/null 2>&1 ) || true
@@ -104,23 +98,21 @@ rm -f "$ENCDB" "$ENCDB"-wal "$ENCDB"-shm
 echo "ok: turso encryption host-side — correct reads with the key, ciphertext at rest ($plain plaintext unencrypted vs 0 encrypted)"
 
 # rusqlite rejects vector SQL (the negative half).
-./target/release/hematite compose "$S" >/dev/null
-( cd "$S" && ./build.sh vector-app vec-rusqlite >/dev/null 2>&1 ) || { echo "FAIL: build vector-app (rusqlite)"; exit 1; }
+if ! _b=$(./target/release/hematite build "$S" --app vector-app --out vec-rusqlite 2>&1); then echo "FAIL: build vector-app (rusqlite)" >&2; echo "$_b" >&2; exit 1; fi
 vr=$(cd "$S" && ./bin/vec-rusqlite 2>/dev/null || true)
 [[ "$vr" == "vector: unsupported" ]] || { echo "FAIL: rusqlite should reject vector32 (got: $vr)"; exit 1; }
 echo "ok: vector search runs on turso (near,mid,far), rejected by rusqlite — base SQL, no Roc leaf; encryption env-side"
 
 # leave the default (rusqlite) world composed + built.
 rm -f /tmp/hematite-sq1.db*
-( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1 (default)" >&2; echo "$_b" >&2; exit 1; fi
 echo "SQ3 PASS"
 
 # ---- SQ4: roc:turso scalar UDF leaf (the turso superset) ----
 # A Roc closure registered as a turso SQL scalar, invoked from a SELECT and a
 # CREATE TRIGGER body. The rusqlite world does not expose roc:turso.
-./target/release/hematite compose "$S" --world world-turso.toml >/dev/null
 grep -q 'turso_register_scalar' "$S/interfaces/turso/Turso.roc" || { echo "FAIL: no turso_register_scalar leaf"; exit 1; }
-( cd "$S" && ./build.sh udf-app udf-turso >/dev/null 2>&1 ) || { echo "FAIL: build udf-app (turso)"; exit 1; }
+if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app udf-app --out udf-turso 2>&1); then echo "FAIL: build udf-app (turso)" >&2; echo "$_b" >&2; exit 1; fi
 uo=$(cd "$S" && ./bin/udf-turso 2>/dev/null || true)
 want_udf=$'triple-sum: 24\ntrigger-val: 30'
 [[ "$uo" == "$want_udf" ]] || { echo "FAIL: Roc scalar from query/trigger (got: $uo)"; diff <(echo "$want_udf") <(echo "$uo") || true; exit 1; }
@@ -135,19 +127,19 @@ echo "ok: exactly the one registered scalar closure is retained ($ug)"
 # The rusqlite world is not a turso superset: no Turso module, so udf-app can't build there.
 ./target/release/hematite compose "$S" >/dev/null
 grep -q 'Turso' "$S/platform/main.roc" && { echo "FAIL: rusqlite world exposes Turso"; exit 1; } || true
-( cd "$S" && ./build.sh udf-app udf-rusqlite >/dev/null 2>&1 ) && { echo "FAIL: udf-app built on rusqlite (roc:turso should be unavailable)"; exit 1; } || true
+if ./target/release/hematite build "$S" --app udf-app --out udf-rusqlite >/dev/null 2>&1; then echo "FAIL: udf-app built on rusqlite (roc:turso should be unavailable)"; exit 1; fi
 echo "ok: rusqlite world has no roc:turso — udf-app only builds on the turso superset"
 
 # leave the default (rusqlite) world composed + built.
 rm -f /tmp/hematite-sq1.db*
-( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1 (default)" >&2; echo "$_b" >&2; exit 1; fi
 echo "SQ4 PASS"
 
 # ---- SQ5: clone-on-incref target (documented) + publish + tier ----
 # The ergonomic record decode type-checks (the API shape supports it) but is NOT
 # run — it retains borrowed cells, unsound until upstream clone-on-incref.
 grep -q 'clone-on-incref' "$S/record-app/main.roc" || { echo "FAIL: record-app not marked the clone-on-incref target"; exit 1; }
-( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1" >&2; echo "$_b" >&2; exit 1; fi
 cap "$ROC" check "$S/record-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: record decode does not type-check (API shape broken)"; exit 1; }
 echo "ok: record decode type-checks (API shape) — the documented clone-on-incref target, not run"
 
@@ -161,8 +153,7 @@ D="$S/dist/platform/targets/arm64mac"
 echo "ok: rusqlite baseline publishes (engine + lock, no test scaffolding); Tier 2"
 
 # Publish the turso world: turso engine + Turso module, no rusqlite, no scaffolding.
-./target/release/hematite compose "$S" --world world-turso.toml >/dev/null
-( cd "$S" && ./build.sh app sq-turso >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app app --out sq-turso 2>&1); then echo "FAIL: build sq-turso" >&2; echo "$_b" >&2; exit 1; fi
 ./target/release/hematite publish "$S" >/dev/null 2>&1
 { [[ -f "$D/libturso_host.a" ]] && [[ ! -f "$D/librusqlite_host.a" ]]; } || { echo "FAIL: turso baseline should ship turso, not rusqlite"; exit 1; }
 [[ -f "$S/dist/platform/Turso.roc" ]] || { echo "FAIL: turso baseline lacks the roc:turso module"; exit 1; }
@@ -171,7 +162,6 @@ echo "ok: turso baseline publishes (turso engine + Turso module, no rusqlite, no
 grep -q 'clone-on-incref' notes/2026-09-05-sqlite-unsound-design-log.md || { echo "FAIL: design log missing the clone-on-incref record"; exit 1; }
 
 # leave the committed default (rusqlite) world composed + built.
-./target/release/hematite compose "$S" >/dev/null
 rm -f /tmp/hematite-sq1.db*
-( cd "$S" && ./build.sh app sq1 >/dev/null 2>&1 )
+if ! _b=$(./target/release/hematite build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1 (default)" >&2; echo "$_b" >&2; exit 1; fi
 echo "SQ5 PASS"

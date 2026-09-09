@@ -6,7 +6,7 @@ cd "$(dirname "$0")/../../.."
 FIX=tests/golden/two-component
 cargo build --release -q
 
-( cd "$FIX" && ./build.sh >/dev/null 2>&1 )      # baseline archives
+if ! _b=$(./target/release/hematite build "$FIX" --app app --out reader 2>&1); then echo "FAIL: build reader (baseline archives)" >&2; echo "$_b" >&2; exit 1; fi      # baseline archives
 ./target/release/hematite publish "$FIX" >/dev/null 2>&1
 grep -q abi_fingerprint "$FIX/dist/baseline.lock" || { echo "FAIL: no fingerprint"; exit 1; }
 echo "ok: baseline published with ABI fingerprint"
