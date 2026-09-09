@@ -36,6 +36,12 @@ unsafe impl Send for Wake {}
 
 static WAKES: Mutex<Option<Sender<Wake>>> = Mutex::new(None);
 
+/// The driver's text measure (D-H7-22): this headless driver has no font, so
+/// a byte is a unit.
+extern "C" fn measure(_ptr: *const u8, len: usize, _font: u16) -> i32 {
+    len as i32
+}
+
 fn wake(component_id: u32, token: *mut c_void) {
     if let Some(tx) = WAKES.lock().unwrap().as_ref() {
         let _ = tx.send(Wake(component_id, token));
@@ -103,7 +109,7 @@ fn run() -> i32 {
     let host = abi::host();
     let (tx, rx): (Sender<Wake>, Receiver<Wake>) = channel();
     *WAKES.lock().unwrap() = Some(tx);
-    services::init(wake);
+    services::init(wake, measure);
     let mut next_request = 0u64;
     let mut model = unsafe { roc_im_init(env()) };
     let (m, promised) = drain(model, &mut next_request);

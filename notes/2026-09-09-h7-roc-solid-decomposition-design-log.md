@@ -435,6 +435,48 @@ in what it asserts: order, a killed job's partial output, a failed start
 answered. Tokens are `Box<u64>` job ids, allocated per wake in the component
 and freed in `complete` (D9) — the first time that rule runs for real.
 
+## P5 decisions (2026-09-09) — SQLite leaves the host
+
+**D-H7-22 — `HostCtx.measure_text`: a driver capability for a service that
+sizes text.** dbx sizes every column with the driver's exact font advances
+(D8: under `virtual` the tree only carries the window, so widths cannot come
+from layout), and those metrics live in `render-wgpu`'s `FontContext` — not
+reachable from a service archive without dragging wgpu in. `HostCtx` gains
+`measure_text(ptr, len, font) -> i32` (units); the service calls it from its
+worker thread per cell, exactly where the old host pass measured. `HostCtx`
+is D8's capability struct — P8 already planned `register_group` on it — and
+D21's soundness-only rule stays about the roc runtime vtable. Rejected: the
+driver post-processing `DbxEvent.Rows` (a dbx arm back in the driver);
+app-side `Env.text_width` (the router has no `Env`; 20k measurements per
+result in Roc).
+
+**D-H7-23 — A service with a vendored native is reached ONLY through its
+contract; no gate oracle links it as a library.** The notes pattern
+(D-H7-18) broke here the way the scan predicted: `svc-dbx` as a
+`default-features = false` dependency of host-im put bundled SQLite in the
+driver's archive too — 280 `_sqlite3_*` collisions, H0c exactly — and would
+have put SQLite in every world's driver, defeating the plan's exit. So the
+driver links no part of it: the dbx gate seeds its fixture through a
+`dbx-exec` gate hook (SQL via `ROC_SOLID_DBX_EXEC`, run by the service on the
+database it opens from `ROC_SOLID_DBX`), and gets expected rows by
+dispatching a real `Dbx.Fetch` through the shim and waiting on the wake. The
+link proof (`dbx-link`) runs inside the service via its gate hook — the first
+real use of D-H7-8's hook. Measured after: 0 `_sqlite3_*` in `libhost_im.a`,
+280 in `libsvc_dbx.a`, scan clean over 4 archives.
+
+**Within scope, decided by the code:** `CopyRow` was dead (no app, the gate
+dropped row-copy) and is gone with `copy_row`/`LAST_SQL`; `Dbx`'s second
+variant is `Tables(request, key)` — the app's first query was the
+`sqlite_master` string, `dbx::tables()` already existed, and it answers as a
+one-column `Rows` through the worker like any query; `DbxEvent := [Rows(…),
+Failed(reason)]` replaces `Event.Rows` + the `Typed("error: …")` back
+channel; the clipboard moved to the driver's own `clipboard.rs` (it was never
+SQLite's); the `sqlite` Cargo feature and `rusqlite` left host-im entirely.
+Wake delivery is NOT part of `pump_commands` after all: the window delivers
+on its `Wake` event and a headless gate when it chooses — the shape
+`deliver_completions` had, which the gates count on. P4's spawn gate pumps
+both.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

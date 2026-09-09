@@ -6,13 +6,19 @@ use core::ffi::c_void;
 use core::mem::ManuallyDrop;
 use std::sync::OnceLock;
 
-/// D8's `HostCtx`: what the driver hands each component at `init`.
+/// D8's `HostCtx`: what the driver hands each component at `init` — the
+/// driver's capabilities, as C-ABI function pointers.
 #[repr(C)]
 pub struct HostCtx {
     pub component_id: u32,
     /// Callable from any thread; the token is component-owned (D9) and comes
     /// back to the component through `complete` on the runtime thread.
     pub wake: extern "C" fn(u32, *mut c_void),
+    /// Measure `len` bytes of UTF-8 at `ptr` in the driver's font `font`, in
+    /// the driver's width units (D-H7-22: a service sizing text — dbx's
+    /// columns — cannot reach the renderer's metrics any other way). Callable
+    /// from any thread.
+    pub measure_text: extern "C" fn(*const u8, usize, u16) -> i32,
 }
 
 /// A synchronous answer to a wrapper command, in the component's own event type.
@@ -34,6 +40,7 @@ pub struct Completion<E: Copy> {
 }
 
 static WAKE: OnceLock<fn(u32, *mut c_void)> = OnceLock::new();
+static MEASURE: OnceLock<extern "C" fn(*const u8, usize, u16) -> i32> = OnceLock::new();
 
 /// The one `wake` every component is handed: forwards to the driver's loop.
 extern "C" fn courier(component_id: u32, token: *mut c_void) {
@@ -42,8 +49,16 @@ extern "C" fn courier(component_id: u32, token: *mut c_void) {
     }
 }
 
+/// The one `measure_text` every component is handed: the driver's, or 0.
+extern "C" fn measure(ptr: *const u8, len: usize, font: u16) -> i32 {
+    match MEASURE.get() {
+        Some(f) => f(ptr, len, font),
+        None => 0,
+    }
+}
+
 pub const ECHO_ID: u32 = 1;
-static CTX_ECHO: HostCtx = HostCtx { component_id: 1, wake: courier };
+static CTX_ECHO: HostCtx = HostCtx { component_id: 1, wake: courier, measure_text: measure };
 unsafe extern "C-unwind" {
     fn hematite__svc_echo__init(ctx: *const HostCtx);
     fn hematite__svc_echo__cmd(request: u64, cmd: Echo) -> RocList<Answer<EchoEvent>>;
@@ -52,7 +67,7 @@ unsafe extern "C-unwind" {
 }
 
 pub const TICK_ID: u32 = 2;
-static CTX_TICK: HostCtx = HostCtx { component_id: 2, wake: courier };
+static CTX_TICK: HostCtx = HostCtx { component_id: 2, wake: courier, measure_text: measure };
 unsafe extern "C-unwind" {
     fn hematite__svc_tick__init(ctx: *const HostCtx);
     fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> RocList<Answer<TickEvent>>;
@@ -61,10 +76,11 @@ unsafe extern "C-unwind" {
     fn hematite__svc_tick__gate(name: RocStr, argv: RocList<RocStr>) -> i32;
 }
 
-/// Install the driver's wake sink and hand every component its `HostCtx`.
-/// Call once, before the first drain.
-pub fn init(wake: fn(u32, *mut c_void)) {
+/// Install the driver's wake sink and text measurer, and hand every
+/// component its `HostCtx`. Call once, before the first drain.
+pub fn init(wake: fn(u32, *mut c_void), measure_text: extern "C" fn(*const u8, usize, u16) -> i32) {
     let _ = WAKE.set(wake);
+    let _ = MEASURE.set(measure_text);
     unsafe {
         hematite__svc_echo__init(&CTX_ECHO);
         hematite__svc_tick__init(&CTX_TICK);

@@ -1,6 +1,8 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0–P4 DONE 2026-09-09; P5 (dbx) next.** P4: `spawn` is the first
+> **Status: P0–P5 DONE 2026-09-09; P6 (net) next.** P5: SQLite left the host
+> — `svc-dbx`, `HostCtx.measure_text` (D-H7-22), no library oracle for a
+> native (D-H7-23); 0 `_sqlite3_*` in the driver's archive. P4: `spawn` is the first
 > asynchronous service out — wake courier, list-valued `complete` (D-H7-20),
 > `Stop` (D-H7-21). P3: `notes` is the
 > first service out (`crates/svc-notes`, `platform/interfaces/notes`), typed
@@ -244,6 +246,16 @@ Scan clean over 3 archives; `im-spawn` green.
 which stays), `worker.rs` (`wake` → `ctx.wake`), `gdbx.rs` move; the
 `sqlite` feature and `rusqlite` are **deleted** from host-im. Exit: `im-dbx`,
 `im-dbx-link`, `im-layout` dbx gates; host-im's Cargo.toml has no sqlite.
+
+**Outcome ✅ 2026-09-09.** As built: `crates/svc-dbx` (`dbx.rs`, `worker.rs`,
+`contract.rs`; `Dbx := [Fetch, Tables]`, `DbxEvent := [Rows, Failed]`;
+`CopyRow` dead and gone), `HostCtx.measure_text` for column widths
+(D-H7-22), the gate reaching the database only through the service
+(D-H7-23: `dbx-exec` hook + a real `Dbx.Fetch` through the shim; the driver
+links no part of `svc-dbx`), the clipboard as the driver's own module, the
+`sqlite` feature and `rusqlite` out of host-im. **Measured: `libhost_im.a`
+has 0 `_sqlite3_*` symbols; `libsvc_dbx.a` 277**; scan clean over 4
+archives; `im-dbx`, `im-dbx-link`, `im-layout`, `im-g3/4/6` green.
 
 ### P6 — `svc-net` (async + canned)
 

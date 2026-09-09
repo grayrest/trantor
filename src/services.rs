@@ -10,7 +10,7 @@
 //! completions, in order — a coalesced no-op says nothing, a dying child's
 //! last lines precede its exit; D-H7-20), `__env() -> MEnv`,
 //! `__gate(name, argv) -> i32` — and gives the driver:
-//!   - `init(wake)`: hands every component its `HostCtx` (D8);
+//!   - `init(wake, measure_text)`: hands every component its `HostCtx` (D8);
 //!   - `dispatch(&mut cmd, request)`: one arm per wrapper variant,
 //!     moving the payload to the component and wrapping its answers back into
 //!     the world's `Event`; `None` for a core variant (the driver's own);
@@ -53,13 +53,19 @@ pub fn services_rs(r: &Resolved) -> Option<String> {
     Some(s)
 }
 
-const CONTRACT_TYPES: &str = r#"/// D8's `HostCtx`: what the driver hands each component at `init`.
+const CONTRACT_TYPES: &str = r#"/// D8's `HostCtx`: what the driver hands each component at `init` — the
+/// driver's capabilities, as C-ABI function pointers.
 #[repr(C)]
 pub struct HostCtx {
     pub component_id: u32,
     /// Callable from any thread; the token is component-owned (D9) and comes
     /// back to the component through `complete` on the runtime thread.
     pub wake: extern "C" fn(u32, *mut c_void),
+    /// Measure `len` bytes of UTF-8 at `ptr` in the driver's font `font`, in
+    /// the driver's width units (D-H7-22: a service sizing text — dbx's
+    /// columns — cannot reach the renderer's metrics any other way). Callable
+    /// from any thread.
+    pub measure_text: extern "C" fn(*const u8, usize, u16) -> i32,
 }
 
 /// A synchronous answer to a wrapper command, in the component's own event type.
@@ -81,11 +87,20 @@ pub struct Completion<E: Copy> {
 }
 
 static WAKE: OnceLock<fn(u32, *mut c_void)> = OnceLock::new();
+static MEASURE: OnceLock<extern "C" fn(*const u8, usize, u16) -> i32> = OnceLock::new();
 
 /// The one `wake` every component is handed: forwards to the driver's loop.
 extern "C" fn courier(component_id: u32, token: *mut c_void) {
     if let Some(f) = WAKE.get() {
         f(component_id, token);
+    }
+}
+
+/// The one `measure_text` every component is handed: the driver's, or 0.
+extern "C" fn measure(ptr: *const u8, len: usize, font: u16) -> i32 {
+    match MEASURE.get() {
+        Some(f) => f(ptr, len, font),
+        None => 0,
     }
 }
 
@@ -99,7 +114,7 @@ fn component_decls(svc: &Service, id: u32) -> String {
     let p = svc.symbol_prefix();
     let m = &svc.module;
     let mut s = format!(
-        "pub const {id_name}_ID: u32 = {id};\nstatic CTX_{id_name}: HostCtx = HostCtx {{ component_id: {id}, wake: courier }};\n\
+        "pub const {id_name}_ID: u32 = {id};\nstatic CTX_{id_name}: HostCtx = HostCtx {{ component_id: {id}, wake: courier, measure_text: measure }};\n\
          unsafe extern \"C-unwind\" {{\n    fn {p}init(ctx: *const HostCtx);\n",
         id_name = upper(m)
     );
@@ -121,9 +136,10 @@ fn component_decls(svc: &Service, id: u32) -> String {
 
 fn init_fn(services: &[Service]) -> String {
     let mut s = String::from(
-        "/// Install the driver's wake sink and hand every component its `HostCtx`.\n\
-         /// Call once, before the first drain.\n\
-         pub fn init(wake: fn(u32, *mut c_void)) {\n    let _ = WAKE.set(wake);\n    unsafe {\n",
+        "/// Install the driver's wake sink and text measurer, and hand every\n\
+         /// component its `HostCtx`. Call once, before the first drain.\n\
+         pub fn init(wake: fn(u32, *mut c_void), measure_text: extern \"C\" fn(*const u8, usize, u16) -> i32) {\n\
+         \x20   let _ = WAKE.set(wake);\n    let _ = MEASURE.set(measure_text);\n    unsafe {\n",
     );
     for svc in services {
         s.push_str(&format!("        {}init(&CTX_{});\n", svc.symbol_prefix(), upper(&svc.module)));
