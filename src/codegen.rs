@@ -7,7 +7,7 @@
 //!   - components/<driver>/…        (the driver crate: runtime + main)
 //!   - abi/Cargo.toml, abi/src/lib.rs
 
-use crate::manifest::{component_dir, module_path, Driver, World};
+use crate::manifest::{component_dir, interfaces_dir, module_path, Driver, World};
 use crate::resolve::Resolved;
 use std::path::Path;
 
@@ -52,7 +52,7 @@ pub fn emit(
     }
     // A service's event/env modules ship beside its command module.
     for (iface, module) in &r.extra_modules {
-        let from = src.join("interfaces").join(iface).join(format!("{module}.roc"));
+        let from = interfaces_dir(src, world).join(iface).join(format!("{module}.roc"));
         copy(&from, &format!("platform/{module}.roc"))?;
     }
     // The driver's own contract modules (Cmd/Event/Env/…): copied from its
@@ -83,7 +83,7 @@ pub fn emit(
         if roc_modules.contains(module.as_str()) {
             continue; // provided by the shim above
         }
-        let from = src.join("interfaces").join(iface).join(format!("{module}.roc"));
+        let from = interfaces_dir(src, world).join(iface).join(format!("{module}.roc"));
         if from.exists() {
             copy(&from, &format!("platform/{module}.roc"))?;
         }

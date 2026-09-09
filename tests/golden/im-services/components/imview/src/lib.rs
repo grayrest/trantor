@@ -78,7 +78,7 @@ fn drain(mut model: RocBox, next_request: &mut u64) -> (RocBox, u64) {
                 promised += unsafe { t.borrow_payload_start_unchecked() }._2;
             }
         }
-        match services::dispatch(&mut c, *next_request, "key") {
+        match services::dispatch(&mut c, *next_request) {
             Some(answers) => {
                 for (route_key, event) in answers {
                     unsafe { route_key.decref(host) };

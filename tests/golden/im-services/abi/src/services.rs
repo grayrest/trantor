@@ -44,7 +44,7 @@ pub const ECHO_ID: u32 = 1;
 static CTX_ECHO: HostCtx = HostCtx { component_id: 1, wake: courier };
 unsafe extern "C-unwind" {
     fn hematite__svc_echo__init(ctx: *const HostCtx);
-    fn hematite__svc_echo__cmd(request: u64, route_key: RocStr, cmd: Echo) -> RocList<Answer<EchoEvent>>;
+    fn hematite__svc_echo__cmd(request: u64, cmd: Echo) -> RocList<Answer<EchoEvent>>;
     fn hematite__svc_echo__complete(token: *mut c_void) -> Completion<EchoEvent>;
     fn hematite__svc_echo__gate(name: RocStr, argv: RocList<RocStr>) -> i32;
 }
@@ -53,7 +53,7 @@ pub const TICK_ID: u32 = 2;
 static CTX_TICK: HostCtx = HostCtx { component_id: 2, wake: courier };
 unsafe extern "C-unwind" {
     fn hematite__svc_tick__init(ctx: *const HostCtx);
-    fn hematite__svc_tick__cmd(request: u64, route_key: RocStr, cmd: Tick) -> RocList<Answer<TickEvent>>;
+    fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> RocList<Answer<TickEvent>>;
     fn hematite__svc_tick__complete(token: *mut c_void) -> Completion<TickEvent>;
     fn hematite__svc_tick__env() -> TickEnv;
     fn hematite__svc_tick__gate(name: RocStr, argv: RocList<RocStr>) -> i32;
@@ -72,14 +72,14 @@ pub fn init(wake: fn(u32, *mut c_void)) {
 /// Dispatch one drained command to its service. `None` for a core variant
 /// (the driver handles those itself; the payload is untouched). Otherwise
 /// the payload is MOVED to the component and its answers come back routed:
-/// (route_key, event) pairs the driver feeds to `route`.
-pub fn dispatch(cmd: &mut Cmd, request: u64, route_key: &str) -> Option<Vec<(RocStr, Event)>> {
+/// (route_key, event) pairs the driver feeds to `route`. `request` is the
+/// host-minted id; the route key is the service's own (D-H7-17).
+pub fn dispatch(cmd: &mut Cmd, request: u64) -> Option<Vec<(RocStr, Event)>> {
     let host = host();
     match cmd.tag {
         CmdTag::Echo => {
             let payload = unsafe { cmd.take_payload_echo_unchecked() };
-            let key = RocStr::from_str(route_key, host);
-            let answers = unsafe { hematite__svc_echo__cmd(request, key, payload) };
+            let answers = unsafe { hematite__svc_echo__cmd(request, payload) };
             let mut out = Vec::with_capacity(answers.len());
             for a in answers.as_slice() {
                 out.push((a.route_key, Event { payload: EventPayload { echo: ManuallyDrop::new(a.event) }, tag: EventTag::Echo }));
@@ -89,8 +89,7 @@ pub fn dispatch(cmd: &mut Cmd, request: u64, route_key: &str) -> Option<Vec<(Roc
         }
         CmdTag::Tick => {
             let payload = unsafe { cmd.take_payload_tick_unchecked() };
-            let key = RocStr::from_str(route_key, host);
-            let answers = unsafe { hematite__svc_tick__cmd(request, key, payload) };
+            let answers = unsafe { hematite__svc_tick__cmd(request, payload) };
             let mut out = Vec::with_capacity(answers.len());
             for a in answers.as_slice() {
                 out.push((a.route_key, Event { payload: EventPayload { tick: ManuallyDrop::new(a.event) }, tag: EventTag::Tick }));

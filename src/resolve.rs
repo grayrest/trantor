@@ -97,7 +97,7 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
     for (iface_name, chain_expr) in &world.wiring {
         let chain = parse_chain(chain_expr);
         let head = chain.first().ok_or_else(|| format!("empty wiring for {iface_name}"))?;
-        let iface: Interface = crate::manifest::load_interface(dir, iface_name)?;
+        let iface: Interface = crate::manifest::load_interface(dir, world, iface_name)?;
         interface_modules.insert(iface_name.clone(), iface.module.clone());
         let head_kind = world.components.get(head).map(|c| c.kind.as_str()).unwrap_or("host");
         if iface.is_service() {
@@ -109,7 +109,7 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
                      (got `{chain_expr}`)"
                 ));
             }
-            check_service_unions(dir, iface_name, &iface)?;
+            check_service_unions(dir, world, iface_name, &iface)?;
             for m in [&iface.event_module, &iface.env_module].into_iter().flatten() {
                 extra_modules.push((iface_name.clone(), m.clone()));
             }
@@ -138,7 +138,7 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
     // io and any hosted-less interface still ships a module (e.g. IOErr); record it.
     for (name, _) in &world.interfaces {
         if !interface_modules.contains_key(name) {
-            if let Ok(iface) = crate::manifest::load_interface(dir, name) {
+            if let Ok(iface) = crate::manifest::load_interface(dir, world, name) {
                 interface_modules.insert(name.clone(), iface.module);
             }
         }
@@ -284,8 +284,8 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
 /// The P0 rule for a service's spliced unions: two or more variants (or one
 /// single-field variant), checked against the interface's shipped modules
 /// before roc or glue ever run.
-fn check_service_unions(dir: &Path, iface_name: &str, iface: &Interface) -> Result<(), String> {
-    let idir = dir.join("interfaces").join(iface_name);
+fn check_service_unions(dir: &Path, world: &World, iface_name: &str, iface: &Interface) -> Result<(), String> {
+    let idir = crate::manifest::interfaces_dir(dir, world).join(iface_name);
     for module in [Some(&iface.module), iface.event_module.as_ref()].into_iter().flatten() {
         let p = idir.join(format!("{module}.roc"));
         let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;

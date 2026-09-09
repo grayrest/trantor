@@ -19,24 +19,26 @@ pub extern "C-unwind" fn hematite__svc_echo__init(ctx: *const HostCtx) {
     CTX.store(ctx as *mut HostCtx, Ordering::Release);
 }
 
-/// Consumes `cmd` and `route_key` (they are handed over, like a hosted call's
-/// arguments) and returns owned answers the driver routes and releases.
+/// Consumes `cmd` (handed over, like a hosted call's arguments) and returns
+/// owned answers the driver routes and releases. The route key is the
+/// service's own field (`Ping(request_id, route_key, text)`), returned in the
+/// answer (D-H7-17); the app's request id is ignored — `request` is host-minted.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_echo__cmd(_request: u64, route_key: RocStr, cmd: Echo) -> RocList<Answer> {
+pub extern "C-unwind" fn hematite__svc_echo__cmd(_request: u64, cmd: Echo) -> RocList<Answer> {
     let host = abi::host();
-    let event = match cmd.tag {
+    let (route_key, event) = match cmd.tag {
         EchoTag::Ping => {
             let p = unsafe { cmd.borrow_payload_ping_unchecked() };
             let reply = RocStr::from_str(p._2.as_str(), host);
-            EchoEvent { payload: EchoEventPayload { pong: ManuallyDrop::new(reply) }, tag: EchoEventTag::Pong }
+            (RocStr::from_str(p._1.as_str(), host), EchoEvent { payload: EchoEventPayload { pong: ManuallyDrop::new(reply) }, tag: EchoEventTag::Pong })
         }
         EchoTag::Shout => {
             let s = unsafe { cmd.borrow_payload_shout_unchecked() };
             let loud = RocStr::from_str(&s.as_str().to_uppercase(), host);
-            EchoEvent {
+            (RocStr::from_str("shout", host), EchoEvent {
                 payload: EchoEventPayload { shouted: ManuallyDrop::new(abi::EchoEventShoutedPayload { _0: loud, _1: s.len() as u64 }) },
                 tag: EchoEventTag::Shouted,
-            }
+            })
         }
     };
     unsafe { cmd.decref(host) };

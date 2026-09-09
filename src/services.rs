@@ -4,11 +4,12 @@
 //!
 //! Per service `<c>` with modules `M` / `MEvent` / `MEnv` the shim declares the
 //! component's contract — `hematite__<c>__init(*const HostCtx)`,
-//! `__cmd(request, route_key, M) -> RocList<Answer<MEvent>>`,
+//! `__cmd(request, M) -> RocList<Answer<MEvent>>` (the route key lives in the
+//! service's own payload and comes back in each `Answer`; D-H7-17),
 //! `__complete(token) -> Completion<MEvent>`, `__env() -> MEnv`,
 //! `__gate(name, argv) -> i32` — and gives the driver:
 //!   - `init(wake)`: hands every component its `HostCtx` (D8);
-//!   - `dispatch(&mut cmd, request, route_key)`: one arm per wrapper variant,
+//!   - `dispatch(&mut cmd, request)`: one arm per wrapper variant,
 //!     moving the payload to the component and wrapping its answers back into
 //!     the world's `Event`; `None` for a core variant (the driver's own);
 //!   - `on_wake(id, token)`: the runtime-thread half of D9 — the component's
@@ -101,11 +102,11 @@ fn component_decls(svc: &Service, id: u32) -> String {
     match &svc.event_module {
         Some(ev) => {
             s.push_str(&format!(
-                "    fn {p}cmd(request: u64, route_key: RocStr, cmd: {m}) -> RocList<Answer<{ev}>>;\n\
+                "    fn {p}cmd(request: u64, cmd: {m}) -> RocList<Answer<{ev}>>;\n\
                  \x20   fn {p}complete(token: *mut c_void) -> Completion<{ev}>;\n"
             ));
         }
-        None => s.push_str(&format!("    fn {p}cmd(request: u64, route_key: RocStr, cmd: {m});\n")),
+        None => s.push_str(&format!("    fn {p}cmd(request: u64, cmd: {m});\n")),
     }
     if let Some(env) = &svc.env_module {
         s.push_str(&format!("    fn {p}env() -> {env};\n"));
@@ -141,21 +142,21 @@ fn dispatch_fn(services: &[Service]) -> String {
         "/// Dispatch one drained command to its service. `None` for a core variant\n\
          /// (the driver handles those itself; the payload is untouched). Otherwise\n\
          /// the payload is MOVED to the component and its answers come back routed:\n\
-         /// (route_key, event) pairs the driver feeds to `route`.\n\
-         pub fn dispatch(cmd: &mut Cmd, request: u64, route_key: &str) -> Option<Vec<(RocStr, Event)>> {\n\
+         /// (route_key, event) pairs the driver feeds to `route`. `request` is the\n\
+         /// host-minted id; the route key is the service's own (D-H7-17).\n\
+         pub fn dispatch(cmd: &mut Cmd, request: u64) -> Option<Vec<(RocStr, Event)>> {\n\
          \x20   let host = host();\n    match cmd.tag {\n",
     );
     for svc in services {
         let p = svc.symbol_prefix();
         let field = snake_case(&svc.module);
         s.push_str(&format!(
-            "        CmdTag::{m} => {{\n            let payload = unsafe {{ cmd.take_payload_{field}_unchecked() }};\n\
-             \x20           let key = RocStr::from_str(route_key, host);\n",
+            "        CmdTag::{m} => {{\n            let payload = unsafe {{ cmd.take_payload_{field}_unchecked() }};\n",
             m = svc.module
         ));
         if svc.event_module.is_some() {
             s.push_str(&format!(
-                "            let answers = unsafe {{ {p}cmd(request, key, payload) }};\n\
+                "            let answers = unsafe {{ {p}cmd(request, payload) }};\n\
                  \x20           let mut out = Vec::with_capacity(answers.len());\n\
                  \x20           for a in answers.as_slice() {{\n\
                  \x20               out.push((a.route_key, {}));\n\
@@ -166,7 +167,7 @@ fn dispatch_fn(services: &[Service]) -> String {
             ));
         } else {
             s.push_str(&format!(
-                "            unsafe {{ {p}cmd(request, key, payload) }};\n            Some(Vec::new())\n        }}\n"
+                "            unsafe {{ {p}cmd(request, payload) }};\n            Some(Vec::new())\n        }}\n"
             ));
         }
     }
@@ -258,7 +259,7 @@ mod tests {
             Service { component: "svc-tick".into(), module: "Tick".into(), event_module: Some("TickEvent".into()), env_module: Some("TickEnv".into()) },
         ]);
         let s = services_rs(&r).unwrap();
-        assert!(s.contains("fn hematite__svc_echo__cmd(request: u64, route_key: RocStr, cmd: Echo) -> RocList<Answer<EchoEvent>>;"));
+        assert!(s.contains("fn hematite__svc_echo__cmd(request: u64, cmd: Echo) -> RocList<Answer<EchoEvent>>;"));
         assert!(s.contains("fn hematite__svc_tick__env() -> TickEnv;"));
         assert!(s.contains("CmdTag::Echo => {"));
         assert!(s.contains("EventPayload { tick: ManuallyDrop::new(c.event) }, tag: EventTag::Tick }"));

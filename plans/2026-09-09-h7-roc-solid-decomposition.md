@@ -1,6 +1,9 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0 + P1 + P2 DONE 2026-09-09; P3 (notes) next.** P2: roc-solid's
+> **Status: P0–P3 DONE 2026-09-09; P4 (spawn) next.** P3: `notes` is the
+> first service out (`crates/svc-notes`, `platform/interfaces/notes`), typed
+> end to end through the generated shim on the real host; D-H7-17/18/19 in
+> the log. P2: roc-solid's
 > platform is the hematite world `platform/clay` (driver `crates/host-im`,
 > zero services extracted); `im-check` 132/132 on `~/.bin/roc` (b07d7e) with
 > two gates quarantined for compiler segfaults that predate nothing here
@@ -97,7 +100,7 @@ mangled `hematite__<sanitize(component)>__<fn>`:
 | symbol | signature | when |
 | --- | --- | --- |
 | `init` | `(*const HostCtx)` | once, before the first frame; the component keeps the ctx |
-| `cmd` | `(request: u64, route_key: RocStr, cmd: <Svc>Cmd) -> RocList<Answer>` where `Answer { route_key, event: <Svc>Event }` | each drained wrapper command; sync answers returned |
+| `cmd` | `(request: u64, cmd: <Svc>Cmd) -> RocList<Answer>` where `Answer { route_key, event: <Svc>Event }` — the route key is the service's own payload field, returned per answer (D-H7-17) | each drained wrapper command; sync answers returned |
 | `complete` | `(token: *mut c_void) -> Completion { request, route_key, event: <Svc>Event }` | on the runtime thread after `ctx.wake(id, token)` |
 | `env` | `() -> <Svc>Env` | once per frame, env components only |
 | `gate` | `(name: RocStr, argv: RocList<RocStr>) -> i32` | argv dispatch; −1 = not mine |
@@ -207,6 +210,14 @@ table) — not P2's. Results: `im-check` 132/132, clippy clean, `cargo test
 Text(Str), Failed(Str)]`). notesviewer's two call sites; the `notes` arm and
 `notes_calls` leave the engine. `serve.py` keeps answering `/@service/notes`
 for the DOM until P9. Exit: `im-notesviewer`, `notesviewer-probe` green.
+
+**Outcome ✅ 2026-09-09.** As built: `crates/svc-notes` (`notes.rs` logic +
+`contract.rs`; `contract` feature; library API for the gate's oracle),
+`platform/interfaces/notes/{Notes,NotesEvent}.roc` (`interfaces_dir`),
+`gnotes.rs` stays in host-im (D-H7-18), the engine's wrapper arm + answer
+routing + wake courier, `main()`'s gate chain, host-dom's interim catch-all,
+notesviewer typed. `hematite__svc_notes__*` only in `libsvc_notes.a`; scan
+clean over 2 archives; `im-notesviewer` + `notesviewer-probe` green.
 
 ### P4 — `svc-spawn` (streaming)
 

@@ -28,11 +28,12 @@ pub extern "C-unwind" fn hematite__svc_tick__init(ctx: *const HostCtx) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_tick__cmd(request: u64, route_key: RocStr, cmd: Tick) -> RocList<Answer> {
+pub extern "C-unwind" fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> RocList<Answer> {
     let host = abi::host();
     if let TickTag::Start = cmd.tag {
-        let n = unsafe { cmd.borrow_payload_start_unchecked() }._2;
-        let key = route_key.as_str().to_string();
+        let start = unsafe { cmd.borrow_payload_start_unchecked() };
+        let n = start._2;
+        let key = start._1.as_str().to_string(); // the service's own route key (D-H7-17)
         let ctx = CTX.load(Ordering::Acquire);
         assert!(!ctx.is_null(), "svc-tick: cmd before init");
         // SAFETY: the driver's HostCtx is a static that outlives every call.
@@ -45,10 +46,7 @@ pub extern "C-unwind" fn hematite__svc_tick__cmd(request: u64, route_key: RocStr
             }
         });
     }
-    unsafe {
-        cmd.decref(host);
-        route_key.decref(host);
-    }
+    unsafe { cmd.decref(host) };
     RocList::empty()
 }
 

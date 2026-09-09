@@ -364,6 +364,47 @@ records).
 - **cargo touches the crates.io index once** for `hematite-abi = "0.0.0"`
   when the lock first records the patched path; later builds do not.
 
+## P3 decisions (2026-09-09) — the first service out
+
+**D-H7-17 — `cmd(request, <C>Cmd)`: the route key is the service's own.**
+The key sits inside each service's payload (`Notes.List(request_id,
+route_key)`, as `Cmd.Service` carried it), so the driver cannot supply it
+without parsing the service's union — the coupling the wrapper removes. The
+component reads it and returns it in each `Answer`; the driver passes only
+the host-minted request id (the app's own id field is ignored, as before).
+Amends D-H7-7's signature.
+
+**D-H7-18 — Engine-driving gates stay in the driver; service logic tests move.**
+`gnotes.rs` drives host-im's `Engine` headlessly (`Boundary`, `window`,
+`prof`, `ir::flatten`): it is a driver+service integration gate, and moving it
+into `svc-notes` would link the engine into a second archive. It stays,
+reaching the service the way any app does — plus, for its corpus-containment
+oracle, the service's listing logic as a LIBRARY: `svc-notes` is
+`staticlib + rlib` with its contract symbols behind a default `contract`
+feature; host-im depends on it `default-features = false`, so the driver's
+archive carries the (Rust-mangled, scan-exempt) logic and none of the
+`hematite__svc_notes__*` symbols — measured: 0 in `libhost_im.a`, all in
+`libsvc_notes.a`, scan clean over 2 archives. The one shared-state hazard —
+each archive's `OnceLock` staging the fixture — is closed by making staging
+existence-idempotent per process. Amends D-H7-8's "every g*.rs moves".
+
+**D-H7-19 — `[world] interfaces_dir`: one `platform/interfaces/` for every
+world of a repo.** Same shape as `cargo_root`; default stays `<world>/interfaces`.
+
+**Interim, to be undone at P9:** host-dom's exhaustive `Cmd` match gains one
+`other => unimplemented(…)` arm for service wrappers so the workspace keeps
+compiling; DOM notesviewer is non-functional until `svc-notes-dom`.
+
+**Measured on the real host:** the engine hands the shim an incref'd copy of
+the wrapper shell — `release_cmds` deep-frees every drained payload with the
+list, so the component's decref balances the copy and the original goes with
+the list. The `Service`-era `notes_calls` collection, its engine arm and the
+text protocol are gone; typed answers route under the service's key with the
+host-minted request as `route`'s parameter, exactly as before. A wake courier
+(`SERVICE_WAKES` + `take_wakes` in the pump) is in place for P5's first
+asynchronous service. roc's warnings-fail discipline caught the one app-side
+slip (a shadowed name).
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

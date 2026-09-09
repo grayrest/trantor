@@ -42,6 +42,15 @@ pub struct WorldMeta {
     /// with this world's abi patched in — see `cargo.rs`.
     #[serde(default)]
     pub cargo_root: Option<String>,
+    /// Where the interfaces live (relative to the world dir; default
+    /// `interfaces`). Several worlds of one repo share one directory.
+    #[serde(default)]
+    pub interfaces_dir: Option<String>,
+}
+
+/// The directory holding `<interface>/interface.toml` for a world.
+pub fn interfaces_dir(world_dir: &Path, world: &World) -> PathBuf {
+    world_dir.join(world.world.interfaces_dir.as_deref().unwrap_or("interfaces"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -233,8 +242,8 @@ pub fn load_world(dir: &Path, file: &str) -> Result<World, String> {
     toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
 }
 
-pub fn load_interface(dir: &Path, name: &str) -> Result<Interface, String> {
-    let p = dir.join("interfaces").join(name).join("interface.toml");
+pub fn load_interface(dir: &Path, world: &World, name: &str) -> Result<Interface, String> {
+    let p = interfaces_dir(dir, world).join(name).join("interface.toml");
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
 }
