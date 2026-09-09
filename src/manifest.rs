@@ -81,6 +81,15 @@ pub struct Component {
     /// baseline so test peers never ship. Default false.
     #[serde(default)]
     pub test_only: bool,
+    /// macOS system frameworks this component links (e.g. `CoreFoundation`,
+    /// pulled in by turso via chrono/iana_time_zone). roc links a framework only
+    /// from a platform-bundled sysroot, so `hematite build` generates
+    /// `platform/targets/macos-sysroot` containing exactly the frameworks the
+    /// world's components declare — and none, skipping the sysroot entirely,
+    /// when no component declares any. Mirrors the crate's own
+    /// `#[link(name = "…", kind = "framework")]`. Host components only.
+    #[serde(default)]
+    pub frameworks: Vec<String>,
 }
 
 /// One interface's `interface.toml`: the Roc module it ships and the hosted

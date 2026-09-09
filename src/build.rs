@@ -12,8 +12,10 @@
 //!   4. stage          — copy the archives main.roc links into targets/ (exactly
 //!                        the link set, so a stale archive from another world
 //!                        can't leak in).
-//!   5. prelink hook   — if <world-dir>/prelink.sh exists, run it (a fixture's
-//!                        native-link setup, e.g. the turso macOS sysroot).
+//!   5. framework sysroot — generate platform/targets/macos-sysroot from the
+//!                        frameworks the world's components declare (roc links a
+//!                        framework only from a bundled sysroot), or remove a
+//!                        stale one when the world declares none.
 //!   6. scan           — H0c archive symbol-collision scan.
 //!   7. roc check      — typecheck the app before the linking build.
 //!   8. roc build      — link the app against the composed platform.
@@ -22,6 +24,7 @@
 //! the same gate the build.sh scripts used. ROC / GLUE come from the environment
 //! (defaults `~/.bin/roc`, `~/.bin/RustGlue.roc`), matching those scripts.
 
+use crate::manifest::World;
 use crate::resolve::{sanitize, Resolved};
 use std::path::Path;
 use std::process::Command;
@@ -106,11 +109,10 @@ pub fn build(
     //    clearing stale ones so another world's archive can't leak in.
     stage_archives(dir, target, &resolved)?;
 
-    // 5. optional fixture-specific native-link setup (e.g. the turso sysroot).
-    let prelink = dir.join("prelink.sh");
-    if prelink.exists() {
-        run("bash", &["prelink.sh"], dir, "prelink.sh")?;
-    }
+    // 5. macOS framework sysroot: generate it from the frameworks the world's
+    //    components declare (e.g. turso's CoreFoundation), or remove a stale one
+    //    so a prior world's sysroot can't leak into a framework-less link.
+    sync_framework_sysroot(dir, &world)?;
 
     // 6. H0c symbol-collision scan — after the archives exist, before the link.
     crate::scan::scan(dir, world_file, None, target)?;
@@ -123,6 +125,79 @@ pub fn build(
     roc_capped(&["build", &out_flag, &app_main], dir, "roc build")?;
     eprintln!("hematite build: linked bin/{out}");
     Ok(())
+}
+
+/// Generate `platform/targets/macos-sysroot` containing exactly the frameworks
+/// the world's components declare, or remove a stale sysroot when none do.
+///
+/// roc's linker only links a framework from a platform-bundled sysroot, so a
+/// component that links one (turso → CoreFoundation, via chrono/iana_time_zone)
+/// declares it in `[components.<c>].frameworks`. The sysroot is built by
+/// symlinking into the host SDK (`xcrun --show-sdk-path`): `usr` for libSystem,
+/// and each framework's `.tbd` stub inside a REAL `.framework` directory (roc's
+/// framework discovery skips symlinked directory entries). It is generated,
+/// git-ignored, and rebuilt each time so it tracks the host SDK.
+///
+/// If no component declares a framework, any previously-generated sysroot is
+/// removed so a prior world's build can't leak one into a framework-less link.
+/// If the SDK can't be located (no Xcode / not macOS) the step is skipped; a
+/// world that truly needs a framework then fails at the link, as before.
+fn sync_framework_sysroot(dir: &Path, world: &World) -> Result<(), String> {
+    use std::collections::BTreeSet;
+    let frameworks: BTreeSet<&str> = world
+        .components
+        .values()
+        .flat_map(|c| c.frameworks.iter())
+        .map(String::as_str)
+        .collect();
+    let sysroot = dir.join("platform").join("targets").join("macos-sysroot");
+
+    if frameworks.is_empty() {
+        // Remove a stale sysroot from an earlier framework-linking world.
+        if sysroot.exists() {
+            let _ = std::fs::remove_dir_all(&sysroot);
+        }
+        return Ok(());
+    }
+
+    let sdk = match Command::new("xcrun").arg("--show-sdk-path").output() {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        _ => String::new(),
+    };
+    if sdk.is_empty() {
+        // No SDK to symlink from; leave it to the link to fail loudly if needed.
+        eprintln!("hematite build: no macOS SDK found (xcrun); skipping framework sysroot");
+        return Ok(());
+    }
+    let sdk = Path::new(&sdk);
+
+    // Rebuild from scratch so a removed framework can't linger.
+    let _ = std::fs::remove_dir_all(&sysroot);
+    let frameworks_dir = sysroot.join("System/Library/Frameworks");
+    std::fs::create_dir_all(&frameworks_dir)
+        .map_err(|e| format!("mkdir {}: {e}", frameworks_dir.display()))?;
+    // `usr` (libSystem) is reached by path, so a symlink is fine.
+    symlink(&sdk.join("usr"), &sysroot.join("usr"))?;
+    for fw in &frameworks {
+        // The `.framework` must be a REAL dir (roc skips symlinked entries);
+        // the `.tbd` stub inside it is symlinked from the SDK.
+        let fw_dir = frameworks_dir.join(format!("{fw}.framework"));
+        std::fs::create_dir_all(&fw_dir)
+            .map_err(|e| format!("mkdir {}: {e}", fw_dir.display()))?;
+        let tbd = format!("{fw}.tbd");
+        symlink(
+            &sdk.join(format!("System/Library/Frameworks/{fw}.framework/{tbd}")),
+            &fw_dir.join(&tbd),
+        )?;
+    }
+    Ok(())
+}
+
+/// Create a symlink at `link` pointing to `original`, replacing any existing one.
+fn symlink(original: &Path, link: &Path) -> Result<(), String> {
+    let _ = std::fs::remove_file(link);
+    std::os::unix::fs::symlink(original, link)
+        .map_err(|e| format!("symlink {} -> {}: {e}", link.display(), original.display()))
 }
 
 /// Copy the archives the composed `main.roc` links (the resolved component set,

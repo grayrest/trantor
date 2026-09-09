@@ -8,10 +8,10 @@
 //!     driver crate, the abi wrapper); interface binding modules and pure-Roc
 //!     components are copied verbatim (D13) — compose emits sources only.
 //!   hematite build <world-dir> [--app <dir>] [--out <name>] [--world <w>]
-//!     The full pipeline: compose + roc glue + cargo + stage + optional
-//!     prelink.sh + the H0c symbol scan + roc check + roc build. This is the
-//!     tool driving the toolchain (superseding the fixtures' build.sh); the
-//!     scan runs between cargo and the link (see build.rs).
+//!     The full pipeline: compose + roc glue + cargo + stage + framework
+//!     sysroot + the H0c symbol scan + roc check + roc build. This is the tool
+//!     driving the toolchain (superseding the fixtures' build.sh); the scan
+//!     runs between cargo and the link (see build.rs).
 //!   hematite scan <world-dir>   — the H0c archive symbol-collision scan alone.
 //!   hematite publish / tier     — baseline packaging + tier classification.
 

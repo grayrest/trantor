@@ -23,6 +23,10 @@ provides_runtime = true
 kind = "host"
 lang = "rust"
 exports = ["sqlite", "turso"]
+# turso pulls CoreFoundation (via chrono/iana_time_zone, deep in turso_core);
+# roc links a framework only from a bundled sysroot, which `hematite build`
+# generates from this declaration (R-SQ2).
+frameworks = ["CoreFoundation"]
 [components.report-host]
 kind = "host"
 lang = "rust"
