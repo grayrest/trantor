@@ -65,16 +65,22 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut app = String::from("app");
             let mut out = String::from("app");
             let mut target = String::from("arm64mac");
+            let mut app_link = true;
             while let Some(f) = it.next() {
                 match f.as_str() {
                     "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
                     "--app" => app = it.next().ok_or("--app: missing dir")?.clone(),
                     "--out" => out = it.next().ok_or("--out: missing name")?.clone(),
                     "--target" => target = it.next().ok_or("--target: missing triple")?.clone(),
+                    // Prepare the platform (through the scan) without linking
+                    // an app: for a repo whose gates `roc build` many apps
+                    // against one composed platform.
+                    "--platform-only" => app_link = false,
                     other => return Err(format!("unknown flag {other:?}")),
                 }
             }
-            return build::build(&dir, &world_file, &app, &out, &target);
+            let app = if app_link { Some(app.as_str()) } else { None };
+            return build::build(&dir, &world_file, app, &out, &target);
         }
         "scan" => {
             // H0c archive symbol-collision scan. Runs after cargo builds the

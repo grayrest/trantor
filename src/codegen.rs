@@ -131,12 +131,15 @@ pub fn emit(
         if c.features.is_empty() && c.default_features.is_none() {
             continue;
         }
+        if world.world.cargo_root.is_some() {
+            continue; // passed to cargo as --features flags instead (cargo.rs)
+        }
         if c.path.is_some() {
             // The rewrite edits the crate's own Cargo.toml; a crate at its own
             // path is shared between worlds, which must not fight over it.
             return Err(format!(
-                "component `{name}`: `features`/`default_features` are not supported with `path` \
-                 (the knob rewrites the crate's Cargo.toml in place)"
+                "component `{name}`: `features`/`default_features` need `[world] cargo_root` with \
+                 `path` (the Cargo.toml rewrite would edit a shared crate in place)"
             ));
         }
         let rel = format!("components/{name}/Cargo.toml");

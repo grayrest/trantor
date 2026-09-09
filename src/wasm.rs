@@ -163,11 +163,15 @@ pub fn link_app(
     dir: &Path,
     world_file: &str,
     work: &Path,
-    app: &str,
+    app: Option<&str>,
     out: &str,
     roc_capped: &dyn Fn(&[&str], &Path, &str) -> Result<(), String>,
 ) -> Result<(), String> {
     crate::scan::scan_archives(dir, world_file, work, Format::Wasm)?;
+    let Some(app) = app else {
+        eprintln!("hematite build: wasm32 platform staged and scanned (no app)");
+        return Ok(());
+    };
     let app_main = format!("{app}/main.roc");
     roc_capped(&["check", &app_main], dir, "roc check")?;
     std::fs::create_dir_all(dir.join("bin")).map_err(|e| format!("mkdir bin: {e}"))?;

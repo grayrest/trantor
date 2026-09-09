@@ -74,12 +74,13 @@ fn roc_capped(args: &[&str], dir: &Path, what: &str) -> Result<(), String> {
 }
 
 /// The full pipeline. `dir` is the world directory; `app` its app subdir
-/// (holding `main.roc`); `out` the binary name under `bin/`; `target` the
-/// archive subdir under `platform/targets/`.
+/// (holding `main.roc`), or `None` to stop after the platform is staged and
+/// scanned; `out` the binary name under `bin/`; `target` the archive subdir
+/// under `platform/targets/`.
 pub fn build(
     dir: &Path,
     world_file: &str,
-    app: &str,
+    app: Option<&str>,
     out: &str,
     target: &str,
 ) -> Result<(), String> {
@@ -126,7 +127,11 @@ pub fn build(
     // 6. H0c symbol-collision scan — after the archives exist, before the link.
     crate::scan::scan(dir, world_file, None, target)?;
 
-    // 7. roc check, then 8. roc build.
+    // 7. roc check, then 8. roc build — unless only the platform was asked for.
+    let Some(app) = app else {
+        eprintln!("hematite build: platform `{}` staged and scanned (no app)", world.world.name);
+        return Ok(());
+    };
     let app_main = format!("{app}/main.roc");
     roc_capped(&["check", &app_main], dir, "roc check")?;
     std::fs::create_dir_all(dir.join("bin")).map_err(|e| format!("mkdir bin: {e}"))?;

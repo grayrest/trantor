@@ -110,6 +110,15 @@ pub fn build(
             "-p".to_string(),
             pkg.clone(),
         ];
+        // The HC0 feature knob, as cargo flags rather than a Cargo.toml rewrite:
+        // the crate is shared between worlds and must not be edited in place.
+        if !c.features.is_empty() {
+            args.push("--features".to_string());
+            args.push(c.features.join(","));
+        }
+        if c.default_features == Some(false) {
+            args.push("--no-default-features".to_string());
+        }
         target_args(&mut args);
         run(&args, &root)?;
         out.push((comp.clone(), built.join(format!("lib{}.a", pkg.replace('-', "_")))));
