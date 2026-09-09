@@ -1,0 +1,15 @@
+target/
+bin/
+glue-out/
+abi/src/generated.rs
+platform/Element.roc
+platform/Env.roc
+platform/Cmd.roc
+platform/Event.roc
+platform/Echo.roc
+platform/Tick.roc
+platform/EchoEvent.roc
+platform/TickEvent.roc
+platform/TickEnv.roc
+platform/targets/*/*.a
+platform/targets/macos-sysroot/

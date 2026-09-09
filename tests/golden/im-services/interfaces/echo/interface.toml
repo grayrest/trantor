@@ -1,0 +1,3 @@
+module = "Echo"
+cmd = "Cmd"
+event = "Event"

@@ -1,0 +1,56 @@
+requires_uses = ["Env", "Element", "Cmd", "Event"]
+authored_host = true
+imports_extra = []
+
+requires = """
+		[Model : model] for main : {
+			init : Env -> model,
+			view : model, Env -> { tree : Element },
+			cmds : model -> List(Cmd),
+			on_event : Event, model -> model,
+		}
+"""
+
+provided = """
+init_for_host : Env -> Box(Model)
+init_for_host = |env| {
+	init_fn = main.init
+	Box.box(init_fn(env))
+}
+
+view_for_host : Box(Model), Env -> { tree : Element }
+view_for_host = |boxed_model, env| {
+	view_fn = main.view
+	view_fn(Box.unbox(boxed_model), env)
+}
+
+## Returns `List(Cmd)` — the nested-union wrapper crossing OUT of Roc (R-H7-1).
+cmds_for_host : Box(Model) -> List(Cmd)
+cmds_for_host = |boxed_model| {
+	cmds_fn = main.cmds
+	cmds_fn(Box.unbox(boxed_model))
+}
+
+## Takes an `Event` — the nested-union wrapper crossing INTO Roc (R-H7-1).
+route_for_host : Box(Model), Event -> Box(Model)
+route_for_host = |boxed_model, event| {
+	on_event_fn = main.on_event
+	Box.box(on_event_fn(event, Box.unbox(boxed_model)))
+}
+"""
+
+[[provides]]
+symbol = "roc_im_init"
+fn = "init_for_host"
+
+[[provides]]
+symbol = "roc_im_view"
+fn = "view_for_host"
+
+[[provides]]
+symbol = "roc_im_cmds"
+fn = "cmds_for_host"
+
+[[provides]]
+symbol = "roc_im_route"
+fn = "route_for_host"

@@ -1,6 +1,10 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: PROPOSED 2026-09-09.** Design log:
+> **Status: P0 DONE 2026-09-09 (fixture `im-services` + spike `h7-wasm-inputs`
+> green); P1 next.** P0 overturned two decisions — wasm32 staging (merge, not
+> multiple inputs; D-H7-9 revised) and allocator-shim ownership (driver first
+> + scan check; D-H7-13) — both confirmed 2026-09-09, see the design log's
+> "P0 findings". Design log:
 > [`notes/2026-09-09-h7-roc-solid-decomposition-design-log.md`](../notes/2026-09-09-h7-roc-solid-decomposition-design-log.md)
 > (D-H7-1…12). Closes the PARTIAL H7 gate of
 > [`2026-09-04-hematite-v1.md`](2026-09-04-hematite-v1.md). Toolchain pinned at
@@ -50,14 +54,16 @@ notes = "svc-notes"
 
 ```toml
 # interfaces/notes/interface.toml
-module = "Notes"                        # ships Notes.roc (as today)
-cmd = "Cmd"                             # NEW: type names in that module that
-event = "Event"                         #   the world splices into the driver's
-# env = "Env"                           #   Cmd/Event/Env (audio only)
+module = "Notes"                        # ships Notes.roc: the COMMAND union
+event_module = "NotesEvent"             # NEW: ships NotesEvent.roc (P0: one
+# env_module = "AudioEnv"               #   nominal per module); audio only
 ```
 
-Wrapper variant / field name = the interface's module name: `Notes(Notes.Cmd)`,
-`Notes(Notes.Event)`, `audio : Audio.Env`.
+Wrapper variant / field name = the interface's module name: `Notes(Notes)`,
+`Notes(NotesEvent)`, `audio : AudioEnv`; the app writes
+`Cmd.Notes(Notes.List(0, "k"))`. Compose-time check (P0): a spliced union must
+have ≥2 variants, or one variant with exactly one field (glue unwraps a
+single-variant union and mis-types a multi-field payload).
 
 Driver modules carry the splice markers; the block is replaced whole:
 
@@ -104,18 +110,15 @@ Rules: no Rust-heap value crosses (D-H7-11); every boundary `C-unwind`
 
 ## Phases
 
-### P0 — spikes (hematite; measure first)
+### P0 — spikes (hematite; measure first) ✅ 2026-09-09
 
 `tests/golden/im-services/` — imview-slice + two services (`svc-echo` sync,
-`svc-tick` async from a thread) + an env block. Measures, in order: (1) a
-wrapper variant carrying a nested union through `List(Cmd)` (return) and
-`Event` (argument) — the glue positional hazard; (2) `HostCtx.wake` from a
-worker thread → `complete` on the runtime thread; (3) the gate hook; (4)
-`___rust_alloc` symbol class per archive (record in the scan note).
-`spikes/h7-wasm-inputs/` — two tiny wasm32 components + app; `wasm32: {
-inputs: [a.wasm, b.wasm, app] }` on the pinned roc. **If it fails: stop and
-raise** (fallback is the `wasm-ld -r` merge; D-H7-9).
-Exit: fixture green; findings appended to the design log.
+`svc-tick` async from a thread) + an env block — green: wrapper unions cross
+both ways (≥2 variants), `HostCtx.wake` → runtime-thread `complete`, env
+block, gate chain; allocator shims measured as one first-wins symbol per link
+(D-H7-13). `spikes/h7-wasm-inputs/` — multiple wasm inputs collide in both
+forms; the rooted merge links and runs (D-H7-9 revised). Findings in the
+design log.
 
 ### P1 — tool
 
@@ -128,8 +131,14 @@ never write `Cargo.toml`/`src` into an authored driver (`authored_host` +
 services.rs` + `HostCtx`; workspace members by path.
 `build`: `--target wasm32` pipeline (per-component `cargo rustc --target
 wasm32-unknown-unknown` with the `dom-host` env overrides, `llvm-ar x` wasm
-members, `wasm-ld -r` per component → `targets/wasm32/lib<c>.wasm`, roc
-`--target=wasm32`); `scan` via `llvm-nm` for wasm archives.
+members per component, then ONE `wasm-ld -r --whole-archive <driver>
+--no-whole-archive <each component's contract members> <component archives>`
+→ `targets/wasm32/host.wasm` — the P0-measured merge; contract members found
+with `llvm-nm` from the symbols hematite itself mangled; `exports:` emitted
+from the driver's declared wasm exports); `scan` via `llvm-nm` for wasm
+archives. `resolve`: driver FIRST in `archive_order` (D-H7-13); `scan`: the
+three `___rustc*` shim symbols leave the Rust-mangled exemption and a
+`#[global_allocator]` outside the driver is refused.
 Exit: 16 fixtures + `im-services` green; `hematite build` on the wasm spike.
 
 ### P2 — roc-solid baseline, zero services extracted (behaviour-identical)
@@ -217,11 +226,16 @@ status flipped; design-log "Still open" updated.
 
 ## Risks
 
-- **R-H7-1 nested-union crossing** (P0). Glue miscompiles named nominals in
-  return position; a wrapper *payload* is documented safe but unmeasured.
-  Fallback if it fails: flatten payloads to anonymous records inside the
-  wrapper (`Notes({ cmd : Notes.Cmd })`) — raise, don't switch.
-- **R-H7-2 wasm32 multi-input** (P0). See D-H7-9.
+- **R-H7-1 nested-union crossing — CLEARED (P0).** Wrapper unions cross both
+  ways with named per-service Rust types, given ≥2 variants (compose check).
+- **R-H7-2 wasm32 multi-input — NEGATIVE (P0).** roc links wasm inputs
+  `--whole-archive`; per-component inputs collide on std. The merge recipe
+  above is the measured working shape (D-H7-9 revised, pending).
+- **R-H7-7 allocator shim first-wins (P0).** `__rust_alloc` is one plain-
+  external v0-mangled symbol per archive, first-wins across the link; the
+  scan's Rust-mangled exemption is wrong for it when a `#[global_allocator]`
+  exists. D-H7-13 (driver first + scan check) closes it; P2 measures mimalloc
+  reachability on host-im.
 - **R-H7-3 gate churn.** 191 apps re-pointed (P2) and ~25 files change variant
   spelling (P5/P6/P7). Mechanical, but `im-check` under load already trips the
   60 s cap; use `ROC_TIMEOUT=300` for the one clean reading after each phase.

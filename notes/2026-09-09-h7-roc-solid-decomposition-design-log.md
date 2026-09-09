@@ -187,6 +187,90 @@ and those apps rewrite one line each. A generic "async completion" the platform
 performs is what the typed service components *are*; no core variant remains
 for it.
 
+## P0 findings (measured 2026-09-09)
+
+Fixture `tests/golden/im-services/` (imview-slice + `svc-echo` sync +
+`svc-tick` async + a `TickEnv` block) and spike `spikes/h7-wasm-inputs/`.
+
+- **R-H7-1 answered: the wrapper union crosses both ways** — `List(Cmd)` out
+  of `cmds_for_host`, `Event` into `route_for_host`, and `Env.tick : TickEnv`
+  in — and glue emits each service union as its own named Rust type (`Echo`,
+  `Tick`, `EchoEvent`, `TickEnv`) with world-independent names. **Provided the
+  union has two or more variants.** A single-variant union is unwrapped to its
+  payload, and a multi-field single-variant payload is mis-typed as `u64`
+  while glue's own `size_of` assert still knows the true size (64 ≠ 32) — a
+  loud build failure, not a silent miscompile. P1 rejects a service union with
+  one multi-field variant at compose time (`Net := [Http(U64, Str, Str)]` is
+  the real case: give it a second variant or a record payload).
+- **One nominal per module.** A type module exposes only the nominal named
+  after the file; a second `Event :=` in `Echo.roc` is "type not exposed". So
+  a service ships `Notes.roc` (its command union), `NotesEvent.roc`, and for
+  audio `AudioEnv.roc`; the wrapper is `Notes(Notes)` / `Notes(NotesEvent)` /
+  `audio : AudioEnv`, and the app writes `Cmd.Notes(Notes.List(0, "k"))`.
+  Amends D-H7-5's "one module with `Cmd`/`Event` inside" to the shape the
+  approved option actually named. The interface manifest therefore names up
+  to three modules (`module`, `event_module`, `env_module`).
+- **A nominal record pattern must name every field** (`Env.{ width: w, tick: _ }`);
+  the splice must not break the driver's existing destructures — P1 rewrites
+  none, so the driver's `Env` methods that destructure must be written with
+  `..`-free full patterns before the block is spliced (host-im's use
+  `Env.{ … } = env` today — audit in P7).
+- **D8/D9 hold as written:** `HostCtx.wake` from a worker thread, three
+  completions built on the runtime thread inside the component's `complete`,
+  tokens allocated and freed by the component. The gate chain and the env
+  block worked first time.
+- **D-H7-11 corrected by measurement.** The Rust allocator shims are NOT
+  per-archive: every archive defines `__rust_alloc`/`__rust_dealloc`/
+  `__rust_realloc` as **v0-mangled plain-external** symbols with the same
+  name (`__RNvCs9wFQrvczXsK_7___rustc12___rust_alloc`), so the roc link
+  first-wins them exactly like H0c's vendored natives — one shim serves the
+  whole binary, from whichever archive is scanned first. Two consequences:
+  (1) the H0c scan's "Rust-mangled ⇒ ODR-identical" exemption is **false for
+  these three symbols** when any archive sets `#[global_allocator]` (host-im's
+  mimalloc): the winner decides the allocator for every archive, silently;
+  (2) with the driver LAST in `archive_order`, a component's default shim wins
+  and the driver's mimalloc is dropped — inferred from H0c's first-in-inputs
+  measurement (80 vs 4), not re-measured with a `#[global_allocator]` in the
+  driver; P2 measures it on host-im (`nm` for `_mi_malloc` reachability from
+  `__rust_alloc`) before relying on it. The rule for the plan: the driver's
+  archive must be scanned FIRST for the shims, or the scan must reject a
+  `#[global_allocator]` outside the driver — see the D-H7-13 question below.
+  The cross-allocator-free hazard D-H7-11 feared does not exist (one shim);
+  the borrow protocol for `hostres` stays for ownership clarity, not for
+  allocator safety.
+- **R-H7-2 answered: multiple wasm32 inputs do not link on this compiler**,
+  in either form. Two `wasm-ld -r` relocatables: every std / compiler-builtins
+  member is a strong definition in both (`__negdf2`…). Two wasm-member
+  archives: the same, because roc links its inputs `--whole-archive`, so
+  archive laziness never applies. **The merge works:** one `host.wasm` from
+  `wasm-ld -r --whole-archive <driver>.a --no-whole-archive <component
+  contract members…> <component>.a` — the driver whole, each component rooted
+  by the members that define its contract symbols (found with `llvm-nm`; `-r`
+  refuses `--undefined`), the rest lazy so std stays single-copy. app → b → a
+  resolve; the module runs (`seed=21`, `n=42`, one `roc_alloc`). The pinned
+  compiler also requires `exports: […]` on a wasm32 target.
+
+**D-H7-13 — The driver's allocator is the binary's: driver FIRST in
+`archive_order`, and the scan enforces it.** (Decided 2026-09-09 after P0.)
+`resolve` emits the driver archive first so its shims win the first-wins
+link; hosted symbols resolve lazily in both directions (H0e/H0c, and P0's
+driver→component references into earlier archives), so the topological order
+was never load-bearing for them. The scan stops exempting the three
+`___rustc*` shim symbols under the Rust-mangled rule and refuses a
+`#[global_allocator]` in any non-driver component — the mechanism plus the
+check that keeps it true. Rejected: driver-first alone (a component that later
+sets its own allocator loses silently); scan-only (the driver's allocator
+still loses to whichever component is scanned first).
+
+**D-H7-9 (revised) — wasm32 staging is ONE merged `host.wasm`.** (Decided
+2026-09-09 after P0.) The measured negative overturns "list each component's
+.wasm in inputs": roc links wasm inputs `--whole-archive`, so per-component
+inputs collide on std / compiler-builtins in either form. hematite merges with
+`wasm-ld -r --whole-archive <driver>.a --no-whole-archive <contract members…>
+<component>.a`, rooting each component by the members that define the symbols
+hematite itself mangled — deterministic, and std stays single-copy. Taking the
+laziness upstream was rejected as a blocker on `platform/dom`.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

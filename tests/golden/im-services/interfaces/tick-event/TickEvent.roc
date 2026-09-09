@@ -1,0 +1,3 @@
+TickEvent := [
+	Ticked(U64),
+]

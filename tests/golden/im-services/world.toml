@@ -1,0 +1,45 @@
+# P0 spike world (plan 2026-09-09 H7): imview-slice + two service components,
+# hand-wired the way P1's generated services shim will wire them.
+[world]
+name = "imsvc"
+driver = "imview"
+exports = ["Element", "Env", "Cmd", "Event", "Echo", "EchoEvent", "Tick", "TickEvent", "TickEnv"]
+
+[interfaces.ui]
+source = "roc:ui/element@0.1.0"
+[interfaces.env]
+source = "roc:ui/env@0.1.0"
+[interfaces.cmd]
+source = "roc:ui/cmd@0.1.0"
+[interfaces.event]
+source = "roc:ui/event@0.1.0"
+[interfaces.echo]
+source = "test:echo@0.1.0"
+[interfaces.tick]
+source = "test:tick@0.1.0"
+[interfaces.echo-event]
+source = "test:echo/event@0.1.0"
+[interfaces.tick-event]
+source = "test:tick/event@0.1.0"
+[interfaces.tick-env]
+source = "test:tick/env@0.1.0"
+
+[components.imview]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+requires_uses = ["Env", "Element", "Cmd", "Event"]
+
+[components.svc-echo]
+kind = "host"
+lang = "rust"
+exports = ["echo"]
+
+[components.svc-tick]
+kind = "host"
+lang = "rust"
+exports = ["tick"]
+
+[wiring]
+echo = "svc-echo"
+tick = "svc-tick"

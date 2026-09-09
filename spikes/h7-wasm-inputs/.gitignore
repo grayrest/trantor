@@ -1,0 +1,4 @@
+build/
+glue-out/
+a/roc_platform_abi.rs
+platform/targets/
