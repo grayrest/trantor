@@ -330,6 +330,40 @@ and `RustGlue.roc`. Rejected: the sibling checkout's `target/release` (couples
 the build to another working tree's state, the hazard the pinned-roc note
 records).
 
+## P2 findings (2026-09-09)
+
+- **The migration is behaviour-identical.** With every service still inside
+  host-im, `just im-check` against the composed `platform/clay` passed
+  133/134 gates on roc-solid's previous compiler (the one miss was a probe
+  script under `notes/` still spelling `platform-im/`). `im-host` = `hematite
+  build platform/clay --platform-only`: compose, glue, cargo inside the root
+  workspace with the clay abi patched in, stage `libhost_im.a`, sysroot, scan.
+- **D-H7-16 — one compiler: `~/.bin/roc`, whatever a repo's comment says it
+  pins.** roc-solid's Justfile called `~/.bin/roc` its pinned copy (a7d4d3);
+  `~/.bin/roc` had since become b07d7e (hematite's plan pin), on which
+  roc-solid no longer compiled: `List.sort_with`'s comparator is `[Before,
+  After, Same]` now, not `[EQ, GT, LT]` (Grid.roc's ordering helpers, three
+  colorhunt files, `im-map/Route.roc`). Decided: everything builds with
+  `~/.bin/roc`; roc-solid is ported as part of P2 rather than kept on a
+  stale pin. Rejected: per-repo stamps (two compilers to reason about for one
+  boundary); restoring `~/.bin/roc` to a7d4d3 (re-measures nothing, keeps the
+  hazard).
+- **A framework sysroot needs `Versions/` too.** `.tbd` stubs re-export
+  siblings by install name (`…/Versions/A/CoreImage`), resolved under the
+  sysroot; hematite's generator linked only the `.tbd` and 23 frameworks
+  failed to link. turso's lone CoreFoundation never re-exported anything, so
+  the fixture could not have caught it. Fixed in `build.rs` (plus
+  `PrivateFrameworks`, as roc-solid's recipe had).
+- **Interim placements, to be undone by later phases:** `abi/http.rs` is
+  parked in `crates/ir` (both hosts read it; P6 moves it into `svc-net`);
+  host-dom's 17 wasm exports are declared on host-im's `driver.toml` so the
+  clay world keeps emitting the wasm32 target the DOM host links against (P9
+  splits `platform/dom`). `just dom-app` was already failing on `~/.bin/roc`
+  before P2 — the compiler now requires `exports:` — so the clay world's
+  target line is a strict improvement.
+- **cargo touches the crates.io index once** for `hematite-abi = "0.0.0"`
+  when the lock first records the patched path; later builds do not.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

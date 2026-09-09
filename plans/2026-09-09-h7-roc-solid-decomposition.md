@@ -1,6 +1,13 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0 + P1 DONE 2026-09-09; P2 (roc-solid baseline) next.** P0
+> **Status: P0 + P1 + P2 DONE 2026-09-09; P3 (notes) next.** P2: roc-solid's
+> platform is the hematite world `platform/clay` (driver `crates/host-im`,
+> zero services extracted); `im-check` 132/132 on `~/.bin/roc` (b07d7e) with
+> two gates quarantined for compiler segfaults that predate nothing here
+> (`known_red`, roc-solid's UPSTREAM-ISSUE note); clippy + cargo test green;
+> the migration alone measured 133/134 on the previous pin. Extra tool work
+> P2 forced: `cargo_root` (D-H7-14), `--platform-only`, features as cargo
+> flags, write-if-changed, framework `Versions/` links. P0
 > overturned two decisions — wasm32 staging (merge, not multiple inputs;
 > D-H7-9 revised) and allocator-shim ownership (driver first + scan check;
 > D-H7-13) — both confirmed, see the design log's "P0 findings". P1 landed the
@@ -181,6 +188,17 @@ components inside roc-solid's own workspace with the world's abi patched in
   union change — accepted only *between* P3 and P9, recorded in the plan).
 Exit: `just im-check` all gates pass; `just check` green; colorhunt binary
 byte-for-byte irrelevant but `nm` unchanged (still 280 sqlite — the flag).
+
+**Outcome ✅ 2026-09-09.** As built, beyond the list above: the compiler port
+to `~/.bin/roc` (D-H7-16: `List.sort_with`'s `[Before, After, Same]`,
+`U64.order_relative_to`, two F64 annotations in `grid-finance`); `just
+im-host` = `hematite build platform/clay --world <w> --platform-only` with one
+world file per former feature set; probe scripts under `notes/probes` follow
+the platform; `known_red` quarantines `im-underline` and `im-id-apps`
+(b07d7e segfaults, note in roc-solid). `just check` also fails at
+`env-twins`, which fails identically at the previous HEAD (a stale twin
+table) — not P2's. Results: `im-check` 132/132, clippy clean, `cargo test
+--workspace` green, 191 apps type-check.
 
 ### P3 — `svc-notes` (sync)
 
