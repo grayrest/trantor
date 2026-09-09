@@ -7,13 +7,21 @@
 //!     composition-specific files are generated (main.roc, the workspace, the
 //!     driver crate, the abi wrapper); interface binding modules and pure-Roc
 //!     components are copied verbatim (D13) — compose emits sources only.
-//!   hematite build <world-dir> [--app <dir>] [--out <name>] [--world <w>]
+//!   hematite build <world-dir> [--app <dir>] [--out <name>] [--world <w>] [--target <t>]
 //!     The full pipeline: compose + roc glue + cargo + stage + framework
 //!     sysroot + the H0c symbol scan + roc check + roc build. This is the tool
 //!     driving the toolchain (superseding the fixtures' build.sh); the scan
-//!     runs between cargo and the link (see build.rs).
+//!     runs between cargo and the link (see build.rs). `--target wasm32`
+//!     builds every component for wasm32 and merges them into one host.wasm
+//!     (see wasm.rs).
 //!   hematite scan <world-dir>   — the H0c archive symbol-collision scan alone.
 //!   hematite publish / tier     — baseline packaging + tier classification.
+//!
+//! Service components (plan 2026-09-09 H7): an interface with `kind =
+//! "service"` ships its command union (and event/env modules); compose splices
+//! one wrapper per service into the driver's marked Cmd/Event/Env modules and
+//! generates `abi/src/services.rs`, the driver's typed view of every service's
+//! contract (see splice.rs, services.rs).
 
 mod build;
 mod codegen;
@@ -23,6 +31,8 @@ mod resolve;
 mod scan;
 mod services;
 mod splice;
+mod symbols;
+mod wasm;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

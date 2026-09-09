@@ -271,6 +271,38 @@ inputs collide on std / compiler-builtins in either form. hematite merges with
 hematite itself mangled — deterministic, and std stays single-copy. Taking the
 laziness upstream was rejected as a blocker on `platform/dom`.
 
+## P1 notes (built 2026-09-09)
+
+Small data-model calls made while building the tool, each within the
+approved approach and each flagged here rather than silently:
+
+- **A service interface is marked explicitly: `kind = "service"`** in
+  `interface.toml`, beside `module` (the command union), `event_module` and
+  `env_module`. Rejected: inferring "service" from the presence of
+  `event_module` — audio has commands and an env block but no events.
+- **A component's Roc modules are looked up in `<dir>/roc/` first, then
+  `<dir>/`** (`manifest::module_path`). A driver crate shipping 55 contract
+  modules keeps them out of its crate root; the fixtures' flat layout still
+  works. Same rule for every component kind.
+- **The contract is uniform: a service with events exports `complete` even
+  when it only answers synchronously** (`svc-echo` stubs it `unreachable!`).
+  The shim is generated from the manifest, which does not know which services
+  are asynchronous, and a link error is the right failure for a missing
+  export. A service with no `event_module` has a `cmd` returning nothing and
+  no `complete`.
+- **`features`/`default_features` are refused with `path`.** The HC0 knob
+  rewrites the crate's own `Cargo.toml` in place, and a crate at its own path
+  is shared between worlds. roc-solid's feature-flagged host loses those flags
+  as its services move out (P3–P8), so nothing needs it; a `--features`
+  CLI form is the fix if something does.
+- **wasm rooting uses the `hematite__<c>__` prefix, not an enumerated
+  contract list.** Every symbol a component owns — hosted leaves and the
+  service contract — carries it, so "members defining any `hematite__<c>__*`"
+  is complete by construction and needs no second list to keep in step.
+- **The wasm scan reads `llvm-readobj` flags**, not `llvm-nm` letters —
+  see the nm-scan note's 2026-09-09 amendment; and `rust_eh_personality`
+  joins the allocator shims as a first-wins Rust runtime singleton.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

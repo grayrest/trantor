@@ -1,0 +1,15 @@
+provides_symbol = "roc_app"
+provided_fn = "app_for_host!"
+requires_uses = []
+imports_extra = []
+authored_host = true
+# roc's wasm32 `exports:` (required on the pinned compiler): the driver's
+# wasm-bindgen-free surface the JS runner calls.
+wasm_exports = ["wasm_main", "wasm_result_len", "wasm_n", "wasm_alloc_count", "wasm_release"]
+requires = """
+		main! : {} => { message : Str, n : I64 }
+"""
+provided = """
+app_for_host! : {} => { message : Str, n : I64 }
+app_for_host! = |{}| main!({})
+"""

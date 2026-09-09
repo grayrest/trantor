@@ -1,10 +1,13 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0 DONE 2026-09-09 (fixture `im-services` + spike `h7-wasm-inputs`
-> green); P1 next.** P0 overturned two decisions — wasm32 staging (merge, not
-> multiple inputs; D-H7-9 revised) and allocator-shim ownership (driver first
-> + scan check; D-H7-13) — both confirmed 2026-09-09, see the design log's
-> "P0 findings". Design log:
+> **Status: P0 + P1 DONE 2026-09-09; P2 (roc-solid baseline) next.** P0
+> overturned two decisions — wasm32 staging (merge, not multiple inputs;
+> D-H7-9 revised) and allocator-shim ownership (driver first + scan check;
+> D-H7-13) — both confirmed, see the design log's "P0 findings". P1 landed the
+> tool: `path`, service interfaces, splice markers, the generated
+> `abi/src/services.rs`, driver-first archives, the wasm32 merge pipeline and
+> the flag-based wasm scan; fixtures `im-services` and `wasm-host` are the
+> proofs. Design log:
 > [`notes/2026-09-09-h7-roc-solid-decomposition-design-log.md`](../notes/2026-09-09-h7-roc-solid-decomposition-design-log.md)
 > (D-H7-1…12). Closes the PARTIAL H7 gate of
 > [`2026-09-04-hematite-v1.md`](2026-09-04-hematite-v1.md). Toolchain pinned at
@@ -120,8 +123,21 @@ block, gate chain; allocator shims measured as one first-wins symbol per link
 forms; the rooted merge links and runs (D-H7-9 revised). Findings in the
 design log.
 
-### P1 — tool
+### P1 — tool ✅ 2026-09-09
 
+As built: `manifest.rs` (`path`, `component_dir`/`module_path` — a
+component's Roc modules live in `<dir>/roc/` or `<dir>/`; `Interface.kind =
+"service"` + `event_module`/`env_module`; `Driver.wasm_exports`),
+`resolve.rs` (`Service`, driver-first `archive_order`, the ≥2-variant check),
+`splice.rs`, `services.rs` (the shim generator), `codegen.rs` (driver modules
+spliced; nothing written into a `path` driver; `features` refused with
+`path`), `scan.rs` (`#[global_allocator]` guard; wasm via `llvm-readobj`
+flags; `rust_eh_personality` singleton), `wasm.rs` (the merge; roots = members
+defining `hematite__<c>__*`). A service with events must export `complete`
+even when synchronous (the contract is uniform). Exit met: 16 prior fixtures
++ `im-services` + `wasm-host` green, zero warnings, 13 unit tests.
+
+Original plan text follows.
 `manifest`: `path`, driver `exports`, interface `cmd/event/env`.
 `resolve`: component dirs by path; `archive_order` unchanged; new
 `services: Vec<Service { component, module, cmd, event, env }>`.

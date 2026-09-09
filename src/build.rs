@@ -31,6 +31,8 @@ use std::process::Command;
 
 /// Seconds a single `roc` invocation may run before the cap kills it (R5).
 const ROC_TIMEOUT_SECS: &str = "120";
+/// The `--target` that selects the wasm32 pipeline (roc's target name).
+const WASM_TARGET: &str = "wasm32";
 
 fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
@@ -101,6 +103,13 @@ pub fn build(
         dir.join("abi/src/generated.rs"),
     )
     .map_err(|e| format!("copy generated.rs: {e}"))?;
+
+    // wasm32 (D-H7-9): its own cargo target, a merged host.wasm, and a wasm
+    // link — see wasm.rs. No native staging, no framework sysroot.
+    if target == WASM_TARGET {
+        let work = crate::wasm::stage_host_wasm(dir, &resolved)?;
+        return crate::wasm::link_app(dir, world_file, &work, app, out, &roc_capped);
+    }
 
     // 3. cargo build (no cap; roc alone carries R5).
     run("cargo", &["build", "--release"], dir, "cargo build")?;

@@ -25,12 +25,31 @@
 //! symbol (a vendored native's `sqlite3_*`, or a hand-written host `#[no_mangle]`)
 //! defined by two components. Empirically, a clean sole-vendor world scans to an
 //! empty collision set.
+//!
+//! **One measured exception to the Rust-mangled rule (P0 of the H7 plan,
+//! D-H7-13):** the allocator shims `__rust_alloc` / `__rust_dealloc` /
+//! `__rust_realloc` are v0-mangled and plain-external in EVERY Rust archive
+//! with one shared name, so the link first-wins them — the whole binary uses
+//! whichever archive's shim is scanned first, and that decides whether a
+//! `#[global_allocator]` takes effect. They are not ODR-identical when one
+//! archive sets an allocator. hematite owns this by construction rather than
+//! by report: `resolve` links the driver archive first (its allocator is the
+//! binary's), and this scan refuses a `#[global_allocator]` in any other
+//! component.
+//!
+//! wasm32 archives (D-H7-9) are read through `llvm-readobj` flags instead of
+//! macho `nm -m`; both readers live in `symbols.rs` and apply the same
+//! classification (a real definition, neither hidden/private nor weak).
 
-use crate::manifest::World;
+use crate::manifest::{component_dir, World};
 use crate::resolve::sanitize;
+pub use crate::symbols::Format;
+use crate::symbols::{archive_defs, is_rust_mangled};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+/// The attribute that must live in the driver only (D-H7-13).
+const GLOBAL_ALLOCATOR_ATTR: &str = "#[global_allocator]";
 
 /// roc runtime symbols (source names, no leading `_`). Provided by exactly one
 /// component (the `provides_runtime` driver), enforced statically in resolve, so
@@ -57,11 +76,11 @@ struct Collision {
     components: Vec<String>, // component names that define it, link order
 }
 
-/// Is this the leading-underscore macho form of a Rust-mangled symbol? v0 is
-/// `_R…` (macho `__R…`); the legacy Itanium form is `_ZN…` (macho `__Z…`).
-fn is_rust_mangled(nm_name: &str) -> bool {
-    nm_name.starts_with("__R") || nm_name.starts_with("__Z")
-}
+/// Rust runtime singletons that every Rust archive defines identically as a
+/// plain global on wasm32 (`panic=abort` std still emits the personality;
+/// on macho it is only referenced). First-wins by design, like the allocator
+/// shims — one std, many archives — and never a vendored-native clash.
+const RUST_RUNTIME_SINGLETONS: &[&str] = &["rust_eh_personality"];
 
 /// Match a source symbol name (no leading `_`) against a `shared_symbols` entry:
 /// a trailing `*` is a prefix glob, otherwise an exact match.
@@ -70,65 +89,6 @@ fn matches_shared(sym: &str, pattern: &str) -> bool {
         Some(prefix) => sym.starts_with(prefix),
         None => sym == pattern,
     }
-}
-
-/// Parse `nm -m` output, returning the set of PLAIN-external DEFINED symbol names
-/// (leading `_` kept). `nm -m` prints one symbol per line as
-/// `<addr> (<section>) <attrs> [annotations…] <name>`; a definition has a real
-/// section (not `undefined`) and the attribute token immediately after `)` is
-/// exactly `external` (not `private external`, `weak external`,
-/// `weak private external`, or `non-external`). Between the attrs and the name
-/// nm may insert bracketed annotations (`[cold func]`, `[referenced dynamically]`,
-/// …), so the name is taken as the last whitespace token — never the text right
-/// after `external `.
-fn plain_external_defs(nm_output: &str) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for line in nm_output.lines() {
-        // Split once on ") " into `<addr> (<section>` and `<attrs> … <name>`.
-        let Some((head, rest)) = line.split_once(") ") else {
-            continue;
-        };
-        // Section is what follows the last '(' in head.
-        let Some(section) = head.rsplit('(').next() else {
-            continue;
-        };
-        if section == "undefined" {
-            continue; // a reference, not a definition
-        }
-        // A plain-external definition's attribute string starts with "external ";
-        // "weak external", "private external", "weak private external" and
-        // "non-external" all begin with a different word.
-        if !rest.starts_with("external ") {
-            continue;
-        }
-        // The symbol name is the final token (symbols carry no spaces); this
-        // skips any `[cold func]`-style annotation nm places before it.
-        if let Some(name) = rest.split_whitespace().next_back() {
-            out.insert(name.to_string());
-        }
-    }
-    out
-}
-
-/// Run `nm -m` on one archive. Xcode's `nm` exits nonzero on rust-LLVM archives
-/// it can only partially read yet still prints the symbols it can, so the exit
-/// status is ignored and stdout is used regardless (matching the fixtures'
-/// `{ nm … || true; }` idiom).
-fn nm_defs(archive: &Path) -> Result<BTreeSet<String>, String> {
-    let out = Command::new("nm")
-        .arg("-m")
-        .arg(archive)
-        .output()
-        .map_err(|e| format!("run nm on {}: {e}", archive.display()))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let defs = plain_external_defs(&text);
-    if defs.is_empty() {
-        return Err(format!(
-            "nm read no defined symbols from {} (build the world first?)",
-            archive.display()
-        ));
-    }
-    Ok(defs)
 }
 
 /// Scan every host/driver component archive of a composed world for global
@@ -141,14 +101,61 @@ pub fn scan(
     targets_dir: Option<PathBuf>,
     target: &str,
 ) -> Result<(), String> {
+    let arch_dir = targets_dir
+        .unwrap_or_else(|| dir.join("platform").join("targets"))
+        .join(target);
+    scan_archives(dir, world_file, &arch_dir, Format::Macho)
+}
+
+/// Refuse a `#[global_allocator]` outside the driver (D-H7-13): the allocator
+/// shims are first-wins across the link and the driver's archive is linked
+/// first, so any other component's allocator would be silently ignored.
+fn check_global_allocator(dir: &Path, world: &World) -> Result<(), String> {
+    for (name, c) in &world.components {
+        if c.kind != "host" {
+            continue;
+        }
+        let src = component_dir(dir, name, c).join("src");
+        for file in rust_files(&src) {
+            let text = std::fs::read_to_string(&file).unwrap_or_default();
+            if text.contains(GLOBAL_ALLOCATOR_ATTR) {
+                return Err(format!(
+                    "component `{name}` sets `{GLOBAL_ALLOCATOR_ATTR}` ({}): the allocator shims are \
+                     first-wins across the link and the driver's archive is linked first, so this \
+                     allocator would be silently ignored. Only the driver may set one (D-H7-13).",
+                    file.display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn rust_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(rust_files(&p));
+        } else if p.extension().is_some_and(|x| x == "rs") {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// Scan the archives in `arch_dir` (one `lib<sanitized>.a` per non-Roc
+/// component) in the given symbol format.
+pub fn scan_archives(dir: &Path, world_file: &str, arch_dir: &Path, format: Format) -> Result<(), String> {
     let world: World = crate::manifest::load_world(dir, world_file)?;
+    check_global_allocator(dir, &world)?;
 
     // The linked archives: every non-Roc component (host + driver + test-only).
     // A pure-Roc component ships no archive. cargo names each `lib<sanitized>.a`
     // (it replaces non-identifier chars the same way `sanitize` does).
-    let arch_dir = targets_dir
-        .unwrap_or_else(|| dir.join("platform").join("targets"))
-        .join(target);
     let mut components: Vec<(String, PathBuf)> = Vec::new();
     for (name, comp) in &world.components {
         if comp.kind == "roc" {
@@ -177,12 +184,12 @@ pub fn scan(
     let mut owners: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let runtime: BTreeSet<&str> = ROC_RUNTIME.iter().copied().collect();
     for (name, archive) in &components {
-        for sym in nm_defs(archive)? {
-            if is_rust_mangled(&sym) {
+        for sym in archive_defs(archive, format)? {
+            if is_rust_mangled(&sym, format) {
                 continue;
             }
             let source = sym.strip_prefix('_').unwrap_or(&sym);
-            if runtime.contains(source) {
+            if runtime.contains(source) || RUST_RUNTIME_SINGLETONS.contains(&source) {
                 continue;
             }
             owners.entry(sym.clone()).or_default().push(name.clone());
@@ -231,32 +238,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_plain_external_defs_only() {
-        let sample = "\
-                     (undefined) external _sqlite3_step\n\
-0000000000009004 (__TEXT,__text) external _sqlite3_open\n\
-0000000000000000 (__TEXT,__text) private external __aarch64_cas8_acq\n\
----------------- (LTO,CODE) weak private external ___multi3\n\
-0000000000000600 (__TEXT,__text) external __RNvMs_NtCsuFXAkltCeT_12hematite_abi9RocStr8from_str\n\
-0000000000000800 (__TEXT,__text_cold) external [cold func] __RINvNtCsX_4core9panicking13assert_failed_rustls\n\
-0000000000000010 (__TEXT,__text) non-external _local_helper\n";
-        let defs = plain_external_defs(sample);
-        assert!(defs.contains("_sqlite3_open")); // plain external, defined
-        assert!(defs.contains("__RNvMs_NtCsuFXAkltCeT_12hematite_abi9RocStr8from_str"));
-        // annotation before the name: the mangled name, not "[cold func]", is captured
-        assert!(defs.contains("__RINvNtCsX_4core9panicking13assert_failed_rustls"));
-        assert!(!defs.contains("_sqlite3_step")); // undefined reference
-        assert!(!defs.contains("__aarch64_cas8_acq")); // private external
-        assert!(!defs.contains("___multi3")); // weak private external
-        assert!(!defs.contains("_local_helper")); // non-external
-    }
-
-    #[test]
-    fn rust_mangled_recognized() {
-        assert!(is_rust_mangled("__RNvMs_NtCs_12hematite_abi9RocStr8from_str"));
-        assert!(is_rust_mangled("__ZN4core3fmt3num"));
-        assert!(!is_rust_mangled("_sqlite3_open"));
-        assert!(!is_rust_mangled("_vendored_answer"));
+    fn global_allocator_outside_the_driver_is_refused() {
+        let dir = std::env::temp_dir().join(format!("hematite-scan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("components/svc/src")).unwrap();
+        std::fs::create_dir_all(dir.join("components/drv/src")).unwrap();
+        std::fs::write(dir.join("components/drv/src/lib.rs"), "#[global_allocator]\nstatic A: X = X;\n").unwrap();
+        std::fs::write(dir.join("components/svc/src/lib.rs"), "fn f() {}\n").unwrap();
+        let world: World = toml::from_str(
+            "[world]\nname = \"w\"\ndriver = \"drv\"\n[components.drv]\nkind = \"driver\"\n\
+             [components.svc]\nkind = \"host\"\n[wiring]\n",
+        )
+        .unwrap();
+        assert!(check_global_allocator(&dir, &world).is_ok(), "the driver may set one");
+        std::fs::write(dir.join("components/svc/src/lib.rs"), "#[global_allocator]\nstatic A: X = X;\n").unwrap();
+        let err = check_global_allocator(&dir, &world).unwrap_err();
+        assert!(err.contains("`svc`") && err.contains("D-H7-13"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

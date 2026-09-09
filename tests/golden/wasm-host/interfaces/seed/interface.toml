@@ -1,0 +1,4 @@
+module = "Host"
+[[hosted]]
+leaf = "seed!"
+symbol_stem = "seed"

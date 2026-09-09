@@ -1,0 +1,6 @@
+target/
+bin/
+glue-out/
+abi/src/generated.rs
+platform/Host.roc
+platform/targets/
