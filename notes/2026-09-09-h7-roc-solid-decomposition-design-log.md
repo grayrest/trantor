@@ -477,9 +477,66 @@ on its `Wake` event and a headless gate when it chooses — the shape
 `deliver_completions` had, which the gates count on. P4's spawn gate pumps
 both.
 
+## P6 decisions (2026-09-09) — the network leaves the host
+
+**D-H7-24 — The behaviour-script FORMAT is its own crate, `crates/spec`
+(`roc-solid-spec`).** The plan moved `spec/canned.rs` into the service and
+left `spec/runner.rs` in the driver without saying where the parser they
+both read goes. Neither side can link the other: the driver must carry no
+part of `svc-net` (P6's exit is 0 rustls in `libhost_im.a`), and a service
+cannot depend on the driver crate. So the parser, the `Command` vocabulary
+and the two payload envelopes (`decode_response`, `decode_error`, formerly
+`pub(crate)` in the runner) are a dependency-free crate both link — the same
+split `crates/ir` already makes for the tree. `http.rs` (the request format)
+went INTO `svc-net` as the plan said; `svc-net-dom` (P9) will link `svc-net`
+as a library for it, which is fine — it is the wasm world's transport, not a
+driver.
+
+**D-H7-25 — Harnesses reach the registry through a `net-ctl` gate hook.**
+The runner and the http/net gates reason about requests by NAME
+(`http:send:<key>`): count, peek, resolve, resolve-stale, reject. The
+registry is the service's now and the driver links none of it, so every verb
+is a gate-hook call — the command in `ROC_SOLID_NET_CTL`, the answer in the
+file `ROC_SOLID_NET_CTL_OUT` names — behind a typed `netctl` module in the
+driver. A harness's answer is INJECTED into the transport's channel and woken
+like a socket's, so `pump_service_wakes` delivers it and the app cannot tell
+a script from a network (the D2 property, now enforced by the seam rather
+than by convention). Two consequences the gates surfaced: the registry is
+process-wide rather than per-`Engine` (the arrival gate retires the other
+engine's arrivals first, via a `forget` verb), and a source can be flipped
+between engines because the service re-reads `--api`/`--spec`/env per
+request. Rejected: linking `svc-net` into the driver as a library oracle
+(D-H7-23's lesson; 3602 rustls symbols would be in every world's driver).
+
+**D-H7-26 — `complete` delivers EVERY answer; the app's stale guard
+decides.** The first cut filtered a drained answer through `retire` and
+dropped it when the request was no longer pending — which is exactly what a
+harness-resolved request is (resolve pops it), so `im-http`'s answer and
+reject gates saw nothing. The old driver never filtered: under R6-1 the host
+cannot read the model to know what is current, so a superseded answer
+crosses in full under its own (older) id and the app drops it by comparison
+— `resolve_stale` exists to stage precisely that. The service keeps that
+rule; `retire` is bookkeeping (pending → gone; superseded → counted).
+
+**Within scope, decided by the code:** `Net := [Send(key, req), Replace(key,
+req)]` — the `replaces : U64` flag was the whole decision and a variant says
+it (`Cmd.alongside`/`Cmd.supersedes` gone); `NetEvent := [Response({
+status, body }), Failed(reason)]` with status-0 failures typed, and conduit
+flattens both back to `{ status, body }` in one place (`Response.roc`) so
+its pages keep one branch; `Source::Held` names "no backend" (requests stay
+pending for a harness) instead of `Option<Net>`; the window's `run_at_api`
+collapsed into `run_at`, and the service nudge is installed for EVERY
+windowed app (it had been inside the `if api` arm — dbx in a window relied on
+the mouse). `conduit-spec` is unverifiable on b07d7e (the compiler segfaults
+on `apps/conduit`, recorded before P6); the runner's verbs are the seam
+`im-http` exercises. An a7d4d3 build was tried and rejected as evidence: it
+does not accept the P2 sources (`[Before, After, Same]`).
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
   check` still runs its gates).
 - `roc:test/quiesce` (D20) across several effect sources — first real chance is
   `platform/clay` with dbx + net + spawn in flight; not a gate of this pass.
+- `conduit-spec` (308/308) re-run the moment a toolchain builds `apps/conduit`
+  again (`im-check-known-red` retries the build; the spec is one recipe more).

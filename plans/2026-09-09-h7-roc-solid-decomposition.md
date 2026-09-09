@@ -1,6 +1,13 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0–P5 DONE 2026-09-09; P6 (net) next.** P5: SQLite left the host
+> **Status: P0–P6 DONE 2026-09-09; P7 (audio) next.** P6: the network left
+> the host — `svc-net` (`Net := [Send, Replace]`, `NetEvent := [Response,
+> Failed]`), the behaviour-script format as `crates/spec` shared by the
+> driver's runner and the service's canned loader (D-H7-24), harnesses reach
+> the registry through the `net-ctl` hook (D-H7-25), every answer delivered
+> and the app's guard decides (D-H7-26); 0 rustls/ureq symbols in the
+> driver's archive; `conduit-spec` unverifiable on b07d7e (compiler segfault,
+> already recorded). P5: SQLite left the host
 > — `svc-dbx`, `HostCtx.measure_text` (D-H7-22), no library oracle for a
 > native (D-H7-23); 0 `_sqlite3_*` in the driver's archive. P4: `spawn` is the first
 > asynchronous service out — wake courier, list-valued `complete` (D-H7-20),
@@ -266,6 +273,33 @@ by argv exactly as today (`--api`, `--spec`); the `net` feature leaves
 host-im. `spec/runner.rs` (the behaviour script) stays in the driver and
 reaches the canned source through the gate hook. Exit: `im-net`, `im-http`,
 `conduit-spec` (308/308).
+
+**Outcome ✅ 2026-09-09 (conduit-spec blocked upstream).** As built:
+`crates/svc-net` (`net.rs` with `Source::{Live, Canned, Held}` + `inject`,
+`tasks.rs`, `canned.rs`, `http.rs` from `crates/ir`, `contract.rs`),
+`platform/interfaces/net/{Net,NetEvent}.roc` — `Net := [Send(Str, Str),
+Replace(Str, Str)]` (the `replaces` flag became the variant; `Cmd.alongside`
+/ `Cmd.supersedes` gone), `NetEvent := [Response({ status, body }),
+Failed(Str)]`; the source is chosen per request from `--api` / `--spec` /
+`ROC_SOLID_NET_API` / `ROC_SOLID_NET_SPEC`, else HELD for a harness. The
+behaviour-script FORMAT (parser, vocabulary, envelopes) is `crates/spec`
+(`roc-solid-spec`), linked by the driver's runner and the service's canned
+loader (D-H7-24); the runner and the http/net gates drive the registry
+through the `net-ctl` gate hook (`crates/host-im/src/netctl.rs`, D-H7-25);
+`complete` delivers every answer and the app's stale guard decides
+(D-H7-26). The engine lost `tasks`/`net`/`deliver_answers`/`answer`; the
+window's `run_at_api` collapsed into `run_at` (the service nudge is now
+installed for every windowed app); `Cmd.Http`/`Event.Http` left the core;
+conduit's pages route `Event.Net` through `apps/conduit/Response.roc`;
+host-dom lost its HTTP ops (P9 rebuilds them as `svc-net-dom`). The `net`
+feature and `ureq` are out of host-im. **Measured: `libhost_im.a` has 0
+rustls and 0 ureq symbols; `libsvc_net.a` 3602/1284**; scan clean over 5
+archives; `im-net`, `im-http` green. `conduit-spec` cannot run: b07d7e
+segfaults compiling `apps/conduit` (`notes/2026-09-09-UPSTREAM-ISSUE-b07d7e-
+segfaults.md` in roc-solid) — the runner's every registry verb is the same
+`net-ctl` seam `im-http` exercises (count, peek, resolve, resolve-stale,
+reject, stale-ignored), which is the evidence available until the toolchain
+moves.
 
 ### P7 — `svc-audio` (the env block)
 
