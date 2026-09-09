@@ -192,17 +192,25 @@ fn sync_framework_sysroot(dir: &Path, world: &World) -> Result<(), String> {
         .map_err(|e| format!("mkdir {}: {e}", frameworks_dir.display()))?;
     // `usr` (libSystem) is reached by path, so a symlink is fine.
     symlink(&sdk.join("usr"), &sysroot.join("usr"))?;
+    // A public framework's stub may re-export a private one.
+    symlink(
+        &sdk.join("System/Library/PrivateFrameworks"),
+        &sysroot.join("System/Library/PrivateFrameworks"),
+    )?;
     for fw in &frameworks {
         // The `.framework` must be a REAL dir (roc skips symlinked entries);
         // the `.tbd` stub inside it is symlinked from the SDK.
         let fw_dir = frameworks_dir.join(format!("{fw}.framework"));
         std::fs::create_dir_all(&fw_dir)
             .map_err(|e| format!("mkdir {}: {e}", fw_dir.display()))?;
+        let sdk_fw = sdk.join(format!("System/Library/Frameworks/{fw}.framework"));
         let tbd = format!("{fw}.tbd");
-        symlink(
-            &sdk.join(format!("System/Library/Frameworks/{fw}.framework/{tbd}")),
-            &fw_dir.join(&tbd),
-        )?;
+        symlink(&sdk_fw.join(&tbd), &fw_dir.join(&tbd))?;
+        // A stub re-exports its siblings by INSTALL NAME
+        // (`…/X.framework/Versions/A/X`), which the linker resolves under the
+        // sysroot — so `Versions/` must exist there too (measured: AppKit →
+        // ApplicationServices → CoreGraphics… all fail without it).
+        symlink(&sdk_fw.join("Versions"), &fw_dir.join("Versions"))?;
     }
     Ok(())
 }
