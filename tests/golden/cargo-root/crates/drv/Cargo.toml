@@ -1,0 +1,11 @@
+[package]
+name = "cr-drv"
+version = "0.0.0"
+edition = "2021"
+publish = false
+[lib]
+crate-type = ["staticlib", "rlib"]
+[dependencies]
+# A crates-io name that does not exist: resolved by the workspace's default
+# patch for lint/test, and by hematite's per-build patch for each world.
+hematite-abi = "0.0.0"

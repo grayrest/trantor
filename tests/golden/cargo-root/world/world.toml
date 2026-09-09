@@ -1,0 +1,25 @@
+# Built inside the HOST workspace one level up (D-H7-14): the crates are its
+# members, so this world emits no workspace and patches its abi in per build.
+[world]
+name = "cargo-root"
+driver = "drv"
+exports = ["Host"]
+cargo_root = ".."
+
+[interfaces.seed]
+source = "test:seed@0.1.0"
+
+[components.drv]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+path = "../crates/drv"
+
+[components.svc]
+kind = "host"
+lang = "rust"
+exports = ["seed"]
+path = "../crates/svc"
+
+[wiring]
+seed = "svc"

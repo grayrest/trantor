@@ -24,6 +24,7 @@
 //! contract (see splice.rs, services.rs).
 
 mod build;
+mod cargo;
 mod codegen;
 mod manifest;
 mod publish;

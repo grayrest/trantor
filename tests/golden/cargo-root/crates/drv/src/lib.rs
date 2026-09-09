@@ -1,0 +1,59 @@
+//! Authored CLI driver (the body hematite generates for a components/ driver,
+//! kept by hand here because a `path` driver is an authored crate end to end).
+#![allow(dead_code)]
+// The runtime shims are called by compiled Roc, not by Rust; their contract
+// is the roc ABI, which no `# Safety` section could restate.
+#![allow(clippy::missing_safety_doc)]
+use core::ffi::c_void;
+use core::ptr;
+use hematite_abi as abi;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> *mut c_void {
+    abi::gauge::roc_alloc(ptr::null_mut(), length, alignment)
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn roc_dealloc(ptr_: *mut c_void, alignment: usize) {
+    // P5/B0: a resource box's last Roc drop lands here with the allocation
+    // base; run its destructor before freeing (the glue has no such hook).
+    abi::resource::on_dealloc(ptr_);
+    abi::gauge::roc_dealloc(ptr::null_mut(), ptr_, alignment)
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn roc_realloc(ptr_: *mut c_void, new_length: usize, alignment: usize) -> *mut c_void {
+    abi::DefaultAllocators::roc_realloc(ptr::null_mut(), ptr_, new_length, alignment)
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn roc_dbg(bytes: *const u8, len: usize) {
+    let m = unsafe { core::slice::from_raw_parts(bytes, len) };
+    eprintln!("[roc dbg] {}", String::from_utf8_lossy(m));
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn roc_expect_failed(bytes: *const u8, len: usize) {
+    let m = unsafe { core::slice::from_raw_parts(bytes, len) };
+    eprintln!("[roc expect failed] {}", String::from_utf8_lossy(m));
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn roc_crashed(bytes: *const u8, len: usize) {
+    let m = unsafe { core::slice::from_raw_parts(bytes, len) };
+    eprintln!("[ROC CRASHED] {}", String::from_utf8_lossy(m));
+    std::process::exit(1);
+}
+
+unsafe extern "C-unwind" {
+    fn roc_main() -> i32;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
+    let outcome = std::panic::catch_unwind(|| unsafe { roc_main() });
+    let code = match outcome {
+        Ok(code) => code,
+        Err(_) => {
+            eprintln!("[hematite] a component panicked; driver caught it at the boundary");
+            70
+        }
+    };
+    abi::gauge::report();
+    code
+}

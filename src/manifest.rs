@@ -36,6 +36,12 @@ pub struct WorldMeta {
     /// than letting the linker first-wins silently.
     #[serde(default)]
     pub shared_symbols: Vec<String>,
+    /// A HOST cargo workspace that already owns this world's `path` components
+    /// (relative to the world dir; D-H7-14). When set, hematite emits no
+    /// workspace `Cargo.toml` and builds each component inside that workspace
+    /// with this world's abi patched in — see `cargo.rs`.
+    #[serde(default)]
+    pub cargo_root: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

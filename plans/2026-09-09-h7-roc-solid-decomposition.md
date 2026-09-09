@@ -159,6 +159,13 @@ Exit: 16 fixtures + `im-services` green; `hematite build` on the wasm spike.
 
 ### P2 — roc-solid baseline, zero services extracted (behaviour-identical)
 
+Tool prerequisite landed first (D-H7-14, `src/cargo.rs`, fixture
+`tests/golden/cargo-root`): `[world] cargo_root = "../.."` builds `path`
+components inside roc-solid's own workspace with the world's abi patched in
+(`hematite-abi = "0.0.0"` in each crate; root `[patch.crates-io]` default to
+`platform/clay/abi`). The Justfile finds the tool at `~/.bin/hematite`
+(`HEMATITE` override; D-H7-15).
+
 - `git mv platform-im/*.roc crates/host-im/roc/`; `git mv platform/ platform/signals/`
   (its 8 recipes + `examples/counter`, `examples/todo` re-pointed).
 - `platform/clay/world.toml`: driver `host-im` via `path`, `frameworks` per

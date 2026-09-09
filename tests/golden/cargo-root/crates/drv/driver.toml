@@ -1,0 +1,12 @@
+provides_symbol = "roc_main"
+provided_fn = "main_for_host!"
+requires_uses = []
+imports_extra = []
+authored_host = true
+requires = """
+		main! : {} => I32
+"""
+provided = """
+main_for_host! : () => I32
+main_for_host! = || main!({})
+"""

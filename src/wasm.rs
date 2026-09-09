@@ -20,6 +20,7 @@
 //! Tools: `LLVM_BIN` (default Homebrew llvm) for `llvm-ar`/`llvm-nm`;
 //! `wasm-ld` from `LLVM_BIN` when present, else `PATH`.
 
+use crate::manifest::World;
 use crate::resolve::{sanitize, Resolved};
 use crate::symbols::{llvm_tool, Format};
 use std::path::{Path, PathBuf};
@@ -54,35 +55,26 @@ fn run(program: &Path, args: &[&str], dir: &Path, what: &str) -> Result<(), Stri
 
 /// Steps 1–4: the merged `platform/targets/wasm32/host.wasm`. Returns the
 /// directory holding the per-component wasm archives (for the scan).
-pub fn stage_host_wasm(dir: &Path, r: &Resolved) -> Result<PathBuf, String> {
+pub fn stage_host_wasm(dir: &Path, world: &World, r: &Resolved) -> Result<PathBuf, String> {
     // Every path below is handed to a tool running in `dir`, so make them
     // absolute once rather than relative-to-relative.
     let dir = &dir.canonicalize().map_err(|e| format!("canonicalize {}: {e}", dir.display()))?;
-    // 1. cargo, every member, for wasm32. panic=abort: no unwinding on wasm.
-    let status = Command::new("cargo")
-        .args(["build", "--release", "--target", WASM_TRIPLE])
-        .env("CARGO_PROFILE_RELEASE_PANIC", "abort")
-        .current_dir(dir)
-        .status()
-        .map_err(|e| format!("cargo build (wasm32): spawn: {e}"))?;
-    if !status.success() {
-        return Err(format!("cargo build (wasm32): cargo exited {status}"));
-    }
+    // 1. cargo, every component, for wasm32 (panic=abort: no unwinder there).
+    let built = crate::cargo::build(dir, world, r, Some(WASM_TRIPLE))?;
 
     // 2. wasm-only archives per component.
     let work = dir.join(WORK_DIR);
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| format!("mkdir {}: {e}", work.display()))?;
-    let built = dir.join("target").join(WASM_TRIPLE).join("release");
     let mut archives: Vec<(String, PathBuf, Vec<PathBuf>)> = Vec::new();
-    for comp in &r.archive_order {
+    for (comp, from) in &built {
         let lib = format!("lib{}.a", sanitize(comp));
         let members_dir = work.join(sanitize(comp));
         std::fs::create_dir_all(&members_dir).map_err(|e| format!("mkdir {}: {e}", members_dir.display()))?;
         let out_flag = format!("--output={}", members_dir.display());
         run(
             &llvm_tool("llvm-ar"),
-            &["x", &out_flag, built.join(&lib).to_str().unwrap_or_default()],
+            &["x", &out_flag, from.to_str().unwrap_or_default()],
             dir,
             &format!("extract {lib}"),
         )?;

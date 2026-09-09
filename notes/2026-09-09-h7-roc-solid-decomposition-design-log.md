@@ -303,6 +303,33 @@ approved approach and each flagged here rather than silently:
   see the nm-scan note's 2026-09-09 amendment; and `rust_eh_personality`
   joins the allocator shims as a first-wins Rust runtime singleton.
 
+## P2 decisions (2026-09-09)
+
+**D-H7-14 — `path` components build inside their HOST workspace, with the
+world's abi patched in per build.** A crate belongs to exactly one cargo
+workspace; roc-solid's root already owns `crates/host-im`, and several
+worlds (clay, dom, colorhunt…) name the same crates, so hematite's per-world
+workspace cannot list them ("member of the wrong workspace"). With `[world]
+cargo_root = "../.."` hematite emits no workspace and runs `cargo --config
+'patch.crates-io.hematite-abi.path="<world>/abi"' build --release -p
+<package>` per component in the host workspace, staging from its `target/`.
+Components declare `hematite-abi = "0.0.0"` (a crates-io name that does not
+exist); the host's root `Cargo.toml` carries a default `[patch.crates-io]` to
+its baseline world's abi so its own `cargo clippy/test --workspace` keep
+resolving, and one target dir is shared by every world. Measured in a probe
+and by `tests/golden/cargo-root`: the override takes effect per build and
+`Cargo.lock` does not churn between worlds. Rejected: excluding the crates
+from the host workspace (loses its clippy/test coverage, one target dir per
+world, and two worlds still cannot share a crate); symlinks under
+`components/` (the target still sits under the host workspace — the same
+conflict).
+
+**D-H7-15 — roc-solid finds hematite at `~/.bin/hematite`**, overridable by
+`HEMATITE=…` — the pinned-tool discipline roc-solid already applies to `roc`
+and `RustGlue.roc`. Rejected: the sibling checkout's `target/release` (couples
+the build to another working tree's state, the hazard the pinned-roc note
+records).
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

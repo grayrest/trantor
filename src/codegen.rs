@@ -21,23 +21,18 @@ pub fn emit(
     driver: &Driver,
     r: &Resolved,
 ) -> Result<(), String> {
-    let w = |rel: &str, content: String| -> Result<(), String> {
-        let p = out.join(rel);
-        if let Some(parent) = p.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
-        }
-        std::fs::write(&p, content).map_err(|e| format!("write {}: {e}", p.display()))
-    };
+    let w = |rel: &str, content: String| -> Result<(), String> { write_if_changed(&out.join(rel), content.as_bytes()) };
     let copy = |from: &Path, rel: &str| -> Result<(), String> {
-        let p = out.join(rel);
-        if let Some(parent) = p.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
-        }
-        std::fs::copy(from, &p).map(|_| ()).map_err(|e| format!("copy {}: {e}", p.display()))
+        let bytes = std::fs::read(from).map_err(|e| format!("read {}: {e}", from.display()))?;
+        write_if_changed(&out.join(rel), &bytes)
     };
 
     w("platform/main.roc", main_roc(world, driver, r))?;
-    w("Cargo.toml", workspace_toml(world, r))?;
+    // Under a host workspace (cargo_root) the crates already have one; a
+    // second, nested workspace claiming them is a cargo error (D-H7-14).
+    if world.world.cargo_root.is_none() {
+        w("Cargo.toml", workspace_toml(world, r))?;
+    }
     // A driver living at its own `path` is an authored crate end to end:
     // hematite writes nothing into it (D-H7-4). Otherwise the crate manifest is
     // generated, and so is the host unless the driver authors it (a reactor
@@ -151,6 +146,20 @@ pub fn emit(
         w(&rel, set_default_features(&text, &c.features))?;
     }
     Ok(())
+}
+
+/// Write `content` to `path` only if it differs — an unchanged generated file
+/// keeps its mtime, so cargo does not rebuild the abi crate and everything
+/// above it (roc-solid's host is 84k lines) on every compose. The same
+/// `cmp -s` discipline roc-solid's `im-glue` recipe applied to glue output.
+pub fn write_if_changed(path: &Path, content: &[u8]) -> Result<(), String> {
+    if std::fs::read(path).is_ok_and(|old| old == content) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    std::fs::write(path, content).map_err(|e| format!("write {}: {e}", path.display()))
 }
 
 /// Rewrite a Cargo.toml's `[features] default = [...]` array to exactly

@@ -1,0 +1,6 @@
+target/
+world/bin/
+world/glue-out/
+world/abi/src/generated.rs
+world/platform/Host.roc
+world/platform/targets/

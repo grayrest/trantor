@@ -25,8 +25,8 @@
 //! (defaults `~/.bin/roc`, `~/.bin/RustGlue.roc`), matching those scripts.
 
 use crate::manifest::World;
-use crate::resolve::{sanitize, Resolved};
-use std::path::Path;
+use crate::resolve::sanitize;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Seconds a single `roc` invocation may run before the cap kills it (R5).
@@ -98,25 +98,25 @@ pub fn build(
         dir,
         "glue",
     )?;
-    std::fs::copy(
-        dir.join("glue-out/roc_platform_abi.rs"),
-        dir.join("abi/src/generated.rs"),
-    )
-    .map_err(|e| format!("copy generated.rs: {e}"))?;
+    // Installed only when it changed, so an unchanged boundary does not
+    // rebuild the abi crate and every host above it.
+    let glue = std::fs::read(dir.join("glue-out/roc_platform_abi.rs")).map_err(|e| format!("read glue output: {e}"))?;
+    crate::codegen::write_if_changed(&dir.join("abi/src/generated.rs"), &glue)?;
 
     // wasm32 (D-H7-9): its own cargo target, a merged host.wasm, and a wasm
     // link — see wasm.rs. No native staging, no framework sysroot.
     if target == WASM_TARGET {
-        let work = crate::wasm::stage_host_wasm(dir, &resolved)?;
+        let work = crate::wasm::stage_host_wasm(dir, &world, &resolved)?;
         return crate::wasm::link_app(dir, world_file, &work, app, out, &roc_capped);
     }
 
-    // 3. cargo build (no cap; roc alone carries R5).
-    run("cargo", &["build", "--release"], dir, "cargo build")?;
+    // 3. cargo build (no cap; roc alone carries R5) — in the world's own
+    //    workspace or the host's (cargo_root), see cargo.rs.
+    let built = crate::cargo::build(dir, &world, &resolved, None)?;
 
     // 4. stage exactly the archives main.roc links (resolved.archive_order),
     //    clearing stale ones so another world's archive can't leak in.
-    stage_archives(dir, target, &resolved)?;
+    stage_archives(dir, target, &built)?;
 
     // 5. macOS framework sysroot: generate it from the frameworks the world's
     //    components declare (e.g. turso's CoreFoundation), or remove a stale one
@@ -210,9 +210,9 @@ fn symlink(original: &Path, link: &Path) -> Result<(), String> {
 }
 
 /// Copy the archives the composed `main.roc` links (the resolved component set,
-/// each `lib<sanitized>.a`) from `target/release/` into
+/// each staged as `lib<sanitized component>.a` whatever cargo named it) into
 /// `platform/targets/<target>/`, after clearing any previously-staged archives.
-fn stage_archives(dir: &Path, target: &str, r: &Resolved) -> Result<(), String> {
+fn stage_archives(dir: &Path, target: &str, built: &[(String, PathBuf)]) -> Result<(), String> {
     let stage = dir.join("platform").join("targets").join(target);
     std::fs::create_dir_all(&stage).map_err(|e| format!("mkdir {}: {e}", stage.display()))?;
     // Clear stale archives (a prior world may have staged different ones).
@@ -225,12 +225,10 @@ fn stage_archives(dir: &Path, target: &str, r: &Resolved) -> Result<(), String> 
             }
         }
     }
-    let built = dir.join("target").join("release");
-    for comp in &r.archive_order {
+    for (comp, from) in built {
         let archive = format!("lib{}.a", sanitize(comp));
-        let from = built.join(&archive);
-        std::fs::copy(&from, stage.join(&archive))
-            .map_err(|e| format!("stage {archive}: {e} (did cargo build it?)"))?;
+        std::fs::copy(from, stage.join(&archive))
+            .map_err(|e| format!("stage {archive} from {}: {e} (did cargo build it?)", from.display()))?;
     }
     Ok(())
 }
