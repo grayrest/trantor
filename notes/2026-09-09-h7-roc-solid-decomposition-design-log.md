@@ -532,6 +532,44 @@ on `apps/conduit`, recorded before P6); the runner's verbs are the seam
 `im-http` exercises. An a7d4d3 build was tried and rejected as evidence: it
 does not accept the P2 sources (`[Before, After, Same]`).
 
+## P7 decisions (2026-09-09) — audio leaves the host, the first env block
+
+**D-H7-27 — hematite tells a driver's build what the world wires:
+`HEMATITE_SERVICES` (sorted wiring keys) and `HEMATITE_WORLD`, exported to
+every cargo invocation.** The first env block exposed a gap: `Env.audio`
+exists only in a world that wires `svc-audio`, and the driver's `Env` struct
+literal must name exactly the fields the generated abi has — so one driver
+serving two worlds needs world-conditional code. A `build.rs` in the driver
+turns the list into `cfg(hematite_service = "<key>")` (with
+`rustc-check-cfg`), and the code that fills `audio` or reads `playing`
+compiles only where it can. Rejected: a per-world driver Cargo feature (a
+second wiring table to keep in sync); `--cfg` through rustflags (fingerprints
+every crate in the graph per world); a generated `env!` constructor macro
+(does not cover reads). Cost: outside hematite nothing is wired, so
+`cargo clippy`/`cargo test` see the un-cfg'd driver against whichever abi is
+on disk — `lint` and `test-host` compose the default world first.
+
+**D-H7-28 — A world that wires MORE is its own directory
+(`platform/audio/`), not a `world-*.toml` variant of clay; the audio gate
+runs against it.** `world-*.toml` variants were for Cargo feature sets that
+leave the Roc contract alone. Wiring a service changes the contract
+(`Audio`, `AudioEnv`, `Env.audio` and the glue), and the composed platform
+is what apps build against — `im-check` composes clay once and fans out with
+`IM_HOST_READY`, so a variant composing into clay's directory mid-suite would
+break every neighbour. So audio is `platform/audio/world.toml` (clay's
+driver and services plus `svc-audio`), composed by its own `audio-host`
+recipe into its own directory, and `svc-audio` is linted and tested against
+that abi. The old OFF gate ("a `Play` in a host without audio is answered,
+not vanished") has nothing left to test — `Cmd.Audio` does not exist where
+the service is not wired; the compiler answers — so `im-audio` gates the
+crossing instead: every command reaches the service (`audio-handled`),
+nothing is reported unknown, and `env.audio.playhead` shows the `Seek` and
+`playing` the `Pause` in the same frame. `AudioEnv` gained `playing : Bool`
+because the driver's live redraw (`audio_live`) needs it and an app wants it
+anyway; Record/StopRecording stay in `im-audio-on`, which opens the
+microphone. Asked and answered before building (the fork: default world
+too, or the audio world only; wake-on-timer or a `playing` field).
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

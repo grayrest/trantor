@@ -1,6 +1,10 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0–P6 DONE 2026-09-09; P7 (audio) next.** P6: the network left
+> **Status: P0–P7 DONE 2026-09-09; P8 (doc) next.** P7: audio left the host —
+> `svc-audio` with the first env block (`Env.audio`), wired only in its own
+> world `platform/audio` (D-H7-28); one driver serves worlds whose contracts
+> differ through `HEMATITE_SERVICES` → `cfg(hematite_service = "…")`
+> (D-H7-27); 0 cpal/symphonia/flac symbols in clay's driver. P6: the network left
 > the host — `svc-net` (`Net := [Send, Replace]`, `NetEvent := [Response,
 > Failed]`), the behaviour-script format as `crates/spec` shared by the
 > driver's runner and the service's canned loader (D-H7-24), harnesses reach
@@ -307,6 +311,27 @@ moves.
 `Audio.Env := { playhead : F64, mic_level : F32 }` spliced into `Env`;
 `sync_playhead` becomes `hematite__svc_audio__env`. `im-audio/audio.roc`
 reads `env.audio.playhead`. The `audio` feature leaves host-im. Exit: `im-audio`.
+
+**Outcome ✅ 2026-09-09.** As built: `crates/svc-audio` (`audio.rs` whole,
+`contract.rs`: `cmd` performs on arrival with no event module, `env` returns
+the block, `audio-gate` hook = the old ON gate, `audio-handled` for the app
+gate), `platform/interfaces/audio/{Audio,AudioEnv}.roc` — `Audio := [Play(Str),
+Pause, Seek(F64), Record(Str), StopRecording]`, `AudioEnv := { playhead : F64,
+mic_level : F32, playing : Bool }` (`playing` added: the driver's live-redraw
+reads it, D-H7-28). Wired ONLY in `platform/audio/world.toml`, a world
+directory of its own (D-H7-28; `world-audio.toml` deleted); the fixture
+targets it and `im-audio` composes it inside the suite. The driver reads the
+block under `cfg(hematite_service = "audio")`, which hematite's build now
+makes possible (D-H7-27: `HEMATITE_SERVICES`/`HEMATITE_WORLD` exported to
+cargo, host-im's `build.rs` turns them into cfgs). Gone from the driver:
+`Transport`, `perform_transport`, `sync_playhead`, `player`/`recorder`,
+`Boundary.{playhead,mic_level}`, the `audio` feature and its three deps,
+`audio_gate`; `Cmd.Play…StopRecording` and `Env.{playhead,mic_level}` left
+the core (host-dom's arms and fields too). `lint`/`test-host` check
+`svc-audio` against its own world's abi. **Measured: clay's `libhost_im.a`
+has 0 cpal-crate, 0 symphonia, 0 flac symbols; `libsvc_audio.a` 583/6460/1027**;
+scan clean over 6 archives; `im-audio` (typed crossing + env block) and
+`im-audio-on` (link/enumerate) green; `im-check` 132/132.
 
 ### P8 — `svc-doc` (resources)
 

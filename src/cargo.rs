@@ -63,9 +63,18 @@ pub fn build(
             args.push(t.into());
         }
     };
+    // What this world wires, for a driver that serves several worlds (D-H7-27):
+    // a `build.rs` turns `HEMATITE_SERVICES` into `cfg(hematite_service = "…")`
+    // so world-conditional driver code — an `Env` block only an audio world
+    // has — compiles in every world. Sorted, so the value is stable.
+    let mut wired: Vec<&str> = world.wiring.keys().map(String::as_str).collect();
+    wired.sort_unstable();
+    let services_env = wired.join(",");
     let run = |args: &[String], cwd: &Path| -> Result<(), String> {
         let mut cmd = Command::new("cargo");
         cmd.args(args).current_dir(cwd);
+        cmd.env("HEMATITE_WORLD", &world.world.name);
+        cmd.env("HEMATITE_SERVICES", &services_env);
         if wasm_triple.is_some() {
             cmd.env("CARGO_PROFILE_RELEASE_PANIC", "abort");
         }
