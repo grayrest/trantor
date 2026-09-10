@@ -9,7 +9,7 @@
 //! `__complete(token) -> RocList<Completion<MEvent>>` (a wake yields 0..n
 //! completions, in order — a coalesced no-op says nothing, a dying child's
 //! last lines precede its exit; D-H7-20), `__env() -> MEnv`,
-//! `__gate(name, argv) -> i32` — and gives the driver:
+//! `__gate(name, argv, out) -> i32` — and gives the driver:
 //!   - `init(wake, measure_text, groups)`: hands every component its `HostCtx`
 //!     (D8) — wake, text measure (D-H7-22), and the group registry a document
 //!     service publishes page draw lists through (D-H7-11);
@@ -19,7 +19,8 @@
 //!   - `on_wake(id, token)`: the runtime-thread half of D9 — the component's
 //!     `complete` builds the Roc values, the shim wraps each;
 //!   - `env_<m>()`: each env block, for the driver's per-frame `Env` assembly;
-//!   - `gate(name, argv)`: the chain, components before the driver (D-H7-8).
+//!   - `gate(name, argv) -> Option<GateResult>`: the chain, components before
+//!     the driver (D-H7-8); a hook answers with a code AND text (D-H7-40).
 //!
 //! Measured in P0 (`tests/golden/im-services`) by hand; this generates the same
 //! text from the manifest.
@@ -97,12 +98,25 @@ pub struct Completion<E: Copy> {
     pub event: E,
 }
 
+/// What a gate hook answered: its exit code, and whatever text it wrote.
+///
+/// A hook exists to be ASKED things — "how many requests are outstanding?",
+/// "what did the app write?" — and an `i32` cannot carry an answer, so before
+/// this a component that had one smuggled it out through a file named by an
+/// environment variable (D-H7-40). The hook writes into the `*mut RocStr` the
+/// chain passes it, transferring ownership; the chain copies the text and
+/// releases it. A hook with nothing to say leaves it alone and `out` is empty.
+pub struct GateResult {
+    pub code: i32,
+    pub out: String,
+}
+
 /// A component's gate hook, as the chain below calls it. `C-unwind` natively,
 /// `C` on wasm32 — see the contract declarations' note.
 #[cfg(not(target_arch = "wasm32"))]
-type GateFn = unsafe extern "C-unwind" fn(RocStr, RocList<RocStr>) -> i32;
+type GateFn = unsafe extern "C-unwind" fn(RocStr, RocList<RocStr>, *mut RocStr) -> i32;
 #[cfg(target_arch = "wasm32")]
-type GateFn = unsafe extern "C" fn(RocStr, RocList<RocStr>) -> i32;
+type GateFn = unsafe extern "C" fn(RocStr, RocList<RocStr>, *mut RocStr) -> i32;
 
 static WAKE: OnceLock<fn(u32, *mut c_void)> = OnceLock::new();
 static MEASURE: OnceLock<extern "C" fn(*const u8, usize, u16) -> i32> = OnceLock::new();
@@ -172,7 +186,7 @@ fn component_decls(svc: &Service, id: u32) -> String {
     if let Some(env) = &svc.env_module {
         decls.push_str(&format!("    fn {p}env() -> {env};\n"));
     }
-    decls.push_str(&format!("    fn {p}gate(name: RocStr, argv: RocList<RocStr>) -> i32;\n"));
+    decls.push_str(&format!("    fn {p}gate(name: RocStr, argv: RocList<RocStr>, out: *mut RocStr) -> i32;\n"));
     // `C-unwind` natively (H0d: a component's panic reaches the driver's
     // catch_unwind); plain `C` on wasm32, where nothing unwinds and a
     // `C-unwind` call under immediate-abort panics is lowered to a wasm
@@ -299,8 +313,8 @@ fn env_fns(services: &[Service]) -> String {
 fn gate_fn(services: &[Service]) -> String {
     let mut s = String::from(
         "/// The gate chain (D-H7-8): ask every component before the driver's own\n\
-         /// arms. `Some(rc)` from the first component that claims `name`.\n\
-         pub fn gate(name: &str, argv: &[String]) -> Option<i32> {\n",
+         /// arms. `Some(..)` from the first component that claims `name`.\n\
+         pub fn gate(name: &str, argv: &[String]) -> Option<GateResult> {\n",
     );
     if services.is_empty() {
         s.push_str("    let _ = (name, argv);\n    None\n}\n");
@@ -313,8 +327,13 @@ fn gate_fn(services: &[Service]) -> String {
     s.push_str(
         "    ];\n    for g in gates {\n        let args: Vec<RocStr> = argv.iter().map(|a| RocStr::from_str(a, host)).collect();\n\
          \x20       let list = unsafe { RocList::from_slice(&args, host) };\n\
-         \x20       let rc = unsafe { g(RocStr::from_str(name, host), list) };\n\
-         \x20       if rc != -1 {\n            return Some(rc);\n        }\n    }\n    None\n}\n",
+         \x20       // Empty is the small-string form, so this allocates nothing; a hook\n\
+         \x20       // that answers overwrites it and hands us the allocation.\n\
+         \x20       let mut out = RocStr::from_str(\"\", host);\n\
+         \x20       let rc = unsafe { g(RocStr::from_str(name, host), list, &mut out) };\n\
+         \x20       let text = out.as_str().to_string();\n\
+         \x20       unsafe { out.decref(host) };\n\
+         \x20       if rc != -1 {\n            return Some(GateResult { code: rc, out: text });\n        }\n    }\n    None\n}\n",
     );
     s.replace("N_SERVICES", &services.len().to_string())
 }
@@ -359,6 +378,9 @@ mod tests {
         assert!(s.contains("tagged::build(|e: &mut Event| e.tag = EventTag::Tick, c.event)"));
         assert!(s.contains("pub fn env_tick() -> TickEnv"));
         assert!(s.contains("[GateFn; 2]"));
+        // The gate chain carries an answer out, not just an exit code (D-H7-40).
+        assert!(s.contains("-> Option<GateResult>") && s.contains("GateResult { code: rc, out: text }"));
+        assert!(s.contains("list, &mut out)"));
         assert!(!s.contains("N_SERVICES"));
     }
 }

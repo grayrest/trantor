@@ -128,8 +128,13 @@ fn run() -> i32 {
 
 /// The gate chain: components first (through the shim), then the driver's own.
 fn gate(name: &str, argv: &[String]) -> i32 {
-    if let Some(rc) = services::gate(name, argv) {
-        return rc;
+    if let Some(answer) = services::gate(name, argv) {
+        // A hook may answer with text as well as a code (D-H7-40); this
+        // fixture's hooks do not, so `out` is empty and only the code matters.
+        if !answer.out.is_empty() {
+            println!("{}", answer.out);
+        }
+        return answer.code;
     }
     match name {
         "driver-gate" => 3,

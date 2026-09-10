@@ -56,7 +56,7 @@ pub extern "C-unwind" fn hematite__svc_echo__complete(_token: *mut c_void) -> Ro
 
 /// Gate hook (D-H7-8): −1 = not mine.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_echo__gate(name: RocStr, argv: RocList<RocStr>) -> i32 {
+pub extern "C-unwind" fn hematite__svc_echo__gate(name: RocStr, argv: RocList<RocStr>, _out: *mut RocStr) -> i32 {
     let host = abi::host();
     let rc = if name.as_str() == "echo-gate" { 7 } else { -1 };
     unsafe {

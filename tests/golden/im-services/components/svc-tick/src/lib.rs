@@ -75,7 +75,7 @@ pub extern "C-unwind" fn hematite__svc_tick__env() -> TickEnv {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_tick__gate(name: RocStr, argv: RocList<RocStr>) -> i32 {
+pub extern "C-unwind" fn hematite__svc_tick__gate(name: RocStr, argv: RocList<RocStr>, _out: *mut RocStr) -> i32 {
     let host = abi::host();
     unsafe {
         name.decref(host);
