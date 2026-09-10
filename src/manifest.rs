@@ -225,6 +225,12 @@ pub struct Driver {
     /// body. A CLI driver leaves this false and hematite generates the body.
     #[serde(default)]
     pub authored_host: bool,
+    /// Always emit the services shim, even in a world that wires no service
+    /// (D-H7-33): a driver written against `abi::services` — init, dispatch,
+    /// on_wake, gate — compiles in every world it serves, and a world with
+    /// nothing wired gets a shim whose every call is a no-op.
+    #[serde(default)]
+    pub services_shim: bool,
     /// Functions the driver exports from a wasm32 module (roc's `exports:`
     /// target field, required on this compiler). Empty: the world emits no
     /// wasm32 target.

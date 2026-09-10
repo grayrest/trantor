@@ -45,7 +45,7 @@ pub fn emit(
         }
     }
     w("abi/Cargo.toml", abi_cargo())?;
-    let shim = crate::services::services_rs(r);
+    let shim = crate::services::services_rs(r, driver.services_shim);
     w("abi/src/lib.rs", abi_lib(shim.is_some()))?;
     if let Some(text) = shim {
         w("abi/src/services.rs", text)?;
