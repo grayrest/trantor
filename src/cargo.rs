@@ -70,6 +70,7 @@ pub fn build(
     let mut wired: Vec<&str> = world.wiring.keys().map(String::as_str).collect();
     wired.sort_unstable();
     let services_env = wired.join(",");
+    let size_correct = wasm_triple.is_some() && world.world.wasm_size_correct;
     let run = |args: &[String], cwd: &Path| -> Result<(), String> {
         let mut cmd = Command::new("cargo");
         cmd.args(args).current_dir(cwd);
@@ -77,6 +78,18 @@ pub fn build(
         cmd.env("HEMATITE_SERVICES", &services_env);
         if wasm_triple.is_some() {
             cmd.env("CARGO_PROFILE_RELEASE_PANIC", "abort");
+        }
+        if size_correct {
+            // The D25 recipe, as environment overrides: a `[profile]` block in
+            // a workspace member is ignored, and `cargo-features =
+            // ["panic-immediate-abort"]` would make the whole workspace fail
+            // to parse on stable.
+            cmd.env("RUSTC_BOOTSTRAP", "1")
+                .env("CARGO_PROFILE_RELEASE_OPT_LEVEL", "z")
+                .env("CARGO_PROFILE_RELEASE_LTO", "true")
+                .env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1")
+                .env("CARGO_PROFILE_RELEASE_STRIP", "true")
+                .env("RUSTFLAGS", "-Zunstable-options -Cpanic=immediate-abort");
         }
         let status = cmd.status().map_err(|e| format!("cargo build: spawn: {e}"))?;
         if !status.success() {
@@ -111,14 +124,14 @@ pub fn build(
     for comp in &r.archive_order {
         let c = &world.components[comp];
         let pkg = package_name(&component_dir(dir, comp, c).join("Cargo.toml"))?;
-        let mut args = vec![
-            "--config".to_string(),
-            patch.clone(),
-            "build".to_string(),
-            "--release".to_string(),
-            "-p".to_string(),
-            pkg.clone(),
-        ];
+        // `cargo rustc … --crate-type staticlib -Z build-std` for the
+        // size-correct wasm build, plain `cargo build` otherwise.
+        let mut args = vec!["--config".to_string(), patch.clone()];
+        if size_correct {
+            args.extend(["rustc", "--release", "-p", &pkg].map(String::from));
+        } else {
+            args.extend(["build", "--release", "-p", &pkg].map(String::from));
+        }
         // The HC0 feature knob, as cargo flags rather than a Cargo.toml rewrite:
         // the crate is shared between worlds and must not be edited in place.
         if !c.features.is_empty() {
@@ -129,6 +142,9 @@ pub fn build(
             args.push("--no-default-features".to_string());
         }
         target_args(&mut args);
+        if size_correct {
+            args.extend(["--crate-type", "staticlib", "-Z", "build-std=core,alloc,std,panic_abort"].map(String::from));
+        }
         run(&args, &root)?;
         out.push((comp.clone(), built.join(format!("lib{}.a", pkg.replace('-', "_")))));
     }

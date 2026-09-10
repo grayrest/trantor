@@ -105,13 +105,18 @@ pub fn emit(
                 if !from.exists() {
                     continue;
                 }
+                let text = std::fs::read_to_string(&from)
+                    .map_err(|e| format!("read {}: {e}", from.display()))?;
+                // A pure-Roc component may ship the driver's CONTRACT text —
+                // roc-solid's DOM world reuses host-im's modules, marker blocks
+                // included (D-H7-30) — so its copies are spliced exactly as a
+                // driver's are; a module without markers is copied verbatim.
+                let spliced = crate::splice::splice(&text, &r.services)
+                    .map_err(|e| format!("{}: {e}", from.display()))?;
                 if module == as_name {
-                    copy(&from, &format!("platform/{module}.roc"))?;
+                    w(&format!("platform/{module}.roc"), spliced)?;
                 } else {
-                    let text = std::fs::read_to_string(&from)
-                        .map_err(|e| format!("read {}: {e}", from.display()))?;
-                    let renamed = rename_ident(&text, module, as_name);
-                    w(&format!("platform/{as_name}.roc"), renamed)?;
+                    w(&format!("platform/{as_name}.roc"), rename_ident(&spliced, module, as_name))?;
                 }
             }
         }

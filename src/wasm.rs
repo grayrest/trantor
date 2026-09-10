@@ -93,7 +93,11 @@ pub fn stage_host_wasm(dir: &Path, world: &World, r: &Resolved) -> Result<PathBu
     // 3 + 4. The merge: driver whole (first in archive_order), components rooted.
     let out = dir.join("platform").join("targets").join("wasm32");
     std::fs::create_dir_all(&out).map_err(|e| format!("mkdir {}: {e}", out.display()))?;
-    let mut args: Vec<String> = vec!["-r".into(), "--whole-archive".into()];
+    // `--strip-debug`: the relocatable carries every member's DWARF otherwise,
+    // and nothing downstream reads it — roc's final link is what `wasm-opt`
+    // runs on. Measured on roc-solid's DOM host (D25): the difference between
+    // a 500 KB and a 40 KB host object.
+    let mut args: Vec<String> = vec!["-r".into(), "--whole-archive".into(), "--strip-debug".into()];
     let (driver, driver_archive, _) = &archives[0];
     debug_assert_eq!(driver, &r.driver);
     args.push(driver_archive.display().to_string());

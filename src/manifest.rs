@@ -46,6 +46,14 @@ pub struct WorldMeta {
     /// `interfaces`). Several worlds of one repo share one directory.
     #[serde(default)]
     pub interfaces_dir: Option<String>,
+    /// wasm32 only (D-H7-31): build every component the SIZE-CORRECT way —
+    /// `-Z build-std` with immediate-abort panics, opt-level z, fat LTO, one
+    /// codegen unit, stripped — roc-solid's `dom-host` recipe, measured at a
+    /// 12x smaller module than a plain staticlib (its D25). Needs the
+    /// `rust-src` component; `RUSTC_BOOTSTRAP=1` is a stated supply-chain
+    /// fact, not an incidental.
+    #[serde(default)]
+    pub wasm_size_correct: bool,
 }
 
 /// The directory holding `<interface>/interface.toml` for a world.
@@ -201,8 +209,17 @@ pub struct Driver {
     pub requires_uses: Vec<String>,
     #[serde(default)]
     pub imports_extra: Vec<String>,
+    #[serde(default)]
     pub requires: String,
+    #[serde(default)]
     pub provided: String,
+    /// Another driver's `driver.toml` whose CONTRACT this driver shares —
+    /// `requires`, `provided`, `provides`, `requires_uses`, `imports_extra`
+    /// (D-H7-30: roc-solid's two drivers speak one app contract, and a second
+    /// copy of 300 lines of it would drift). Relative to this file. Only
+    /// `authored_host` and `wasm_exports` stay this driver's own.
+    #[serde(default)]
+    pub contract_from: Option<String>,
     /// A reactor driver (multi-provides, host-calls-app) ships its own host
     /// src/lib.rs; hematite generates only its Cargo.toml, not the CLI driver
     /// body. A CLI driver leaves this false and hematite generates the body.
@@ -256,5 +273,21 @@ pub fn load_driver(dir: &Path, world: &World) -> Result<Driver, String> {
         .ok_or_else(|| format!("[world].driver `{name}` is not a declared component"))?;
     let p = component_dir(dir, name, c).join("driver.toml");
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
-    toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
+    let mut d: Driver = toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))?;
+    if let Some(rel) = &d.contract_from {
+        let from = p.parent().unwrap_or(Path::new(".")).join(rel);
+        let text = std::fs::read_to_string(&from).map_err(|e| format!("read {}: {e}", from.display()))?;
+        let shared: Driver = toml::from_str(&text).map_err(|e| format!("parse {}: {e}", from.display()))?;
+        d.requires = shared.requires;
+        d.provided = shared.provided;
+        d.provides = shared.provides;
+        d.provides_symbol = shared.provides_symbol;
+        d.provided_fn = shared.provided_fn;
+        d.requires_uses = shared.requires_uses;
+        d.imports_extra = shared.imports_extra;
+    }
+    if d.requires.is_empty() || d.provided.is_empty() {
+        return Err(format!("{}: `requires` and `provided` are required (or `contract_from`)", p.display()));
+    }
+    Ok(d)
 }
