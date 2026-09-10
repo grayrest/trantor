@@ -1,6 +1,10 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0–P7 DONE 2026-09-09; P8 (doc) next.** P7: audio left the host —
+> **Status: P0–P8 DONE 2026-09-09; P9 (platform/dom) next.** P8: the document
+> engine left the host — `svc-doc`, `Doc`/`DocEvent` typed per verb, page draw
+> lists published through `HostCtx.register_group` (D-H7-11 as built: borrowed
+> for the call, D-H7-29); 0 hayro symbols in the driver; `im-doc` gates the
+> crossing in-repo, the nomadic reader re-points in its own repo. P7: audio left the host —
 > `svc-audio` with the first env block (`Env.audio`), wired only in its own
 > world `platform/audio` (D-H7-28); one driver serves worlds whose contracts
 > differ through `HEMATITE_SERVICES` → `cfg(hematite_service = "…")`
@@ -342,6 +346,30 @@ scan clean over 6 archives; `im-audio` (typed crossing + env block) and
 `hostres::GROUPS` holds borrowed pointers the component owns (D-H7-11);
 `crates/doc` becomes `svc-doc`'s dependency; the `pdf` feature leaves host-im.
 Exit: the reader gates (`test(doc)` oracle, cropped-page) green.
+
+**Outcome ✅ 2026-09-09.** As built: `crates/svc-doc` (`docs.rs` — the table
+of open documents, typed per verb, with a `Registry` of two callbacks for the
+page groups; `contract.rs`), `platform/interfaces/doc/{Doc,DocEvent}.roc` —
+`Doc := [List, Open, Close, Size, Blocks, Crop, Chars, Outline, Chapter,
+Group, Drop]` each `(request_id, route_key, …)`, `DocEvent := [Listing,
+Opened, Closed, Dropped, Sized, Blocks, Crop, Chars, Outline, Chapter, Group,
+Failed]` carrying the records the app used to parse out of text (the wire's
+`\n`/`\t` escaping is gone with the wire). hematite's `HostCtx` gained
+`register_group(*const Scene, generation) -> handle` / `release_group(handle)`
+and `services::init(…, Option<Groups>)`; the driver's callbacks mint the
+handle from `imgref`'s counter and COPY the borrowed scene into `hostres`
+(D-H7-29). Wired in clay (every world). Gone from the driver: `docsvc.rs`,
+`DOC_SERVICE`, `doc_calls`, `Engine.docs`, the `pdf` feature, `roc-solid-doc`
+and the `zip` dev-dep; `Cmd.Service` now reports every name unknown (P10
+deletes it). New: `tests/integration/im-doc/doc.roc` + `im-doc` (list → open
+→ size/blocks/group → drop → close through the shim, the group table full
+exactly in between; `tests/assets/doc/sample.pdf`). **Measured: clay's
+`libhost_im.a` has 0 hayro / 0 roxmltree / 0 zip symbols**; scan clean over
+6 archives; `im-doc` green; `im-check` 133/133. The reader gates
+the plan named (`test(doc)` oracle, cropped-page) live in the nomadic repo
+with the reader app; re-pointing that app at `Cmd.Doc` is that repo's change
+and is NOT done here — `crates/doc`'s own oracle tests are unchanged and
+green.
 
 ### P9 — `platform/dom`
 

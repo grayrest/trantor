@@ -570,11 +570,47 @@ anyway; Record/StopRecording stay in `im-audio-on`, which opens the
 microphone. Asked and answered before building (the fork: default world
 too, or the audio world only; wake-on-timer or a `playing` field).
 
+## P8 decisions (2026-09-09) — the document engine leaves the host
+
+**D-H7-29 — `register_group` borrows the scene for the CALL; the driver keeps
+its own copy.** D-H7-11 had the driver borrow a page's draw list by pointer
+between `group` and `drop`/`close`, to keep a Rust allocation from crossing
+archives. Two facts changed the shape without changing the rule. The
+allocator finding (P0): every archive's `__rust_alloc` is one first-wins
+symbol, so one allocator serves the binary and a cross-archive free is not
+the hazard it was drawn as. And the renderer's `SceneGroup` holds an
+`Arc<Scene>`, so a driver holding a raw pointer would clone per frame or
+change the renderer. The old `docsvc` already cloned once at `group`; the
+callback does the same — `register_group(*const Scene, generation) -> i32`
+copies into `hostres` and mints the handle from `imgref`'s counter (one id
+space with images, so a handle names exactly one resource; the component
+cannot reach that counter, which is why the driver mints). The component
+stays the owner of its scene; the driver frees only what it allocated. The
+rule stands, the borrow is shorter.
+
+**Within scope, decided by the code:** typed per verb as the plan sketched,
+with the wire's escaping gone; `Registry` as two boxed callbacks so
+`docs.rs` is testable without a driver (the tests use a counting fake);
+`Docs` in a `thread_local!` (every contract call is on the runtime thread,
+and hayro's document need not be `Send`); `svc-doc` wired in clay — every
+world — because a document engine has no device to open (unlike audio,
+D-H7-28) and clay is the baseline every gate app binds to; the P10 per-app
+worlds are where it is absent. In-repo evidence is `im-doc` (the fixture app
+drives every verb the release protocol needs through the shim and the
+driver's group table is full exactly between Group and Drop) plus the moved
+table tests; the plan's "reader gates" belong to the nomadic repo's reader
+app, which still speaks `Cmd.Service("doc")` and must be re-pointed there —
+recorded as open.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
   check` still runs its gates).
 - `roc:test/quiesce` (D20) across several effect sources — first real chance is
   `platform/clay` with dbx + net + spawn in flight; not a gate of this pass.
+- The nomadic reader (`../nomad/nomadic`) speaks `Cmd.Service("doc", …)` and
+  parses text; it needs re-pointing at `Cmd.Doc`/`DocEvent` in its own repo,
+  against a world that wires `svc-doc` (clay does). Its `test(doc)` and
+  cropped-page gates are the reader-side evidence P8 named.
 - `conduit-spec` (308/308) re-run the moment a toolchain builds `apps/conduit`
   again (`im-check-known-red` retries the build; the spec is one recipe more).
