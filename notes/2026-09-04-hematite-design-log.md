@@ -261,3 +261,20 @@ at generated code honestly.
   refcount code (the silent-corruption class). The H2 fixture uses `main! : {}`
   plus an `env` interface returning one `RocStr`. Concrete instance of R4 and of
   the plan's upstream-glue dependency; the list entrypoint returns in H5/H7.
+
+## H7 outcome (2026-09-09)
+
+roc-solid's `platform-im` is decomposed: one driver (`crates/host-im`) and six
+service components (`svc-notes`, `svc-spawn`, `svc-dbx`, `svc-net`,
+`svc-audio`, `svc-doc`), typed end to end through composed `Cmd`/`Event`/
+`Env` unions and the generated `abi::services` shim; the DOM driver is a
+second world (`platform/dom`) over the same contract text with `svc-*-dom`
+twins built for wasm32. Open item 3 above ("what the baseline world
+contains") is answered by measurement: `platform/clay` wires every service;
+the per-app worlds wire exactly what the app names, and `just world-nm`
+shows it — colorhunt's world stages `libhost_im.a` alone, dbx/conduit/
+notesviewer stage one service archive each, and every world's driver archive
+carries 0 `_sqlite3_*`, 0 rustls, 0 hayro, 0 cpal symbols. The decisions the
+work produced (D-H7-1..33) and the measurements behind them are in
+`notes/2026-09-09-h7-roc-solid-decomposition-design-log.md`; the plan is
+`plans/2026-09-09-h7-roc-solid-decomposition.md` (COMPLETE).

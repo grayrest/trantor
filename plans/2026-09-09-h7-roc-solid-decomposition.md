@@ -1,6 +1,11 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0–P9 DONE 2026-09-09; P10 (per-app worlds) next.** P9: the DOM
+> **Status: COMPLETE 2026-09-09 (P0–P10).** P10: four per-app worlds
+> (`platform/colorhunt`, `platform/dbx`, `platform/conduit`,
+> `platform/notesviewer`) wire exactly what each app names; `Cmd.Service`/
+> `Event.Service` are gone from both drivers; the exit is measured by `just
+> world-nm` (colorhunt = `libhost_im.a` alone; dbx = + `libsvc_dbx.a`; conduit = + `libsvc_net.a`; notesviewer = + `libsvc_notes.a`; clay = all five services — and every world's `libhost_im.a` has 0 `_sqlite3_*`, 0 rustls, 0 hayro, 0 cpal symbols). A driver may ask for the shim in every world
+> (`services_shim`, D-H7-33). P9: the DOM
 > driver is the world `platform/dom` — host-im's contract shipped by a
 > `kind = "roc"` component and its driver.toml by `contract_from` (D-H7-30),
 > `svc-notes-dom`/`svc-net-dom` over the browser's `fetch` through the
@@ -425,6 +430,23 @@ completion and is off (D-H7-31); `just dom-notesviewer` is the demo.
 Four worlds; four apps re-pointed; `Cmd.Service`/`Event.Service` deleted;
 `hematite-v1.md` H7 → COMPLETE with the measured `nm` counts; this plan's
 status flipped; design-log "Still open" updated.
+
+**Outcome ✅ 2026-09-09.** As built: `platform/{colorhunt,dbx,conduit,
+notesviewer}/world.toml` — clay's driver with exactly the services the app
+names (none; `dbx`; `net`; `notes`), each composing into its own directory
+through a `<app>-host` recipe so the suite's parallel gates can compose them
+beside clay; `apps/<app>/main.roc` (and conduit's three test apps) name
+their world; `just world-nm` measures every driver archive. host-im asks for
+the shim in every world (`services_shim = true`, D-H7-33) so colorhunt's
+service-less world compiles the same driver. `Cmd.Service` and
+`Event.Service` are deleted: the engine's arm and `unknown_services`, host-
+dom's arm, `Answer`, `inflight`/`completions`, `complete_service`,
+`service_event` (its `Op::Service` stays — it is how `svc-notes-dom` reaches
+the dev server, and `service_name_ok` now guards it in `dom_svc_call`), and
+the T1 rig's claim 4 (`gt1::gate_service`). **Measured (`just world-nm`):
+colorhunt = `libhost_im.a` alone; dbx = + `libsvc_dbx.a`; conduit = + `libsvc_net.a`; notesviewer = + `libsvc_notes.a`; clay = all five services — and every world's `libhost_im.a` has 0 `_sqlite3_*`, 0 rustls, 0 hayro, 0 cpal symbols.** `im-check` 133/133, the four per-app worlds composing inside the parallel suite under the workspace build lock (D-H7-34). The roadmap note
+in hematite's design log records H7 as complete with these numbers; there is
+no `hematite-v1.md`.
 
 ## Risks
 

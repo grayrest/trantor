@@ -671,6 +671,49 @@ now checks the applier's calls against `driver.toml`. Verified in a browser
 rather than claimed: the counter counts, notesviewer lists, the request
 fixture shows the dev server's 404s through `svc-net-dom`.
 
+## P10 decisions (2026-09-09) — per-app worlds, the exit
+
+**D-H7-33 — A driver may ask for the services shim in every world
+(`services_shim = true` in driver.toml).** colorhunt's world wires nothing,
+and a world with no service got no `abi::services` module (the shim names
+`Event`, which a service-less CLI driver need not ship, and the byte-for-byte
+goldens compare that file). host-im is written against the shim — `init`
+before its gate chain, `dispatch` in the drain, `on_wake` on every wake,
+`gate` in the chain — so the driver, not the world, says it wants one, and a
+world with nothing wired gets a shim whose every entry point is a no-op
+(`let _ = …; None`). Rejected: `#[cfg(hematite_service…)]` around every shim
+call in the driver (a dozen sites, and the empty world is the only one that
+would differ); emitting the shim unconditionally (breaks the goldens for
+drivers that never asked).
+
+**D-H7-34 — Build-and-stage is serialized across hematite processes by a
+lock on the host workspace.** With five native worlds sharing one host
+workspace, the gate suite composes several of them at once, and every
+`cargo build -p roc-solid-host-im` uplifts to the same
+`target/release/libhost_im.a` — so a world staged whichever driver finished
+last. Measured as two gate failures: notesviewer's world ran a driver built
+for a world without `notes` (its gate hit the stub's message), the audio
+world ran a driver with another world's `Env` layout (a segfault in the
+first frame). The per-variant file cargo keeps under `deps/` is not
+addressable — its `compiler-artifact` message names only the uplifted path
+(tried first, and it staged the same wrong file) — so hematite holds an
+exclusive advisory lock (`File::lock` on `target/hematite-build.lock`) from
+its first `cargo build` through the stage copy, native and wasm alike;
+cargo's own lock covers a build, not the copy after it. Rejected: a target
+dir per world (every world rebuilds wgpu); a rule that the suite must not
+compose in parallel (the next caller forgets it).
+
+**Within scope, decided by the code:** the per-app worlds are clay's file
+with the component and wiring lists cut down, and `just world-nm` is the
+measurement rather than a one-off `nm` — the exit re-runs. `Cmd.Service`/
+`Event.Service` went with their last user: the T1 rig's claim 4 was the
+channel's own test and is retired with it (three claims remain; the gate says
+so), host-dom's `Op::Service` stays as the transport `svc-notes-dom` rides
+and the name allowlist moved to `dom_svc_call`. Deleting the generic channel
+is what makes "an app's binary carries what its world wires" a property
+rather than a convention: nothing typed as `Str` can reach a service the
+world did not name.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
