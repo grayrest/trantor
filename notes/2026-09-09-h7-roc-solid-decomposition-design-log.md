@@ -761,6 +761,16 @@ a separate `kind = "roc"` component carries them into the DOM world — and
 links nothing, so it must keep both lists empty. There is a test for exactly
 that, because the merge in `load_driver` sits four lines away.
 
+Measured while answering "why does colorhunt get its own world at all" — it
+is the world that wires NOTHING, so it is where the exit property is provable
+rather than merely plausible. The same app source, built against its own world
+and against clay: 17 MB / 27,280 symbols with zero sqlite, rustls or hayro,
+against 27 MB / 51,082 symbols carrying 280 sqlite, 1,406 rustls and 1,954
+hayro — a TLS stack, a database and a PDF engine inside a palette browser over
+a baked corpus that opens no socket, no file and no document. An app that
+wires ONE service cannot tell "the linker dropped the other four" from "the
+other four were never there"; colorhunt can.
+
 Rejected: `extends` between world files (colorhunt inheriting clay's and
 subtracting). It removes more lines, but it makes "what does colorhunt wire"
 a question you resolve instead of read — and a world file naming exactly what
@@ -768,6 +778,20 @@ its binary carries is the H7 exit property, not a formatting preference.
 Rejected: defaulting `[world] exports` the same way — that list is the app's
 allowed imports and is genuinely per-world (colorhunt's is 52 names against
 clay's 62).
+
+**P10 defect, found 2026-09-10 by asking why colorhunt has its own world.**
+Fifteen recipes that build `apps/colorhunt/main.roc` still depended on
+`im-host`, which composes clay, after P10 re-pointed the app at
+`platform/colorhunt`. Every one passed — because some other recipe in the
+suite composed colorhunt first — so what the suite actually demonstrated was
+an ordering race, and a fresh clone gets `FileNotFound`. Repointed, and `just
+world-deps` now reads each app's own header for the world it names and checks
+the recipe that builds it depends on the recipe that composes that world (101
+entries, seven worlds). The general shape: while there was one native world
+`im-host` was always the right answer, so nothing had to state the rule; per-app
+worlds turned an invariant that held by construction into one that has to be
+checked, and the first fifteen violations shipped in the same commit that
+created the possibility.
 
 ## Still open (raised, not decided)
 
