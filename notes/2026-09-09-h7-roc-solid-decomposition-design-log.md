@@ -969,6 +969,44 @@ The last of these edits was done by exact line anchors and verified by diffing
 the recipe-name set against HEAD, which is the check that should have been
 running all along.
 
+## D-H7-40 — a gate hook answers with text, not just an exit code (2026-09-10)
+
+Raised by asking whether dbx and net use the upstream API or their own. At the
+CONTRACT boundary they are upstream and uniform with the other four: the same
+three shim types, and the four exported symbols each world's shim declares,
+matching service-for-service. At the CONTROL boundary they had their own thing,
+and only half of it was their fault.
+
+`gate(name, argv) -> Option<i32>` is the upstream entry point, and the shim
+marshals argv faithfully into `RocList<RocStr>`. Every gate the process runs
+uses it — `main()` walks the process argv and offers each token with the whole
+argv. But `dbx-exec` and `net-ctl` are called from INSIDE a running gate, and
+both passed `&[]`, smuggling the command through an environment variable:
+`ROC_SOLID_DBX_EXEC`, `ROC_SOLID_NET_CTL`. `net-ctl` additionally returned its
+answer through a temp file named by `ROC_SOLID_NET_CTL_OUT`.
+
+The two halves had different causes. Passing the command through the
+environment was avoidable — argv was right there — and it cost soundness: it
+forced `unsafe { std::env::set_var }` in a process where both services run
+worker threads, defended by a comment reasoning that the worker had not started
+yet. True at the time, and not a property anyone would re-check.
+
+Returning the answer had no upstream channel at all: `i32` cannot carry "17
+requests outstanding" or "GET /articles/keyed-lists-without-tears". So the hook
+now takes `out: *mut RocStr` and the chain returns `Option<GateResult> { code,
+out }`. Ownership transfers on write: the chain passes an empty RocStr (the
+small-string form — no allocation), a hook that answers overwrites it, the
+chain copies the text and decrefs. A hook with nothing to say leaves it alone.
+
+Both applied. Three environment variables are gone; what remains
+(`ROC_SOLID_DBX`, `ROC_SOLID_NET_API`, `ROC_SOLID_NET_SPEC`) is configuration
+a service re-reads per request, which is what an environment variable is for.
+Every gate call site now passes argv, and the file round-trip in /tmp is gone.
+
+The general lesson: a seam that reaches for the environment or the filesystem
+is usually reporting that its API is missing a parameter or a return value.
+Both were true here, one of each.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
