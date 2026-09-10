@@ -113,11 +113,14 @@ pub fn build(
 
     // 3. cargo build (no cap; roc alone carries R5) — in the world's own
     //    workspace or the host's (cargo_root), see cargo.rs.
+    //    Under the workspace build lock through the stage copy (D-H7-34).
+    let lock = crate::cargo::build_lock(dir, &world)?;
     let built = crate::cargo::build(dir, &world, &resolved, None)?;
 
     // 4. stage exactly the archives main.roc links (resolved.archive_order),
     //    clearing stale ones so another world's archive can't leak in.
     stage_archives(dir, target, &built)?;
+    drop(lock);
 
     // 5. macOS framework sysroot: generate it from the frameworks the world's
     //    components declare (e.g. turso's CoreFoundation), or remove a stale one

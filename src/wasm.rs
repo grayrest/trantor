@@ -59,7 +59,10 @@ pub fn stage_host_wasm(dir: &Path, world: &World, r: &Resolved) -> Result<PathBu
     // Every path below is handed to a tool running in `dir`, so make them
     // absolute once rather than relative-to-relative.
     let dir = &dir.canonicalize().map_err(|e| format!("canonicalize {}: {e}", dir.display()))?;
-    // 1. cargo, every component, for wasm32 (panic=abort: no unwinder there).
+    // 1. cargo, every component, for wasm32 (panic=abort: no unwinder there) —
+    //    under the workspace build lock until the members are extracted
+    //    (D-H7-34).
+    let lock = crate::cargo::build_lock(dir, world)?;
     let built = crate::cargo::build(dir, world, r, Some(WASM_TRIPLE))?;
 
     // 2. wasm-only archives per component.
@@ -89,6 +92,7 @@ pub fn stage_host_wasm(dir: &Path, world: &World, r: &Resolved) -> Result<PathBu
         run(&llvm_tool("llvm-ar"), &refs, dir, &format!("archive {lib}"))?;
         archives.push((comp.clone(), archive, members));
     }
+    drop(lock);
 
     // 3 + 4. The merge: driver whole (first in archive_order), components rooted.
     let out = dir.join("platform").join("targets").join("wasm32");

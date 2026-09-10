@@ -191,12 +191,16 @@ fn init_fn(services: &[Service]) -> String {
          /// (`None` for a driver that publishes no draw lists), and hand every\n\
          /// component its `HostCtx`. Call once, before the first drain.\n\
          pub fn init(wake: fn(u32, *mut c_void), measure_text: extern \"C\" fn(*const u8, usize, u16) -> i32, groups: Option<Groups>) {\n\
-         \x20   let _ = WAKE.set(wake);\n    let _ = MEASURE.set(measure_text);\n    if let Some(g) = groups {\n        let _ = GROUPS.set(g);\n    }\n    unsafe {\n",
+         \x20   let _ = WAKE.set(wake);\n    let _ = MEASURE.set(measure_text);\n    if let Some(g) = groups {\n        let _ = GROUPS.set(g);\n    }\n",
     );
-    for svc in services {
-        s.push_str(&format!("        {}init(&CTX_{});\n", svc.symbol_prefix(), upper(&svc.module)));
+    if !services.is_empty() {
+        s.push_str("    unsafe {\n");
+        for svc in services {
+            s.push_str(&format!("        {}init(&CTX_{});\n", svc.symbol_prefix(), upper(&svc.module)));
+        }
+        s.push_str("    }\n");
     }
-    s.push_str("    }\n}\n\n");
+    s.push_str("}\n\n");
     s
 }
 

@@ -146,7 +146,30 @@ pub fn build(
             args.extend(["--crate-type", "staticlib", "-Z", "build-std=core,alloc,std,panic_abort"].map(String::from));
         }
         run(&args, &root)?;
+        // The UPLIFTED path, `target/release/lib<pkg>.a` — which every world's
+        // build of the same package overwrites (cargo's `compiler-artifact`
+        // message names only this path, not the per-variant `deps/` file).
+        // Safe only because the caller holds `build_lock` from here through
+        // staging (D-H7-34).
         out.push((comp.clone(), built.join(format!("lib{}.a", pkg.replace('-', "_")))));
     }
     Ok(out)
 }
+
+/// An exclusive advisory lock on the host workspace's target directory,
+/// held by a caller from its first `cargo build` through its stage copy
+/// (D-H7-34). Two worlds composing in parallel in one workspace — roc-solid's
+/// gate suite — build the same driver package to the same uplifted path, and
+/// whichever finished last was what both staged: a driver with another
+/// world's `cfg(hematite_service…)` and `Env` layout. cargo's own lock covers
+/// a build, not the copy after it. Released on drop.
+pub fn build_lock(dir: &Path, world: &World) -> Result<Option<std::fs::File>, String> {
+    let Some(cargo_root) = &world.world.cargo_root else { return Ok(None) };
+    let target = dir.join(cargo_root).join("target");
+    std::fs::create_dir_all(&target).map_err(|e| format!("mkdir {}: {e}", target.display()))?;
+    let path = target.join("hematite-build.lock");
+    let f = std::fs::File::create(&path).map_err(|e| format!("create {}: {e}", path.display()))?;
+    f.lock().map_err(|e| format!("lock {}: {e}", path.display()))?;
+    Ok(Some(f))
+}
+
