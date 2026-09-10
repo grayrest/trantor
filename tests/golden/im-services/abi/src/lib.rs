@@ -5,6 +5,7 @@
 mod generated;
 pub use generated::*;
 pub mod services;
+pub mod tagged;
 
 use std::sync::OnceLock;
 

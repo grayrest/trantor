@@ -132,7 +132,10 @@ pub fn build(
         eprintln!("hematite build: platform `{}` staged and scanned (no app)", world.world.name);
         return Ok(());
     };
-    let app_main = format!("{app}/main.roc");
+    // `--app` names a directory holding main.roc, or a .roc file directly — an
+    // app dir can carry one entry per world (`main.roc`, `dom.roc`) sharing
+    // its modules, since a Roc app names exactly one platform.
+    let app_main = if app.ends_with(".roc") { app.to_string() } else { format!("{app}/main.roc") };
     roc_capped(&["check", &app_main], dir, "roc check")?;
     std::fs::create_dir_all(dir.join("bin")).map_err(|e| format!("mkdir bin: {e}"))?;
     let out_flag = format!("--output=bin/{out}");

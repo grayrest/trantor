@@ -97,7 +97,19 @@ pub fn stage_host_wasm(dir: &Path, world: &World, r: &Resolved) -> Result<PathBu
     // and nothing downstream reads it — roc's final link is what `wasm-opt`
     // runs on. Measured on roc-solid's DOM host (D25): the difference between
     // a 500 KB and a 40 KB host object.
-    let mut args: Vec<String> = vec!["-r".into(), "--whole-archive".into(), "--strip-debug".into()];
+    // `--allow-multiple-definition`: first wins, which is what the roc link
+    // does with archives anyway. Needed because a size-correct build (fat LTO
+    // into one codegen unit per component) leaves each component's object
+    // carrying std's externally-visible runtime singletons —
+    // `rust_eh_personality`, `std::panicking::EMPTY_PANIC` — which the driver
+    // already defines (D-H7-13: one runtime, the driver's). The H0c scan is
+    // still the collision policy for everything that is not a singleton.
+    let mut args: Vec<String> = vec![
+        "-r".into(),
+        "--whole-archive".into(),
+        "--strip-debug".into(),
+        "--allow-multiple-definition".into(),
+    ];
     let (driver, driver_archive, _) = &archives[0];
     debug_assert_eq!(driver, &r.driver);
     args.push(driver_archive.display().to_string());
@@ -176,7 +188,10 @@ pub fn link_app(
         eprintln!("hematite build: wasm32 platform staged and scanned (no app)");
         return Ok(());
     };
-    let app_main = format!("{app}/main.roc");
+    // `--app` names a directory holding main.roc, or a .roc file directly — an
+    // app dir can carry one entry per world (`main.roc`, `dom.roc`) sharing
+    // its modules, since a Roc app names exactly one platform.
+    let app_main = if app.ends_with(".roc") { app.to_string() } else { format!("{app}/main.roc") };
     roc_capped(&["check", &app_main], dir, "roc check")?;
     std::fs::create_dir_all(dir.join("bin")).map_err(|e| format!("mkdir bin: {e}"))?;
     let out_flag = format!("--output=bin/{out}.wasm");

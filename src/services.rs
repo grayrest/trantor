@@ -41,7 +41,7 @@ pub fn services_rs(r: &Resolved) -> Option<String> {
     s.push_str(
         "\n//! The service contract shim (D-H7-7): the driver's view of every service\n\
          //! component in this world. See hematite's src/services.rs for the shape.\n\
-         use super::*;\nuse core::ffi::c_void;\nuse core::mem::ManuallyDrop;\nuse std::sync::OnceLock;\n\n",
+         use super::*;\nuse core::ffi::c_void;\nuse std::sync::OnceLock;\n\n",
     );
     s.push_str(CONTRACT_TYPES);
     for (i, svc) in r.services.iter().enumerate() {
@@ -96,6 +96,13 @@ pub struct Completion<E: Copy> {
     pub event: E,
 }
 
+/// A component's gate hook, as the chain below calls it. `C-unwind` natively,
+/// `C` on wasm32 — see the contract declarations' note.
+#[cfg(not(target_arch = "wasm32"))]
+type GateFn = unsafe extern "C-unwind" fn(RocStr, RocList<RocStr>) -> i32;
+#[cfg(target_arch = "wasm32")]
+type GateFn = unsafe extern "C" fn(RocStr, RocList<RocStr>) -> i32;
+
 static WAKE: OnceLock<fn(u32, *mut c_void)> = OnceLock::new();
 static MEASURE: OnceLock<extern "C" fn(*const u8, usize, u16) -> i32> = OnceLock::new();
 static GROUPS: OnceLock<Groups> = OnceLock::new();
@@ -147,23 +154,33 @@ fn component_decls(svc: &Service, id: u32) -> String {
     let p = svc.symbol_prefix();
     let m = &svc.module;
     let mut s = format!(
-        "pub const {id_name}_ID: u32 = {id};\nstatic CTX_{id_name}: HostCtx = HostCtx {{ component_id: {id}, wake: courier, measure_text: measure, register_group, release_group }};\n\
-         unsafe extern \"C-unwind\" {{\n    fn {p}init(ctx: *const HostCtx);\n",
+        "pub const {id_name}_ID: u32 = {id};\nstatic CTX_{id_name}: HostCtx = HostCtx {{ component_id: {id}, wake: courier, measure_text: measure, register_group, release_group }};\n",
         id_name = upper(m)
     );
+    // The contract's declarations, once; the ABI string around them twice.
+    let mut decls = format!("    fn {p}init(ctx: *const HostCtx);\n");
     match &svc.event_module {
         Some(ev) => {
-            s.push_str(&format!(
+            decls.push_str(&format!(
                 "    fn {p}cmd(request: u64, cmd: {m}) -> RocList<Answer<{ev}>>;\n\
                  \x20   fn {p}complete(token: *mut c_void) -> RocList<Completion<{ev}>>;\n"
             ));
         }
-        None => s.push_str(&format!("    fn {p}cmd(request: u64, cmd: {m});\n")),
+        None => decls.push_str(&format!("    fn {p}cmd(request: u64, cmd: {m});\n")),
     }
     if let Some(env) = &svc.env_module {
-        s.push_str(&format!("    fn {p}env() -> {env};\n"));
+        decls.push_str(&format!("    fn {p}env() -> {env};\n"));
     }
-    s.push_str(&format!("    fn {p}gate(name: RocStr, argv: RocList<RocStr>) -> i32;\n}}\n\n"));
+    decls.push_str(&format!("    fn {p}gate(name: RocStr, argv: RocList<RocStr>) -> i32;\n"));
+    // `C-unwind` natively (H0d: a component's panic reaches the driver's
+    // catch_unwind); plain `C` on wasm32, where nothing unwinds and a
+    // `C-unwind` call under immediate-abort panics is lowered to a wasm
+    // exception-handling landing pad — which roc's link does not enable
+    // (measured: `catch_all` in the DOM driver's frame, D-H7-32).
+    s.push_str(&format!(
+        "#[cfg(not(target_arch = \"wasm32\"))]\nunsafe extern \"C-unwind\" {{\n{decls}}}\n\
+         #[cfg(target_arch = \"wasm32\")]\nunsafe extern \"C\" {{\n{decls}}}\n\n"
+    ));
     s
 }
 
@@ -182,13 +199,11 @@ fn init_fn(services: &[Service]) -> String {
     s
 }
 
-/// The `Event` wrapping for a service's event value.
+/// The `Event` wrapping for a service's event value — through `tagged::build`,
+/// which is right on both pointer widths (a struct literal names the 64-bit
+/// union only; wasm32's payload is a byte array).
 fn wrap_event(svc: &Service, value: &str) -> String {
-    let field = snake_case(&svc.module);
-    format!(
-        "Event {{ payload: EventPayload {{ {field}: ManuallyDrop::new({value}) }}, tag: EventTag::{} }}",
-        svc.module
-    )
+    format!("unsafe {{ tagged::build(|e: &mut Event| e.tag = EventTag::{}, {value}) }}", svc.module)
 }
 
 fn dispatch_fn(services: &[Service]) -> String {
@@ -273,7 +288,7 @@ fn gate_fn(services: &[Service]) -> String {
         "/// The gate chain (D-H7-8): ask every component before the driver's own\n\
          /// arms. `Some(rc)` from the first component that claims `name`.\n\
          pub fn gate(name: &str, argv: &[String]) -> Option<i32> {\n    let host = host();\n\
-         \x20   let gates: [unsafe extern \"C-unwind\" fn(RocStr, RocList<RocStr>) -> i32; N_SERVICES] = [\n",
+         \x20   let gates: [GateFn; N_SERVICES] = [\n",
     );
     for svc in services {
         s.push_str(&format!("        {}gate,\n", svc.symbol_prefix()));
@@ -320,9 +335,9 @@ mod tests {
         assert!(s.contains("fn hematite__svc_echo__cmd(request: u64, cmd: Echo) -> RocList<Answer<EchoEvent>>;"));
         assert!(s.contains("fn hematite__svc_tick__env() -> TickEnv;"));
         assert!(s.contains("CmdTag::Echo => {"));
-        assert!(s.contains("EventPayload { tick: ManuallyDrop::new(c.event) }, tag: EventTag::Tick }"));
+        assert!(s.contains("tagged::build(|e: &mut Event| e.tag = EventTag::Tick, c.event)"));
         assert!(s.contains("pub fn env_tick() -> TickEnv"));
-        assert!(s.contains("fn(RocStr, RocList<RocStr>) -> i32; 2]"));
+        assert!(s.contains("[GateFn; 2]"));
         assert!(!s.contains("N_SERVICES"));
     }
 }

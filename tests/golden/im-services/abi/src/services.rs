@@ -3,7 +3,6 @@
 //! component in this world. See hematite's src/services.rs for the shape.
 use super::*;
 use core::ffi::c_void;
-use core::mem::ManuallyDrop;
 use std::sync::OnceLock;
 
 /// D8's `HostCtx`: what the driver hands each component at `init` — the
@@ -46,6 +45,13 @@ pub struct Completion<E: Copy> {
     pub route_key: RocStr,
     pub event: E,
 }
+
+/// A component's gate hook, as the chain below calls it. `C-unwind` natively,
+/// `C` on wasm32 — see the contract declarations' note.
+#[cfg(not(target_arch = "wasm32"))]
+type GateFn = unsafe extern "C-unwind" fn(RocStr, RocList<RocStr>) -> i32;
+#[cfg(target_arch = "wasm32")]
+type GateFn = unsafe extern "C" fn(RocStr, RocList<RocStr>) -> i32;
 
 static WAKE: OnceLock<fn(u32, *mut c_void)> = OnceLock::new();
 static MEASURE: OnceLock<extern "C" fn(*const u8, usize, u16) -> i32> = OnceLock::new();
@@ -90,7 +96,15 @@ extern "C" fn release_group(handle: i32) {
 
 pub const ECHO_ID: u32 = 1;
 static CTX_ECHO: HostCtx = HostCtx { component_id: 1, wake: courier, measure_text: measure, register_group, release_group };
+#[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C-unwind" {
+    fn hematite__svc_echo__init(ctx: *const HostCtx);
+    fn hematite__svc_echo__cmd(request: u64, cmd: Echo) -> RocList<Answer<EchoEvent>>;
+    fn hematite__svc_echo__complete(token: *mut c_void) -> RocList<Completion<EchoEvent>>;
+    fn hematite__svc_echo__gate(name: RocStr, argv: RocList<RocStr>) -> i32;
+}
+#[cfg(target_arch = "wasm32")]
+unsafe extern "C" {
     fn hematite__svc_echo__init(ctx: *const HostCtx);
     fn hematite__svc_echo__cmd(request: u64, cmd: Echo) -> RocList<Answer<EchoEvent>>;
     fn hematite__svc_echo__complete(token: *mut c_void) -> RocList<Completion<EchoEvent>>;
@@ -99,7 +113,16 @@ unsafe extern "C-unwind" {
 
 pub const TICK_ID: u32 = 2;
 static CTX_TICK: HostCtx = HostCtx { component_id: 2, wake: courier, measure_text: measure, register_group, release_group };
+#[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C-unwind" {
+    fn hematite__svc_tick__init(ctx: *const HostCtx);
+    fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> RocList<Answer<TickEvent>>;
+    fn hematite__svc_tick__complete(token: *mut c_void) -> RocList<Completion<TickEvent>>;
+    fn hematite__svc_tick__env() -> TickEnv;
+    fn hematite__svc_tick__gate(name: RocStr, argv: RocList<RocStr>) -> i32;
+}
+#[cfg(target_arch = "wasm32")]
+unsafe extern "C" {
     fn hematite__svc_tick__init(ctx: *const HostCtx);
     fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> RocList<Answer<TickEvent>>;
     fn hematite__svc_tick__complete(token: *mut c_void) -> RocList<Completion<TickEvent>>;
@@ -135,7 +158,7 @@ pub fn dispatch(cmd: &mut Cmd, request: u64) -> Option<Vec<(RocStr, Event)>> {
             let answers = unsafe { hematite__svc_echo__cmd(request, payload) };
             let mut out = Vec::with_capacity(answers.len());
             for a in answers.as_slice() {
-                out.push((a.route_key, Event { payload: EventPayload { echo: ManuallyDrop::new(a.event) }, tag: EventTag::Echo }));
+                out.push((a.route_key, unsafe { tagged::build(|e: &mut Event| e.tag = EventTag::Echo, a.event) }));
             }
             unsafe { answers.decref(host) }; // shallow: each answer was copied out
             Some(out)
@@ -145,7 +168,7 @@ pub fn dispatch(cmd: &mut Cmd, request: u64) -> Option<Vec<(RocStr, Event)>> {
             let answers = unsafe { hematite__svc_tick__cmd(request, payload) };
             let mut out = Vec::with_capacity(answers.len());
             for a in answers.as_slice() {
-                out.push((a.route_key, Event { payload: EventPayload { tick: ManuallyDrop::new(a.event) }, tag: EventTag::Tick }));
+                out.push((a.route_key, unsafe { tagged::build(|e: &mut Event| e.tag = EventTag::Tick, a.event) }));
             }
             unsafe { answers.decref(host) }; // shallow: each answer was copied out
             Some(out)
@@ -163,13 +186,13 @@ pub fn on_wake(component_id: u32, token: *mut c_void) -> Vec<(u64, RocStr, Event
     match component_id {
         ECHO_ID => {
             let done = unsafe { hematite__svc_echo__complete(token) };
-            let out: Vec<(u64, RocStr, Event)> = done.as_slice().iter().map(|c| (c.request, c.route_key, Event { payload: EventPayload { echo: ManuallyDrop::new(c.event) }, tag: EventTag::Echo })).collect();
+            let out: Vec<(u64, RocStr, Event)> = done.as_slice().iter().map(|c| (c.request, c.route_key, unsafe { tagged::build(|e: &mut Event| e.tag = EventTag::Echo, c.event) })).collect();
             unsafe { done.decref(host) }; // shallow: each completion was copied out
             out
         }
         TICK_ID => {
             let done = unsafe { hematite__svc_tick__complete(token) };
-            let out: Vec<(u64, RocStr, Event)> = done.as_slice().iter().map(|c| (c.request, c.route_key, Event { payload: EventPayload { tick: ManuallyDrop::new(c.event) }, tag: EventTag::Tick })).collect();
+            let out: Vec<(u64, RocStr, Event)> = done.as_slice().iter().map(|c| (c.request, c.route_key, unsafe { tagged::build(|e: &mut Event| e.tag = EventTag::Tick, c.event) })).collect();
             unsafe { done.decref(host) }; // shallow: each completion was copied out
             out
         }
@@ -186,7 +209,7 @@ pub fn env_tick() -> TickEnv {
 /// arms. `Some(rc)` from the first component that claims `name`.
 pub fn gate(name: &str, argv: &[String]) -> Option<i32> {
     let host = host();
-    let gates: [unsafe extern "C-unwind" fn(RocStr, RocList<RocStr>) -> i32; 2] = [
+    let gates: [GateFn; 2] = [
         hematite__svc_echo__gate,
         hematite__svc_tick__gate,
     ];
