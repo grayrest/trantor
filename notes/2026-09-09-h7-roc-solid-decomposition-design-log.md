@@ -779,6 +779,20 @@ Rejected: defaulting `[world] exports` the same way — that list is the app's
 allowed imports and is genuinely per-world (colorhunt's is 52 names against
 clay's 62).
 
+**The exit measurement was partly vacuous (found the same day, same
+question).** `world-nm`'s hayro probe was `_5hayro`, which matches zero
+symbols in `libsvc_doc.a` — the archive that carries 4,815 of them. That
+column reported absence no matter what was present, and would have kept
+reporting it if hayro leaked into every driver. `_4cpal` was over-qualified
+the same way and matched only by accident. Each probe now runs first against
+the archive that DOES own its symbols and the recipe fails if one finds
+nothing there: a probe that cannot find what it is looking for cannot prove
+it is gone. The exit result survives the repair — 0 in every world's
+`libhost_im.a` against 336 / 3,602 / 4,815 / 583 in the owning archives — but
+it was only three-quarters proven until now. The general lesson is the one
+the plan already applies to gates and had not applied to its own measurement:
+a negative result needs a positive control.
+
 **P10 defect, found 2026-09-10 by asking why colorhunt has its own world.**
 Fifteen recipes that build `apps/colorhunt/main.roc` still depended on
 `im-host`, which composes clay, after P10 re-pointed the app at
