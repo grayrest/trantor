@@ -602,12 +602,83 @@ table tests; the plan's "reader gates" belong to the nomadic repo's reader
 app, which still speaks `Cmd.Service("doc")` and must be re-pointed there —
 recorded as open.
 
+## P9 decisions (2026-09-09) — the DOM driver as a world
+
+**D-H7-30 — One app contract, two drivers, no second copy: a pure-Roc
+component ships the driver's modules, spliced; a driver.toml borrows another's
+contract.** The plan had `platform/dom` reuse host-im's 55 modules through a
+`kind = "roc"` component; making that true needed two tool changes. A Roc
+component's copies were verbatim (D13), so its `## @hematite` blocks would
+have stayed empty and the shim's `CmdTag::Notes` would have had no variant —
+now every copied module is spliced, and a module without markers is copied
+as before. And the other half of the contract, `driver.toml`'s
+`requires`/`provided` (300 lines), would have been a second copy — the
+two-implementations drift this repo keeps meeting — so a driver.toml may
+name another's as `contract_from` and keep only `authored_host` and
+`wasm_exports` as its own. Rejected: a symlinked driver.toml (the export
+surface differs); the DOM driver pointing at host-im's roc dir as its own
+modules (a driver's modules are its contract; the DOM driver has none).
+
+**D-H7-31 — `[world] wasm_size_correct`: D25's recipe as a tool knob — and
+OFF, because it traps.** `dom-host` built the DOM host with `-Z build-std`,
+immediate-abort panics, opt-level z, fat LTO, one codegen unit, stripped: 12x
+smaller than a plain staticlib (D25). `hematite build --target wasm32`
+generalises `dom-host`, so the recipe is a world-level knob (env overrides
+plus `cargo rustc --crate-type staticlib -Z build-std`, `--strip-debug` on
+the merge). Measured: host.wasm 4.7 MB plain, 508 KB size-correct — and the
+size-correct notesviewer traps (`memory access out of bounds`) in the first
+frame after `svc-notes-dom`'s listing arrives, where the plain build runs;
+the counter, which never reaches a service completion, runs either way. Not
+understood yet (the LTO'd module carries no names to read the stack by), and
+the final module it saves is small once roc's link and wasm-opt have GC'd
+(counter 356 KB vs 444 KB) — so the DOM world builds plain, the trap is
+recorded here, and the knob waits for a diagnosis.
+
+**D-H7-32 — The shim on wasm32: width-agnostic events, plain `C`, first-wins
+merge.** Three things the first service world on wasm32 found. glue spells a
+tag union's payload as a `union` on 64-bit and an aligned byte array on
+32-bit, so the shim's struct-literal event wrapping did not compile there —
+every service world's abi now carries `tagged::build` (host-dom's proven
+builder: write the payload at the value's address, set the tag) and the shim
+and a component's own event building go through it. A `C-unwind` call under
+immediate-abort panics lowers to a wasm exception-handling landing pad
+(measured: `catch_all` in `dom_frame`, `drain_pre`, `dom_init`) that roc's
+link does not enable, so the contract declarations and the gate table are
+plain `C` on wasm32 and `C-unwind` elsewhere (H0d's catch_unwind is native).
+And a size-correct build leaves each component's LTO'd object carrying std's
+externally-visible runtime singletons (`rust_eh_personality`,
+`EMPTY_PANIC`) the driver defines too, so the merge takes the first
+definition — what the roc link does with archives — with the H0c scan still
+the policy for everything else.
+
+**Within scope, decided by the code:** a DOM service reaches the browser
+through three driver externs (`dom_svc_http`, `dom_svc_call`,
+`dom_svc_abort`) that take the request AND a callback; the applier's
+`dom_http_done`/`dom_service_done` are unchanged and the driver forwards to
+the callback filed under the request id — the alternative, a component
+owning JS-facing exports of its own, needed a per-component export list in
+the tool and a change to the applier for every service. `svc-net-dom` links
+`svc-net` with `default-features = false` (registry + request format, no
+`ureq`), and `Tasks::issue` now reports what it superseded so the one
+transport that can cancel does. host-dom's `Answer::Http` did not come back:
+typed completions are routed as `Event`s from a `routed` queue beside the
+legacy `Cmd.Service` one (P10 deletes the latter). One app dir, one entry per
+world (`main.roc` + `dom.roc`), checked identical below the header by
+`dom-entries`. Two applier bugs surfaced and were fixed: a `pushInput()` call
+the C2 pointer campaign had orphaned (every boot threw), and `dom_dispatch`
+missing from the explicit export list (every click trapped) — `dom-exports`
+now checks the applier's calls against `driver.toml`. Verified in a browser
+rather than claimed: the counter counts, notesviewer lists, the request
+fixture shows the dev server's 404s through `svc-net-dom`.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
   check` still runs its gates).
 - `roc:test/quiesce` (D20) across several effect sources — first real chance is
   `platform/clay` with dbx + net + spawn in flight; not a gate of this pass.
+- `wasm_size_correct` traps on the first service completion (D-H7-31); the
+  DOM world builds plain until the trap is diagnosed.
 - The nomadic reader (`../nomad/nomadic`) speaks `Cmd.Service("doc", …)` and
   parses text; it needs re-pointing at `Cmd.Doc`/`DocEvent` in its own repo,
   against a world that wires `svc-doc` (clay does). Its `test(doc)` and

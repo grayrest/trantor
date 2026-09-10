@@ -1,6 +1,13 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: P0–P8 DONE 2026-09-09; P9 (platform/dom) next.** P8: the document
+> **Status: P0–P9 DONE 2026-09-09; P10 (per-app worlds) next.** P9: the DOM
+> driver is the world `platform/dom` — host-im's contract shipped by a
+> `kind = "roc"` component and its driver.toml by `contract_from` (D-H7-30),
+> `svc-notes-dom`/`svc-net-dom` over the browser's `fetch` through the
+> driver's `dom_svc_*` externs, `hematite build --target wasm32` in place of
+> `dom-host`/`dom-app`, and the counter, notesviewer and the request fixture
+> running in a browser; the shim learned wasm32 (D-H7-32); the size-correct
+> knob exists but traps (D-H7-31). P8: the document
 > engine left the host — `svc-doc`, `Doc`/`DocEvent` typed per verb, page draw
 > lists published through `HostCtx.register_group` (D-H7-11 as built: borrowed
 > for the call, D-H7-29); 0 hayro symbols in the driver; `im-doc` gates the
@@ -379,6 +386,39 @@ declaring host-im's Roc dir as a `kind = "roc"` component `im-contract`
 exporting the 55 modules, so both drivers share one contract text). Components
 `svc-notes-dom`, `svc-net-dom` (JS `fetch` transport, wasm32). `dom-host`/
 `dom-app` → `hematite build platform/dom --target wasm32`. Exit: exit item 4.
+
+**Outcome ✅ 2026-09-09.** As built: `platform/dom/world.toml` — driver
+`host-dom` (`crates/host-dom/driver.toml`: `authored_host`, `wasm_exports`,
+`contract_from = "../host-im/driver.toml"` for the shared `requires`/
+`provided`), the 53 contract modules from `crates/host-im/roc` as the
+pure-Roc component `im-contract` (spliced like a driver's, D-H7-30),
+`svc-notes-dom` (`List`/`Read` as POSTs to the dev server's
+`/@service/notes`) and `svc-net-dom` (`svc-net`'s registry and request format
+behind `default-features = false`, the browser's `fetch` as the transport, a
+superseded request ABORTED there). A DOM service reaches the browser through
+the driver's `dom_svc_http` / `dom_svc_call` / `dom_svc_abort` externs,
+handing over the request and a callback; the applier performs it and calls
+`dom_http_done` / `dom_service_done` exactly as before, and the driver
+forwards the answer to the callback filed under that request — the JS is
+untouched. host-dom drains wakes at the top of every frame and routes typed
+completions with the others; its wrapper catch-all is gone (every wrapper
+this world's `Cmd` has is a wired service). One app, two platforms: an app
+dir carries `main.roc` and `dom.roc` (`examples/im-counter`,
+`apps/notesviewer`, `tests/integration/im-http`), `dom-entries` keeps the
+pairs identical below the header, `dom-exports` keeps the applier's calls in
+the export list (which is how two latent applier bugs surfaced: a
+`pushInput` call C2 had removed, and `dom_dispatch` missing from the export
+list — every click had trapped since the plain export-everything build went
+away). hematite: `contract_from`, roc-component splicing, `--app <file.roc>`,
+`[world] wasm_size_correct` (D-H7-31), `tagged::build` in every service
+world's abi, plain-`C` contract declarations on wasm32, first-wins on the
+merge (D-H7-32). `lint`/`test-host`/`dom-recon` check the DOM crates against
+`platform/dom/abi`. **Measured in a browser (Claude's pane over `serve.py`):
+the counter counts, notesviewer lists `notes/` through `svc-notes-dom`, the
+request fixture shows the dev server's answers through `svc-net-dom`;
+host.wasm 4.7 MB → app.wasm 444 KB (counter, after wasm-opt); `im-check`
+133/133 unchanged.** The size-correct build traps on the first service
+completion and is off (D-H7-31); `just dom-notesviewer` is the demo.
 
 ### P10 — per-app worlds + the `nm` exit; docs
 
