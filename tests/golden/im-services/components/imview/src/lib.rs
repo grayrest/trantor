@@ -109,7 +109,7 @@ fn run() -> i32 {
     let host = abi::host();
     let (tx, rx): (Sender<Wake>, Receiver<Wake>) = channel();
     *WAKES.lock().unwrap() = Some(tx);
-    services::init(wake, measure);
+    services::init(wake, measure, None); // no draw lists here
     let mut next_request = 0u64;
     let mut model = unsafe { roc_im_init(env()) };
     let (m, promised) = drain(model, &mut next_request);

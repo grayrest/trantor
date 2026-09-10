@@ -19,6 +19,14 @@ pub struct HostCtx {
     /// columns — cannot reach the renderer's metrics any other way). Callable
     /// from any thread.
     pub measure_text: extern "C" fn(*const u8, usize, u16) -> i32,
+    /// Publish a host-built draw list (a `Scene`) under a driver-minted handle
+    /// at `generation`, and get the handle back (D-H7-11, P8: a document
+    /// service's page group). The pointer is BORROWED for the duration of the
+    /// call — the driver copies what it keeps — so the component stays the
+    /// owner and nothing Rust-allocated changes hands. Runtime thread.
+    pub register_group: extern "C" fn(*const c_void, u32) -> i32,
+    /// Forget a published group; the handle names nothing afterwards.
+    pub release_group: extern "C" fn(i32),
 }
 
 /// A synchronous answer to a wrapper command, in the component's own event type.
@@ -41,6 +49,14 @@ pub struct Completion<E: Copy> {
 
 static WAKE: OnceLock<fn(u32, *mut c_void)> = OnceLock::new();
 static MEASURE: OnceLock<extern "C" fn(*const u8, usize, u16) -> i32> = OnceLock::new();
+static GROUPS: OnceLock<Groups> = OnceLock::new();
+
+/// The driver's group registry, as two C-ABI entry points.
+#[derive(Clone, Copy)]
+pub struct Groups {
+    pub register: extern "C" fn(*const c_void, u32) -> i32,
+    pub release: extern "C" fn(i32),
+}
 
 /// The one `wake` every component is handed: forwards to the driver's loop.
 extern "C" fn courier(component_id: u32, token: *mut c_void) {
@@ -57,8 +73,23 @@ extern "C" fn measure(ptr: *const u8, len: usize, font: u16) -> i32 {
     }
 }
 
+/// The one `register_group` every component is handed: the driver's, or -1
+/// (a driver with no group registry publishes nothing).
+extern "C" fn register_group(scene: *const c_void, generation: u32) -> i32 {
+    match GROUPS.get() {
+        Some(g) => (g.register)(scene, generation),
+        None => -1,
+    }
+}
+
+extern "C" fn release_group(handle: i32) {
+    if let Some(g) = GROUPS.get() {
+        (g.release)(handle);
+    }
+}
+
 pub const ECHO_ID: u32 = 1;
-static CTX_ECHO: HostCtx = HostCtx { component_id: 1, wake: courier, measure_text: measure };
+static CTX_ECHO: HostCtx = HostCtx { component_id: 1, wake: courier, measure_text: measure, register_group, release_group };
 unsafe extern "C-unwind" {
     fn hematite__svc_echo__init(ctx: *const HostCtx);
     fn hematite__svc_echo__cmd(request: u64, cmd: Echo) -> RocList<Answer<EchoEvent>>;
@@ -67,7 +98,7 @@ unsafe extern "C-unwind" {
 }
 
 pub const TICK_ID: u32 = 2;
-static CTX_TICK: HostCtx = HostCtx { component_id: 2, wake: courier, measure_text: measure };
+static CTX_TICK: HostCtx = HostCtx { component_id: 2, wake: courier, measure_text: measure, register_group, release_group };
 unsafe extern "C-unwind" {
     fn hematite__svc_tick__init(ctx: *const HostCtx);
     fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> RocList<Answer<TickEvent>>;
@@ -76,11 +107,15 @@ unsafe extern "C-unwind" {
     fn hematite__svc_tick__gate(name: RocStr, argv: RocList<RocStr>) -> i32;
 }
 
-/// Install the driver's wake sink and text measurer, and hand every
+/// Install the driver's wake sink, text measurer and group registry
+/// (`None` for a driver that publishes no draw lists), and hand every
 /// component its `HostCtx`. Call once, before the first drain.
-pub fn init(wake: fn(u32, *mut c_void), measure_text: extern "C" fn(*const u8, usize, u16) -> i32) {
+pub fn init(wake: fn(u32, *mut c_void), measure_text: extern "C" fn(*const u8, usize, u16) -> i32, groups: Option<Groups>) {
     let _ = WAKE.set(wake);
     let _ = MEASURE.set(measure_text);
+    if let Some(g) = groups {
+        let _ = GROUPS.set(g);
+    }
     unsafe {
         hematite__svc_echo__init(&CTX_ECHO);
         hematite__svc_tick__init(&CTX_TICK);

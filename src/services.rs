@@ -10,7 +10,9 @@
 //! completions, in order — a coalesced no-op says nothing, a dying child's
 //! last lines precede its exit; D-H7-20), `__env() -> MEnv`,
 //! `__gate(name, argv) -> i32` — and gives the driver:
-//!   - `init(wake, measure_text)`: hands every component its `HostCtx` (D8);
+//!   - `init(wake, measure_text, groups)`: hands every component its `HostCtx`
+//!     (D8) — wake, text measure (D-H7-22), and the group registry a document
+//!     service publishes page draw lists through (D-H7-11);
 //!   - `dispatch(&mut cmd, request)`: one arm per wrapper variant,
 //!     moving the payload to the component and wrapping its answers back into
 //!     the world's `Event`; `None` for a core variant (the driver's own);
@@ -66,6 +68,14 @@ pub struct HostCtx {
     /// columns — cannot reach the renderer's metrics any other way). Callable
     /// from any thread.
     pub measure_text: extern "C" fn(*const u8, usize, u16) -> i32,
+    /// Publish a host-built draw list (a `Scene`) under a driver-minted handle
+    /// at `generation`, and get the handle back (D-H7-11, P8: a document
+    /// service's page group). The pointer is BORROWED for the duration of the
+    /// call — the driver copies what it keeps — so the component stays the
+    /// owner and nothing Rust-allocated changes hands. Runtime thread.
+    pub register_group: extern "C" fn(*const c_void, u32) -> i32,
+    /// Forget a published group; the handle names nothing afterwards.
+    pub release_group: extern "C" fn(i32),
 }
 
 /// A synchronous answer to a wrapper command, in the component's own event type.
@@ -88,6 +98,14 @@ pub struct Completion<E: Copy> {
 
 static WAKE: OnceLock<fn(u32, *mut c_void)> = OnceLock::new();
 static MEASURE: OnceLock<extern "C" fn(*const u8, usize, u16) -> i32> = OnceLock::new();
+static GROUPS: OnceLock<Groups> = OnceLock::new();
+
+/// The driver's group registry, as two C-ABI entry points.
+#[derive(Clone, Copy)]
+pub struct Groups {
+    pub register: extern "C" fn(*const c_void, u32) -> i32,
+    pub release: extern "C" fn(i32),
+}
 
 /// The one `wake` every component is handed: forwards to the driver's loop.
 extern "C" fn courier(component_id: u32, token: *mut c_void) {
@@ -104,6 +122,21 @@ extern "C" fn measure(ptr: *const u8, len: usize, font: u16) -> i32 {
     }
 }
 
+/// The one `register_group` every component is handed: the driver's, or -1
+/// (a driver with no group registry publishes nothing).
+extern "C" fn register_group(scene: *const c_void, generation: u32) -> i32 {
+    match GROUPS.get() {
+        Some(g) => (g.register)(scene, generation),
+        None => -1,
+    }
+}
+
+extern "C" fn release_group(handle: i32) {
+    if let Some(g) = GROUPS.get() {
+        (g.release)(handle);
+    }
+}
+
 "#;
 
 fn upper(name: &str) -> String {
@@ -114,7 +147,7 @@ fn component_decls(svc: &Service, id: u32) -> String {
     let p = svc.symbol_prefix();
     let m = &svc.module;
     let mut s = format!(
-        "pub const {id_name}_ID: u32 = {id};\nstatic CTX_{id_name}: HostCtx = HostCtx {{ component_id: {id}, wake: courier, measure_text: measure }};\n\
+        "pub const {id_name}_ID: u32 = {id};\nstatic CTX_{id_name}: HostCtx = HostCtx {{ component_id: {id}, wake: courier, measure_text: measure, register_group, release_group }};\n\
          unsafe extern \"C-unwind\" {{\n    fn {p}init(ctx: *const HostCtx);\n",
         id_name = upper(m)
     );
@@ -136,10 +169,11 @@ fn component_decls(svc: &Service, id: u32) -> String {
 
 fn init_fn(services: &[Service]) -> String {
     let mut s = String::from(
-        "/// Install the driver's wake sink and text measurer, and hand every\n\
+        "/// Install the driver's wake sink, text measurer and group registry\n\
+         /// (`None` for a driver that publishes no draw lists), and hand every\n\
          /// component its `HostCtx`. Call once, before the first drain.\n\
-         pub fn init(wake: fn(u32, *mut c_void), measure_text: extern \"C\" fn(*const u8, usize, u16) -> i32) {\n\
-         \x20   let _ = WAKE.set(wake);\n    let _ = MEASURE.set(measure_text);\n    unsafe {\n",
+         pub fn init(wake: fn(u32, *mut c_void), measure_text: extern \"C\" fn(*const u8, usize, u16) -> i32, groups: Option<Groups>) {\n\
+         \x20   let _ = WAKE.set(wake);\n    let _ = MEASURE.set(measure_text);\n    if let Some(g) = groups {\n        let _ = GROUPS.set(g);\n    }\n    unsafe {\n",
     );
     for svc in services {
         s.push_str(&format!("        {}init(&CTX_{});\n", svc.symbol_prefix(), upper(&svc.module)));
