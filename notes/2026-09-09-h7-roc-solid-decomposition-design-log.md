@@ -714,6 +714,61 @@ is what makes "an app's binary carries what its world wires" a property
 rather than a convention: nothing typed as `Str` can reach a service the
 world did not name.
 
+## After the exit (2026-09-10) — the world files stop repeating the driver
+
+Raised by reading the result rather than by a failure: seven world files that
+wire the same driver looked like copies of each other.
+
+They are not copies where it counts. What each world TRACKS is one
+`world.toml` of 25–70 lines (42 files, 70 KB across the whole `platform/`
+tree); what makes it look like a copy is the composed output beside it, which
+is gitignored — and there the copying is deliberate. `platform =` points the
+roc compiler at a directory, so each world's composed platform is a
+self-contained tree, and 51 of colorhunt's 54 modules are byte-identical to
+clay's. Only `Cmd.roc`, `Event.roc` and `main.roc` are spliced per world,
+plus the interface modules that world wires (clay ten, colorhunt none). That
+part costs ~1 MB per world and buys the property the whole pass is about.
+
+The 800 MB beside it is the staged archives, and those are the opposite of
+copies: one `libhost_im.a` per world, each compiled under its own
+`cfg(hematite_service = …)` set. Nothing can share them — that they DIFFER is
+what `just world-nm` measures. `just world-clean` drops every world's
+generated directories (asserting each is untracked first, rather than
+trusting `.gitignore`); recomposing costs a cargo build for the first world
+and the workspace cache for the rest.
+
+**D-H7-35 — A driver's `exports` and `frameworks` are the driver's, defaulted
+into every world that wires it.** The one duplication a person actually
+maintained: `[components.host-im]` carried a 53-name module list and a
+23-name framework list, byte-identical in all seven native world files
+(`world.toml` ×5, plus clay's eink-sim and vello variants). Both lists
+describe the DRIVER — the Roc modules it ships beside itself in `roc/`, the
+system frameworks it links — so a world restating them is a world repeating
+somebody else's fact, and adding a module to host-im meant editing seven
+files. A miss there is not a diagnostic: an app importing a module absent
+from its world's exports SEGFAULTS `roc build` (the reason `[world] exports`
+carries the warning it does). So `driver.toml` now declares both, and
+`load_world` fills them into the driver component when the world omits them;
+a world that states either list still wins outright, which is how a world
+ships a driver's modules selectively. Composed output is byte-identical
+before and after, all seven worlds recompose from empty and `world-nm` reads
+the same.
+
+NOT inherited through `contract_from`: borrowing another driver's app
+contract does not make you ship its modules or link its frameworks. host-dom
+borrows host-im's 300-line contract (D-H7-30), ships no modules of its own —
+a separate `kind = "roc"` component carries them into the DOM world — and
+links nothing, so it must keep both lists empty. There is a test for exactly
+that, because the merge in `load_driver` sits four lines away.
+
+Rejected: `extends` between world files (colorhunt inheriting clay's and
+subtracting). It removes more lines, but it makes "what does colorhunt wire"
+a question you resolve instead of read — and a world file naming exactly what
+its binary carries is the H7 exit property, not a formatting preference.
+Rejected: defaulting `[world] exports` the same way — that list is the app's
+allowed imports and is genuinely per-world (colorhunt's is 52 names against
+clay's 62).
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

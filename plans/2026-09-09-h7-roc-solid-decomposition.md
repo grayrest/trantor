@@ -1,6 +1,9 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: COMPLETE 2026-09-09 (P0–P10).** P10: four per-app worlds
+> **Status: COMPLETE 2026-09-09 (P0–P10).** Follow-up 2026-09-10: a driver's
+> `exports`/`frameworks` default into every world that wires it, so seven world
+> files stopped carrying the same two lists (D-H7-35), and `just world-clean`
+> drops the ~800 MB of composed output. P10: four per-app worlds
 > (`platform/colorhunt`, `platform/dbx`, `platform/conduit`,
 > `platform/notesviewer`) wire exactly what each app names; `Cmd.Service`/
 > `Event.Service` are gone from both drivers; the exit is measured by `just

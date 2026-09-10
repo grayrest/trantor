@@ -236,6 +236,17 @@ pub struct Driver {
     /// wasm32 target.
     #[serde(default)]
     pub wasm_exports: Vec<String>,
+    /// The Roc modules this driver ships beside it in `roc/` — the DRIVER's
+    /// property, not the world's, so every world that wires it otherwise
+    /// repeats the same list verbatim. A world's `[components.<driver>]
+    /// exports` defaults to this when it omits it (D-H7-35).
+    #[serde(default)]
+    pub exports: Vec<String>,
+    /// The macOS system frameworks this driver links, defaulted into the
+    /// world's `[components.<driver>] frameworks` the same way and for the
+    /// same reason.
+    #[serde(default)]
+    pub frameworks: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -262,7 +273,46 @@ impl Driver {
 pub fn load_world(dir: &Path, file: &str) -> Result<World, String> {
     let p = dir.join(file);
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
-    toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
+    let mut w: World = toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))?;
+    default_driver_lists(dir, &mut w)?;
+    Ok(w)
+}
+
+/// Fill the driver component's `exports` and `frameworks` from the driver's own
+/// `driver.toml` when the world omits them (D-H7-35).
+///
+/// Both lists describe the DRIVER — the Roc modules it ships and the system
+/// frameworks it links — so before this every world that wired the same driver
+/// carried the same two lists verbatim (roc-solid: seven files, 53 module names
+/// and 23 framework names each). Adding a module to the driver then meant
+/// editing every world, and a miss is not a diagnostic: an app importing a
+/// module missing from a world's exports SEGFAULTS `roc build`.
+///
+/// A world that states either list still wins outright, which is how a world
+/// ships a driver's modules selectively.
+///
+/// NOT inherited through `contract_from`: borrowing another driver's app
+/// contract does not make you ship its modules or link its frameworks
+/// (roc-solid's host-dom borrows host-im's contract, ships no modules of its
+/// own — a separate `kind = "roc"` component carries them — and links nothing).
+/// A missing or unreadable `driver.toml` is left to `load_driver` to report.
+fn default_driver_lists(dir: &Path, w: &mut World) -> Result<(), String> {
+    let name = w.world.driver.clone();
+    let Some(c) = w.components.get(&name) else { return Ok(()) };
+    if !c.exports.is_empty() && !c.frameworks.is_empty() {
+        return Ok(());
+    }
+    let p = component_dir(dir, &name, c).join("driver.toml");
+    let Ok(text) = std::fs::read_to_string(&p) else { return Ok(()) };
+    let d: Driver = toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))?;
+    let c = w.components.get_mut(&name).expect("present, checked above");
+    if c.exports.is_empty() {
+        c.exports = d.exports;
+    }
+    if c.frameworks.is_empty() {
+        c.frameworks = d.frameworks;
+    }
+    Ok(())
 }
 
 pub fn load_interface(dir: &Path, world: &World, name: &str) -> Result<Interface, String> {
@@ -296,4 +346,86 @@ pub fn load_driver(dir: &Path, world: &World) -> Result<Driver, String> {
         return Err(format!("{}: `requires` and `provided` are required (or `contract_from`)", p.display()));
     }
     Ok(d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A world dir with `components/drv/driver.toml` carrying `body`.
+    fn fixture(tag: &str, body: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("hematite-manifest-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("components/drv")).unwrap();
+        std::fs::write(
+            dir.join("components/drv/driver.toml"),
+            format!("provides_symbol = \"s\"\nprovided_fn = \"f\"\nrequires = \"r\"\nprovided = \"p\"\n{body}"),
+        )
+        .unwrap();
+        dir
+    }
+
+    fn write_world(dir: &Path, drv_lists: &str) {
+        std::fs::write(
+            dir.join("world.toml"),
+            format!("[world]\nname = \"w\"\ndriver = \"drv\"\n[components.drv]\nkind = \"driver\"\n{drv_lists}[wiring]\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn driver_lists_default_into_the_world() {
+        let dir = fixture("default", "exports = [\"Ui\", \"View\"]\nframeworks = [\"AppKit\"]\n");
+        write_world(&dir, "");
+        let w = load_world(&dir, "world.toml").unwrap();
+        let c = &w.components["drv"];
+        assert_eq!(c.exports, ["Ui", "View"], "the world omitted them, so the driver's own list stands");
+        assert_eq!(c.frameworks, ["AppKit"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_world_that_states_a_list_wins() {
+        let dir = fixture("override", "exports = [\"Ui\", \"View\"]\nframeworks = [\"AppKit\"]\n");
+        // Only `exports` is stated: the other list still defaults, so a world
+        // drops a module without also having to restate the framework list.
+        write_world(&dir, "exports = [\"Ui\"]\n");
+        let w = load_world(&dir, "world.toml").unwrap();
+        assert_eq!(w.components["drv"].exports, ["Ui"]);
+        assert_eq!(w.components["drv"].frameworks, ["AppKit"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_driver_that_declares_neither_changes_nothing() {
+        let dir = fixture("silent", "");
+        write_world(&dir, "");
+        let w = load_world(&dir, "world.toml").unwrap();
+        assert!(w.components["drv"].exports.is_empty() && w.components["drv"].frameworks.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A driver that borrows another's app contract does not thereby ship its
+    /// modules or link its frameworks — roc-solid's host-dom over host-im.
+    #[test]
+    fn contract_from_does_not_carry_the_lists() {
+        let dir = fixture("borrow", "exports = [\"Ui\"]\nframeworks = [\"AppKit\"]\n");
+        std::fs::create_dir_all(dir.join("components/dom")).unwrap();
+        std::fs::write(
+            dir.join("components/dom/driver.toml"),
+            "contract_from = \"../drv/driver.toml\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("world.toml"),
+            "[world]\nname = \"w\"\ndriver = \"dom\"\n[components.dom]\nkind = \"driver\"\n[wiring]\n",
+        )
+        .unwrap();
+        let w = load_world(&dir, "world.toml").unwrap();
+        assert!(w.components["dom"].exports.is_empty(), "the contract crossed, the module list did not");
+        assert!(w.components["dom"].frameworks.is_empty());
+        // The contract itself did cross, so the borrow is genuinely working.
+        assert_eq!(load_driver(&dir, &w).unwrap().requires, "r");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
