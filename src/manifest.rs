@@ -123,6 +123,37 @@ pub struct Component {
 
 /// The directory a component's sources live in: `path` if declared, else
 /// `components/<name>/` under the world dir.
+/// Where a composed world is written: `<base>/target/hematite/<name>`
+/// (D-H7-38). Generated files are separated from source by construction —
+/// `target/` is already ignored, so a world directory holds its `world.toml`
+/// and nothing else.
+///
+/// `<base>` is the world's `cargo_root` when it declares one, so every world
+/// of a repo composes under the one `target/` its crates already build into;
+/// otherwise the world's own directory. Namespaced under `hematite/` rather
+/// than sitting at the top of `target/`, where cargo owns the names and a
+/// world called `release` would land on `target/release`.
+///
+/// Keyed by the world DIRECTORY, not `[world] name`: a directory's
+/// `world-*.toml` variants are one world built differently — roc-solid's
+/// `clay/world-vello.toml`, a fixture's `world-confined.toml` — and they
+/// compose to one place, which is what lets an app name a platform path that
+/// holds whichever variant was last built. Two world directories under one
+/// `cargo_root` therefore need distinct names, which is also what an app
+/// import path already assumes.
+pub fn out_dir(world_dir: &Path, world: &World) -> PathBuf {
+    let base = match &world.world.cargo_root {
+        Some(root) => world_dir.join(root),
+        None => world_dir.to_path_buf(),
+    };
+    let key = world_dir
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| world.world.name.clone());
+    base.join("target").join("hematite").join(key)
+}
+
 pub fn component_dir(world_dir: &Path, name: &str, c: &Component) -> PathBuf {
     match &c.path {
         Some(p) => world_dir.join(p),

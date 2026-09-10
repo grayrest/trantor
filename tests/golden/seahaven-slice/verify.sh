@@ -17,7 +17,7 @@ echo "ok: derived layer == seahaven upstream Stdout.roc"
 
 run_world() { # $1 world file -> stdout
   if ! _b=$(./target/release/hematite build "$FIX" --world "$1" --app app --out reader 2>&1); then echo "FAIL: build reader [$1]" >&2; echo "$_b" >&2; exit 1; fi
-  "$FIX/bin/reader" 2>/dev/null
+  "$FIX/target/hematite/seahaven-slice/bin/reader" 2>/dev/null
 }
 std=$(run_world world.toml | head -1)
 cap=$(run_world world-capture.toml | head -1)

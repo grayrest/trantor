@@ -65,12 +65,19 @@ pub fn abi_fingerprint(_dir: &Path) -> Result<String, String> {
 /// Publish the composed platform to `<dir>/dist/`: platform sources, prebuilt
 /// archives, and `baseline.lock` with the fingerprint.
 pub fn publish(dir: &Path) -> Result<(), String> {
-    let dist = dir.join("dist");
+    // The composed platform is generated, so it is read from
+    // `target/hematite/<world>` (D-H7-38); `dist/` is an artifact too and goes
+    // beside it.
+    let gen = match crate::manifest::load_world(dir, "world.toml") {
+        Ok(w) => crate::manifest::out_dir(dir, &w),
+        Err(e) => return Err(e),
+    };
+    let dist = gen.join("dist");
     let _ = std::fs::remove_dir_all(&dist);
     std::fs::create_dir_all(dist.join("platform")).map_err(|e| e.to_string())?;
 
     // copy platform .roc sources
-    let pdir = dir.join("platform");
+    let pdir = gen.join("platform");
     for e in std::fs::read_dir(&pdir).map_err(|e| e.to_string())?.flatten() {
         let p = e.path();
         if p.extension().map_or(false, |x| x == "roc") {

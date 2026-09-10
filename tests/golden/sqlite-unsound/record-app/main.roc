@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../platform/main.roc" }
+app [main!] { pf: platform "../target/hematite/sqlite-unsound/platform/main.roc" }
 
 import pf.Sql
 import pf.Report

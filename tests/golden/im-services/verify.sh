@@ -15,17 +15,17 @@ cargo build --release -q
 grep -q "imview driver HOST" "$FIX/components/imview/src/lib.rs" || { echo "FAIL: authored host clobbered"; exit 1; }
 if ! _b=$(./target/release/hematite build "$FIX" --app app --out imsvc 2>&1); then echo "FAIL: build imsvc" >&2; echo "$_b" >&2; exit 1; fi
 
-out=$("$FIX/bin/imsvc" 2>/dev/null)
+out=$("$FIX/target/hematite/im-services/bin/imsvc" 2>/dev/null)
 want="[hi | pong:hello | tick:1 | tick:2 | tick:3 | ticks=3]"
 [[ "$out" == "$want" ]] || { echo "FAIL: got '$out', want '$want'"; exit 1; }
 echo "ok: wrapper unions cross both ways; 3 async wakes completed on the runtime thread; env block read"
 
 set +e
-"$FIX/bin/imsvc" echo-gate >/dev/null 2>&1; rc=$?
+"$FIX/target/hematite/im-services/bin/imsvc" echo-gate >/dev/null 2>&1; rc=$?
 set -e
 [[ $rc == 7 ]] || { echo "FAIL: echo-gate exit $rc, want 7 (component gate hook)"; exit 1; }
 set +e
-"$FIX/bin/imsvc" driver-gate >/dev/null 2>&1; rc=$?
+"$FIX/target/hematite/im-services/bin/imsvc" driver-gate >/dev/null 2>&1; rc=$?
 set -e
 [[ $rc == 3 ]] || { echo "FAIL: driver-gate exit $rc, want 3 (driver's own arm after the chain)"; exit 1; }
 echo "ok: gate chain — component answered echo-gate (7), driver answered driver-gate (3)"

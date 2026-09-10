@@ -9,8 +9,8 @@ cd "$(dirname "$0")/../../.."
 FIX=tests/golden/wasm-host
 cargo build --release -q
 if ! _b=$(./target/release/hematite build "$FIX" --target wasm32 --app app --out gz 2>&1); then echo "FAIL: build wasm-host" >&2; echo "$_b" >&2; exit 1; fi
-[[ -f "$FIX/bin/gz.wasm" ]] || { echo "FAIL: no $FIX/bin/gz.wasm"; exit 1; }
-if ! _r=$(node "$FIX/run.mjs" "$FIX/bin/gz.wasm" 2>&1); then echo "FAIL: run" >&2; echo "$_r" >&2; exit 1; fi
+[[ -f "$FIX/target/hematite/wasm-host/bin/gz.wasm" ]] || { echo "FAIL: no $FIX/target/hematite/wasm-host/bin/gz.wasm"; exit 1; }
+if ! _r=$(node "$FIX/run.mjs" "$FIX/target/hematite/wasm-host/bin/gz.wasm" 2>&1); then echo "FAIL: run" >&2; echo "$_r" >&2; exit 1; fi
 grep -q 'message: "hematite wasm host seed=21"' <<<"$_r" || { echo "FAIL: message"; echo "$_r"; exit 1; }
 grep -q '^n: 42' <<<"$_r" || { echo "FAIL: n"; echo "$_r"; exit 1; }
 echo "ok: two archives merged into one host.wasm; app -> b -> a resolved; module ran"

@@ -7,4 +7,4 @@ members = ["crates/drv", "crates/svc"]
 # The default abi for this workspace's own `cargo clippy/test`: the baseline
 # world's generated crate. hematite overrides it per build with `--config`.
 [patch.crates-io]
-hematite-abi = { path = "world/abi" }
+hematite-abi = { path = "target/hematite/world/abi" }

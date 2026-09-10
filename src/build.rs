@@ -4,21 +4,26 @@
 //! `roc build` (which links them), so a collision is rejected before the
 //! memory-unsafe link, not after.
 //!
-//! Order (the canonical pipeline every fixture's build.sh open-coded):
-//!   1. compose        — emit main.roc, the abi wrapper, the workspace, verbatim
-//!                        interface + pure-Roc modules (in-process; D13).
-//!   2. roc glue       — generate abi/src/generated.rs from the composed platform.
-//!   3. cargo build    — build every host/driver component archive.
-//!   4. stage          — copy the archives main.roc links into targets/ (exactly
-//!                        the link set, so a stale archive from another world
-//!                        can't leak in).
-//!   5. framework sysroot — generate platform/targets/macos-sysroot from the
-//!                        frameworks the world's components declare (roc links a
-//!                        framework only from a bundled sysroot), or remove a
-//!                        stale one when the world declares none.
-//!   6. scan           — H0c archive symbol-collision scan.
-//!   7. roc check      — typecheck the app before the linking build.
-//!   8. roc build      — link the app against the composed platform.
+//! Order (the canonical pipeline every fixture's build.sh open-coded), all of
+//! it writing under `target/hematite/<world>` (D-H7-38):
+//!
+//! 1. compose — main.roc, the abi wrapper, the workspace and its component
+//!    crates, the spliced contract + interface + pure-Roc modules (in-process;
+//!    D13).
+//! 2. roc glue — generate abi/src/generated.rs from the composed platform.
+//! 3. cargo build — build every host/driver component archive.
+//! 4. stage — copy the archives main.roc links into platform/targets/ (exactly
+//!    the link set, so a stale archive from another world can't leak in).
+//! 5. framework sysroot — generate platform/targets/macos-sysroot from the
+//!    frameworks the world's components declare (roc links a framework only
+//!    from a bundled sysroot), or remove a stale one when none do.
+//! 6. scan — H0c archive symbol-collision scan.
+//! 7. roc check — typecheck the app before the linking build.
+//! 8. roc build — link the app against the composed platform.
+//!
+//! roc runs with the SOURCE tree as its working directory, so `--app` names a
+//! path a human wrote; every generated path it is handed is absolute.
+//!
 //!
 //! roc invocations carry the R5 timeout cap (`perl -e 'alarm 120; exec @ARGV'`),
 //! the same gate the build.sh scripts used. ROC / GLUE come from the environment
@@ -59,6 +64,23 @@ fn run(program: &str, args: &[&str], dir: &Path, what: &str) -> Result<(), Strin
     Ok(())
 }
 
+/// A path as an absolute string, for a tool whose working directory is the
+/// SOURCE tree while its output belongs under `target/hematite` (D-H7-38).
+fn abs(p: &Path) -> Result<String, String> {
+    let p = if p.exists() {
+        p.canonicalize().map_err(|e| format!("canonicalize {}: {e}", p.display()))?
+    } else {
+        // Not created yet (an --output path): anchor its parent instead.
+        let parent = p.parent().unwrap_or(Path::new("."));
+        let file = p.file_name().ok_or_else(|| format!("{}: no file name", p.display()))?;
+        parent
+            .canonicalize()
+            .map_err(|e| format!("canonicalize {}: {e}", parent.display()))?
+            .join(file)
+    };
+    Ok(p.to_string_lossy().into_owned())
+}
+
 /// Run `roc <args…>` under the R5 timeout cap, in `dir`.
 fn roc_capped(args: &[&str], dir: &Path, what: &str) -> Result<(), String> {
     let roc = roc_bin();
@@ -88,27 +110,29 @@ pub fn build(
     let world = crate::manifest::load_world(dir, world_file)?;
     let driver = crate::manifest::load_driver(dir, &world)?;
     let resolved = crate::resolve::resolve(dir, &world, &driver)?;
-    crate::codegen::emit(dir, dir, &world, &driver, &resolved)?;
-    eprintln!("hematite build: composed `{}`", world.world.name);
+    // Everything generated lands under `target/hematite/<world>` (D-H7-38);
+    // `dir` from here on is SOURCE only.
+    let gen = crate::manifest::out_dir(dir, &world);
+    crate::codegen::emit(dir, &gen, &world, &driver, &resolved)?;
+    eprintln!("hematite build: composed `{}` -> {}", world.world.name, gen.display());
 
-    // 2. roc glue -> abi/src/generated.rs.
-    std::fs::create_dir_all(dir.join("glue-out"))
+    // 2. roc glue -> abi/src/generated.rs. Absolute paths: roc runs in `dir`
+    //    (so `--app` stays source-relative) while writing under `gen`.
+    std::fs::create_dir_all(gen.join("glue-out"))
         .map_err(|e| format!("mkdir glue-out: {e}"))?;
-    roc_capped(
-        &["glue", &glue_src(), "glue-out", "platform/main.roc"],
-        dir,
-        "glue",
-    )?;
+    let glue_out = abs(&gen.join("glue-out"))?;
+    let plat_main = abs(&gen.join("platform").join("main.roc"))?;
+    roc_capped(&["glue", &glue_src(), &glue_out, &plat_main], dir, "glue")?;
     // Installed only when it changed, so an unchanged boundary does not
     // rebuild the abi crate and every host above it.
-    let glue = std::fs::read(dir.join("glue-out/roc_platform_abi.rs")).map_err(|e| format!("read glue output: {e}"))?;
-    crate::codegen::write_if_changed(&dir.join("abi/src/generated.rs"), &glue)?;
+    let glue = std::fs::read(gen.join("glue-out/roc_platform_abi.rs")).map_err(|e| format!("read glue output: {e}"))?;
+    crate::codegen::write_if_changed(&gen.join("abi/src/generated.rs"), &glue)?;
 
     // wasm32 (D-H7-9): its own cargo target, a merged host.wasm, and a wasm
     // link — see wasm.rs. No native staging, no framework sysroot.
     if target == WASM_TARGET {
-        let work = crate::wasm::stage_host_wasm(dir, &world, &resolved)?;
-        return crate::wasm::link_app(dir, world_file, &work, app, out, &roc_capped);
+        let work = crate::wasm::stage_host_wasm(dir, &gen, &world, &resolved)?;
+        return crate::wasm::link_app(dir, &gen, world_file, &work, app, out, &roc_capped);
     }
 
     // 3. cargo build (no cap; roc alone carries R5) — in the world's own
@@ -116,11 +140,11 @@ pub fn build(
     //    Under the workspace build lock through the stage copy AND the sysroot
     //    (D-H7-34, extended by D-H7-37).
     let lock = crate::cargo::build_lock(dir, &world)?;
-    let built = crate::cargo::build(dir, &world, &resolved, None)?;
+    let built = crate::cargo::build(dir, &gen, &world, &resolved, None)?;
 
     // 4. stage exactly the archives main.roc links (resolved.archive_order),
     //    clearing stale ones so another world's archive can't leak in.
-    stage_archives(dir, target, &built)?;
+    stage_archives(&gen, target, &built)?;
 
     // 5. macOS framework sysroot: generate it from the frameworks the world's
     //    components declare (e.g. turso's CoreFoundation), or remove a stale one
@@ -131,7 +155,7 @@ pub fn build(
     //    tree out from under the first one's linker — `framework not found` on
     //    frameworks that are plainly declared. Same hazard as the archive
     //    staging above and the same fix.
-    sync_framework_sysroot(dir, &world)?;
+    sync_framework_sysroot(&gen, &world)?;
     drop(lock);
 
     // 6. H0c symbol-collision scan — after the archives exist, before the link.
@@ -147,10 +171,11 @@ pub fn build(
     // its modules, since a Roc app names exactly one platform.
     let app_main = if app.ends_with(".roc") { app.to_string() } else { format!("{app}/main.roc") };
     roc_capped(&["check", &app_main], dir, "roc check")?;
-    std::fs::create_dir_all(dir.join("bin")).map_err(|e| format!("mkdir bin: {e}"))?;
-    let out_flag = format!("--output=bin/{out}");
+    std::fs::create_dir_all(gen.join("bin")).map_err(|e| format!("mkdir bin: {e}"))?;
+    let bin = abs(&gen.join("bin"))?;
+    let out_flag = format!("--output={bin}/{out}");
     roc_capped(&["build", &out_flag, &app_main], dir, "roc build")?;
-    eprintln!("hematite build: linked bin/{out}");
+    eprintln!("hematite build: linked {bin}/{out}");
     Ok(())
 }
 

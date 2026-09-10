@@ -1,6 +1,9 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: COMPLETE 2026-09-09 (P0–P10).** Follow-up 2026-09-10: clay is
+> **Status: COMPLETE 2026-09-09 (P0–P10).** Follow-up 2026-09-10: a world
+> composes into `target/hematite/<world>/` — generated files are separated
+> from source by construction, and a world directory holds only its
+> `world*.toml` (D-H7-38). clay is
 > now THE BASE and wires nothing (D-H7-36) — 178 of its 184 app entries
 > named no service yet linked SQLite, rustls and hayro; the six that do
 > moved to `platform/gate-<service>`. A clay app is 17 MB with none of the

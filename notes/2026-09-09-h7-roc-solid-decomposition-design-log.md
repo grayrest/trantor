@@ -871,6 +871,64 @@ Also: a service crate compiles against the abi of a world that wires it, so
 svc-audio already was. The workspace default abi is clay's, and clay no longer
 has a service type in it.
 
+## D-H7-38 — everything generated goes under `target/hematite/<world>` (2026-09-10)
+
+A world used to compose in place: `platform/clay/` held its `world.toml` next
+to the composed `platform/`, the `abi` crate, `glue-out/`, `bin/` and the
+staged archives, and `.gitignore` carried 48 lines naming them one by one. In
+the golden fixtures it was worse — 114 generated files were COMMITTED, and
+several fixtures were passing off stale composed output rather than what the
+current tool produced.
+
+Now `<base>/target/hematite/<world>/`, where `<base>` is the world's
+`cargo_root` if it declares one and the world directory otherwise. `/target`
+is already ignored, so the 48 lines became three of comment, and a world
+directory holds its `world*.toml` and nothing else.
+
+Keyed by the world DIRECTORY, not `[world] name`. A directory's `world-*.toml`
+variants are one world built differently — `clay/world-vello.toml`, a
+fixture's `world-confined.toml` — so they compose to one place, which is what
+lets an app name a platform path that holds whichever variant was last built.
+Keying on `name` would have split b3-fs's three variants across three
+directories while its one `app/` can only name one.
+
+Namespaced under `hematite/` rather than sitting at the top of `target/`:
+cargo owns that level and adds names over time, and a world called `release`
+would otherwise land on `target/release`.
+
+**What the move forced.** The generated Cargo workspace cannot sit in a
+directory whose members live elsewhere — cargo refuses a member that is not
+hierarchically below the root — so a world without `cargo_root` now
+MATERIALIZES its component crates under the output dir: the whole
+`components/` tree, because a component may depend on a sibling support crate
+that is not itself a component (`sync-io-core`), and a member whose path
+dependency is missing does not build. That is the same rule the Roc modules
+already followed (D13) and the same one `path` states the other way (D-H7-4: a
+crate with a home is never copied). A `path` component without `cargo_root` is
+now refused with that reason rather than producing a workspace cargo rejects.
+The HC0 feature rewrite stopped editing an authored `Cargo.toml` in the source
+tree as a side effect — it rewrites the materialized copy instead.
+
+`cargo` also has to RUN in the generated workspace now: with no `Cargo.toml`
+beside the world file it walked up and adopted hematite's own workspace,
+building the tool for wasm32.
+
+Cost: 195 app headers in roc-solid and 31 in the fixtures name a longer
+platform path (`../../target/hematite/clay/platform/main.roc`). That is the
+price of the separation and it is paid once.
+
+## The two silent-check findings, and a third
+
+Three times in two days a check was green because it was not checking:
+`world-nm`'s `_5hayro` matched nothing; `world-deps` matched `../../` at a
+fixed depth and so never looked at `tests/integration/**`; and the golden
+fixtures were verifying against committed output rather than what the tool
+produces — this move deleted all 114 of those files and several fixtures went
+red immediately. The pattern is the same each time: a check whose subject can
+silently become empty. Each is now positively controlled — the probe is run
+against something it must match, the checker prints what it examined, and the
+fixtures have nothing left to go stale.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

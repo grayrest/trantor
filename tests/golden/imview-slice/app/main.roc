@@ -1,4 +1,4 @@
-app [Model, main] { pf: platform "../platform/main.roc" }
+app [Model, main] { pf: platform "../target/hematite/imview-slice/platform/main.roc" }
 
 import pf.Element exposing [Element]
 import pf.Env exposing [Env]

@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../platform/main.roc" }
+app [main!] { pf: platform "../target/hematite/b2-cli/platform/main.roc" }
 import pf.Stdout
 import pf.Stderr
 import pf.Env

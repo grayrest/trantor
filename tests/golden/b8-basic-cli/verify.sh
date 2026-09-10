@@ -5,7 +5,7 @@
 #      basic-cli repo; the platform is the composed world).
 #   2. Runs: the non-interactive, non-network examples build and produce
 #      basic-cli's output (argv incl. argv[0], stdin, env, files, dirs, cmds).
-#   3. Publish: `hematite publish` emits dist/ with baseline.lock; `hematite
+#   3. Publish: `hematite publish` emits target/hematite/b8-basic-cli/dist/ with baseline.lock; `hematite
 #      tier` classifies a pure-Roc extension as Tier 1.
 #   4. Confinement swap: world-confined.toml wires fs-confined; an escaping
 #      write is allowed on the baseline and denied on the confined world.
@@ -19,7 +19,7 @@ cap() { perl -e 'alarm shift; exec @ARGV' 90 "$@"; }
 [[ -d $REPO/.git ]] || { echo "FAIL: basic-cli repo not at $REPO (needed for the migration proof)"; exit 1; }
 cargo build --release -q
 
-( cd "$B" && rm -rf platform/targets )
+( cd "$B" && rm -rf target/hematite/b8-basic-cli/platform/targets )
 if ! _b=$(./target/release/hematite build "$B" --app app --out b8 2>&1); then echo "FAIL: build b8" >&2; echo "$_b" >&2; exit 1; fi
 
 # ---- 1. migration proof (URL swap only) ----
@@ -33,7 +33,7 @@ for f in $(git -C "$REPO" ls-tree --name-only "$TAG" examples/ | grep '\.roc$');
   n=$(basename "$f" .roc); [[ $n == sqlite-* ]] && continue
   [[ $n == http-client || $n == http-simple ]] && continue   # adapted + run in HC3
   total=$((total+1)); mkdir -p "$X/$n"
-  git -C "$REPO" show "${TAG}:${f}" | perl -pe 's|platform "[^"]+"|platform "../../platform/main.roc"|' > "$X/$n/main.roc"
+  git -C "$REPO" show "${TAG}:${f}" | perl -pe 's|platform "[^"]+"|platform "../../target/hematite/b8-basic-cli/platform/main.roc"|' > "$X/$n/main.roc"
   if cap "$ROC" check "$X/$n/main.roc" >/dev/null 2>&1; then pass=$((pass+1)); else failed="$failed $n"; fi
 done
 # Guard against a vacuous 0/0 pass (wrong tag, moved examples/, detached repo):
@@ -43,38 +43,38 @@ done
 echo "ok: $pass/$total basic-cli $TAG non-http examples roc-check with only the platform URL changed"
 
 # ---- 2. runs ----
-build() { cap "$ROC" build --output="$B/bin/ex-$1" "$X/$1/main.roc" >/dev/null 2>&1 || { echo "FAIL: build $1"; exit 1; }; }
+build() { cap "$ROC" build --output="$B/target/hematite/b8-basic-cli/bin/ex-$1" "$X/$1/main.roc" >/dev/null 2>&1 || { echo "FAIL: build $1"; exit 1; }; }
 for n in hello-world hello print dir temp-dir file-size file-read-buffered file-replace file-permissions file-read-write random url command command-line-args stdin-basic stdin-pipe bytes-stdin-stdout env-var path time locale; do build "$n"; done
 cd "$X"; printf 'line one\nline two\nline three\n' > LICENSE; cp hello/main.roc main.roc   # 29 bytes, 3 lines
 expect() { # name, expected (exact stdout)
   local got; got=$(eval "$2" 2>/dev/null); [[ "$got" == "$3" ]] || { echo "FAIL: $1"; diff <(echo "$3") <(echo "$got") || true; exit 1; }
 }
 has() { local got; got=$(eval "$2" 2>&1); grep -qF -- "$3" <<<"$got" || { echo "FAIL: $1 (missing: $3)"; echo "$got"; exit 1; }; }
-expect hello-world   "../bin/ex-hello-world"            "Hello, World!"
-expect hello         "../bin/ex-hello"                  "Hello, friend, from basic-cli!"
-expect hello-arg     "../bin/ex-hello Roc"              "Hello, Roc, from basic-cli!"
-expect print         "../bin/ex-print"                  $'Hello, world!\nNo newline after me.Foo\nBar\nBaz\n["Foo", "Bar", "Baz"]'
-expect file-read-write "../bin/ex-file-read-write"      $'Writing a string to out.txt\nI read the file back. Its contents are: "a string!"'
-expect file-replace  "../bin/ex-file-replace"           'After replacing: "Goodbye, World! Goodbye, Roc!"'
-expect file-size     "../bin/ex-file-size LICENSE"      "LICENSE is 29 bytes"
-expect file-read-buffered "../bin/ex-file-read-buffered" "Done reading file: { bytes_read: 29, lines_read: 3 }"
-expect file-permissions "../bin/ex-file-permissions LICENSE" $'LICENSE file permissions:\n    Executable: False\n    Readable: True\n    Writable: True'
-expect stdin-basic   "printf 'Ada\nLovelace\n' | ../bin/ex-stdin-basic" $'What\'s your first name?\nWhat\'s your last name?\nHi, Ada Lovelace! \xf0\x9f\x91\x8b'
-expect stdin-pipe    "printf abc | ../bin/ex-stdin-pipe" 'This is what you piped in: "abc"'
-expect bytes-stdin   "printf wxyz | ../bin/ex-bytes-stdin-stdout" "wxyz"
-expect env-var       "EDITOR=vim LETTERS=a,b,c ../bin/ex-env-var" $'Your favorite editor is vim!\nYour favorite letters are: a b c'
-expect url           "../bin/ex-url | head -1"          "Request URL: https://api.example.com/v1/search?q=roc+lang&page=1#results"
-has dir              "../bin/ex-dir"                    "demo-workspace/src"
-has dir-2            "../bin/ex-dir"                    "Workspace cleaned up."
-has temp-dir         "../bin/ex-temp-dir"               "The temp dir path is /"
-has random           "../bin/ex-random"                 "Random U64 seed is: "
-has command          "../bin/ex-command"                "Exit code: 1"
-has command-2        "../bin/ex-command"                "BAZ=DUCK"
-has args             "../bin/ex-command-line-args héllo" 'UTF-8 argument text: "héllo"'
-has path             "../bin/ex-path main.roc"          "Filename: main.roc"
-has path-2           "../bin/ex-path main.roc"          "Type: IsFile"
-has time             "../bin/ex-time"                   "Completed in "
-has locale           "LANG=en_US.UTF-8 ../bin/ex-locale" "application: en-US"
+expect hello-world   "../target/hematite/b8-basic-cli/bin/ex-hello-world"            "Hello, World!"
+expect hello         "../target/hematite/b8-basic-cli/bin/ex-hello"                  "Hello, friend, from basic-cli!"
+expect hello-arg     "../target/hematite/b8-basic-cli/bin/ex-hello Roc"              "Hello, Roc, from basic-cli!"
+expect print         "../target/hematite/b8-basic-cli/bin/ex-print"                  $'Hello, world!\nNo newline after me.Foo\nBar\nBaz\n["Foo", "Bar", "Baz"]'
+expect file-read-write "../target/hematite/b8-basic-cli/bin/ex-file-read-write"      $'Writing a string to out.txt\nI read the file back. Its contents are: "a string!"'
+expect file-replace  "../target/hematite/b8-basic-cli/bin/ex-file-replace"           'After replacing: "Goodbye, World! Goodbye, Roc!"'
+expect file-size     "../target/hematite/b8-basic-cli/bin/ex-file-size LICENSE"      "LICENSE is 29 bytes"
+expect file-read-buffered "../target/hematite/b8-basic-cli/bin/ex-file-read-buffered" "Done reading file: { bytes_read: 29, lines_read: 3 }"
+expect file-permissions "../target/hematite/b8-basic-cli/bin/ex-file-permissions LICENSE" $'LICENSE file permissions:\n    Executable: False\n    Readable: True\n    Writable: True'
+expect stdin-basic   "printf 'Ada\nLovelace\n' | ../target/hematite/b8-basic-cli/bin/ex-stdin-basic" $'What\'s your first name?\nWhat\'s your last name?\nHi, Ada Lovelace! \xf0\x9f\x91\x8b'
+expect stdin-pipe    "printf abc | ../target/hematite/b8-basic-cli/bin/ex-stdin-pipe" 'This is what you piped in: "abc"'
+expect bytes-stdin   "printf wxyz | ../target/hematite/b8-basic-cli/bin/ex-bytes-stdin-stdout" "wxyz"
+expect env-var       "EDITOR=vim LETTERS=a,b,c ../target/hematite/b8-basic-cli/bin/ex-env-var" $'Your favorite editor is vim!\nYour favorite letters are: a b c'
+expect url           "../target/hematite/b8-basic-cli/bin/ex-url | head -1"          "Request URL: https://api.example.com/v1/search?q=roc+lang&page=1#results"
+has dir              "../target/hematite/b8-basic-cli/bin/ex-dir"                    "demo-workspace/src"
+has dir-2            "../target/hematite/b8-basic-cli/bin/ex-dir"                    "Workspace cleaned up."
+has temp-dir         "../target/hematite/b8-basic-cli/bin/ex-temp-dir"               "The temp dir path is /"
+has random           "../target/hematite/b8-basic-cli/bin/ex-random"                 "Random U64 seed is: "
+has command          "../target/hematite/b8-basic-cli/bin/ex-command"                "Exit code: 1"
+has command-2        "../target/hematite/b8-basic-cli/bin/ex-command"                "BAZ=DUCK"
+has args             "../target/hematite/b8-basic-cli/bin/ex-command-line-args héllo" 'UTF-8 argument text: "héllo"'
+has path             "../target/hematite/b8-basic-cli/bin/ex-path main.roc"          "Filename: main.roc"
+has path-2           "../target/hematite/b8-basic-cli/bin/ex-path main.roc"          "Type: IsFile"
+has time             "../target/hematite/b8-basic-cli/bin/ex-time"                   "Completed in "
+has locale           "LANG=en_US.UTF-8 ../target/hematite/b8-basic-cli/bin/ex-locale" "application: en-US"
 rm -rf demo-workspace out.txt greeting.txt; cd - >/dev/null
 echo "ok: 21 examples run with basic-cli's output (argv[0], stdin, env, files, dirs, subprocess, time, locale)"
 
@@ -89,7 +89,7 @@ grep -q 'body_stream' "$B/interfaces/sync-http/HttpHost.roc" || { echo "FAIL: Ht
 grep -q 'read_body_to_end!' "$B/components/net-lib/Http.roc" || { echo "FAIL: Http lacks read_body_to_end!"; exit 1; }
 grep -q 'to_http_response' "$B/components/net-lib/Http.roc" || { echo "FAIL: Http lacks the to_http_response! bridge"; exit 1; }
 # The adaptation vs the upstream example is a handful of streaming lines only.
-swap() { git -C "$REPO" show "${TAG}:examples/$1.roc" | perl -pe 's|platform "[^"]+"|platform "../platform/main.roc"|'; }
+swap() { git -C "$REPO" show "${TAG}:examples/$1.roc" | perl -pe 's|platform "[^"]+"|platform "../target/hematite/b8-basic-cli/platform/main.roc"|'; }
 for pair in "http-simple 6" "http-client 9"; do
   set -- $pair; n=$1; bound=$2
   d=$(diff <(swap "$n") "$B/http-examples/$n.roc" | grep -c '^[<>]' || true)
@@ -98,27 +98,27 @@ done
 echo "ok: http examples adapt to streaming in a handful of lines (server start + streaming accessors)"
 
 for n in http-client http-simple http-bridge; do
-  cap "$ROC" build --output="$B/bin/$n" "$B/http-examples/$n.roc" >/dev/null 2>&1 || { echo "FAIL: build $n"; exit 1; }
+  cap "$ROC" build --output="$B/target/hematite/b8-basic-cli/bin/$n" "$B/http-examples/$n.roc" >/dev/null 2>&1 || { echo "FAIL: build $n"; exit 1; }
 done
-hc=$(cd "$B" && ./bin/http-client 2>/dev/null || true)
+hc=$(cd "$B" && ./target/hematite/b8-basic-cli/bin/http-client 2>/dev/null || true)
 want_hc=$'I received \'Hello from the test server!\' from the server.\nThe json I received was: { foo: "json-root" }\nsend! returned status 200.\nsend_json! echoed: { foo: "Hello Json!" }.\ninvalid JSON was rejected.\ninvalid UTF-8 was rejected.\ninvalid request URL was rejected.'
 [[ "$hc" == "$want_hc" ]] || { echo "FAIL: http-client output"; diff <(echo "$want_hc") <(echo "$hc") || true; exit 1; }
-hs=$(cd "$B" && ./bin/http-simple 2>/dev/null || true)
+hs=$(cd "$B" && ./target/hematite/b8-basic-cli/bin/http-simple 2>/dev/null || true)
 want_hs=$'I received \'Hello from the test server!\' from the server.\nThe json I received was: { foo: "json-root" }\nResponse body:\n<html><body>hi</body></html>'
 [[ "$hs" == "$want_hs" ]] || { echo "FAIL: http-simple output"; diff <(echo "$want_hs") <(echo "$hs") || true; exit 1; }
-hb=$(cd "$B" && ./bin/http-bridge 2>/dev/null || true)
+hb=$(cd "$B" && ./target/hematite/b8-basic-cli/bin/http-bridge 2>/dev/null || true)
 [[ "$hb" == "bridge: 200 Hello from the test server!" ]] || { echo "FAIL: to_http_response! bridge (got: $hb)"; exit 1; }
 echo "ok: http-client + http-simple run streaming against the testnet; to_http_response! round-trips into roc-lang/http Response"
 
 for n in http-client http-simple http-bridge; do
-  g=$(cd "$B" && HEMATITE_ALLOC_GAUGE=1 ./bin/$n 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
+  g=$(cd "$B" && HEMATITE_ALLOC_GAUGE=1 ./target/hematite/b8-basic-cli/bin/$n 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
   grep -q 'live=0' <<<"$g" || { echo "FAIL: $n leaked heap allocations: $g"; exit 1; }
 done
 echo "ok: http examples drop-balance across the streaming paths (alloc-gauge live=0)"
 
 # ---- 2a. Env.set_cwd! propagates to the subprocess working directory ----
-cap "$ROC" build --output="$B/bin/ex-cwd" "$B/cwd-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build cwd-app"; exit 1; }
-cwdout=$(cd "$B" && ./bin/ex-cwd 2>/dev/null)
+cap "$ROC" build --output="$B/target/hematite/b8-basic-cli/bin/ex-cwd" "$B/cwd-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build cwd-app"; exit 1; }
+cwdout=$(cd "$B" && ./target/hematite/b8-basic-cli/bin/ex-cwd 2>/dev/null)
 grep -q '^before: /usr$' <<<"$cwdout" && { echo "FAIL: cwd test vacuous (process cwd is already /usr)"; exit 1; }
 grep -q '^after: /usr$'  <<<"$cwdout" || { echo "FAIL: subprocess did not honor Env.set_cwd! (want 'after: /usr'):"; echo "$cwdout"; exit 1; }
 echo "ok: Env.set_cwd! propagates to subprocess cwd (child pwd = /usr, process cwd unchanged)"
@@ -132,7 +132,7 @@ echo "ok: Env.set_cwd! propagates to subprocess cwd (child pwd = /usr, process c
 # resources. Both must drop-balance to live=0. (The subprocess/http element
 # paths can't be gauged: the pinned compiler segfaults on a runtime Str into
 # Cmd.args, and small inline args don't heap-allocate -- see gauge-app.)
-cap "$ROC" build --output="$B/bin/ex-gauge" "$B/gauge-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build gauge-app"; exit 1; }
+cap "$ROC" build --output="$B/target/hematite/b8-basic-cli/bin/ex-gauge" "$B/gauge-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build gauge-app"; exit 1; }
 balance() { # label ; env/args... (binary run from $B under the gauge)
   local label="$1"; shift
   local g; g=$( (cd "$B" && HEMATITE_ALLOC_GAUGE=1 "$@") 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
@@ -142,27 +142,27 @@ balance() { # label ; env/args... (binary run from $B under the gauge)
   [[ "$live" == "0" ]] || { echo "FAIL: $label leaked Roc heap allocations: $g"; exit 1; }
   echo "ok: $label drop-balanced ($g)"
 }
-balance "owned RocStr host arg (set_cwd/cell)" env GAUGE_SEED="a-heap-seed-string-well-over-twenty-three-bytes-long-for-sure" ./bin/ex-gauge
-balance "fs read/write + streams + resources" ./bin/ex-file-read-write
+balance "owned RocStr host arg (set_cwd/cell)" env GAUGE_SEED="a-heap-seed-string-well-over-twenty-three-bytes-long-for-sure" ./target/hematite/b8-basic-cli/bin/ex-gauge
+balance "fs read/write + streams + resources" ./target/hematite/b8-basic-cli/bin/ex-file-read-write
 # gauge OFF prints nothing (env-gated):
-[[ -z "$( (cd "$B" && GAUGE_SEED=x-well-over-twenty-three-bytes-of-seed-value ./bin/ex-gauge >/dev/null) 2>&1 | grep '^\[alloc-gauge\]' || true)" ]] || { echo "FAIL: gauge printed while disabled"; exit 1; }
+[[ -z "$( (cd "$B" && GAUGE_SEED=x-well-over-twenty-three-bytes-of-seed-value ./target/hematite/b8-basic-cli/bin/ex-gauge >/dev/null) 2>&1 | grep '^\[alloc-gauge\]' || true)" ]] || { echo "FAIL: gauge printed while disabled"; exit 1; }
 echo "ok: gauge silent unless HEMATITE_ALLOC_GAUGE is set"
 
 # ---- 3. publish + tier ----
 ./target/release/hematite publish "$B" >/dev/null 2>&1
-[[ -f "$B/dist/baseline.lock" ]] && grep -q abi_fingerprint "$B/dist/baseline.lock" || { echo "FAIL: publish produced no baseline.lock"; exit 1; }
-[[ -f "$B/dist/platform/targets/arm64mac/libtemporal_host.a" ]] || { echo "FAIL: dist lacks archives"; exit 1; }
-[[ ! -f "$B/dist/platform/targets/arm64mac/libtestnet_host.a" ]] || { echo "FAIL: test scaffolding leaked into the published baseline"; exit 1; }
+[[ -f "$B/target/hematite/b8-basic-cli/dist/baseline.lock" ]] && grep -q abi_fingerprint "$B/target/hematite/b8-basic-cli/dist/baseline.lock" || { echo "FAIL: publish produced no baseline.lock"; exit 1; }
+[[ -f "$B/target/hematite/b8-basic-cli/dist/platform/targets/arm64mac/libtemporal_host.a" ]] || { echo "FAIL: dist lacks archives"; exit 1; }
+[[ ! -f "$B/target/hematite/b8-basic-cli/dist/platform/targets/arm64mac/libtestnet_host.a" ]] || { echo "FAIL: test scaffolding leaked into the published baseline"; exit 1; }
 ./target/release/hematite tier "$B/extension" | grep -q "^Tier 1" || { echo "FAIL: pure-Roc extension not classified Tier 1"; exit 1; }
-echo "ok: published dist/ with baseline.lock (no test scaffolding); pure-Roc extension is Tier 1"
+echo "ok: published target/hematite/b8-basic-cli/dist/ with baseline.lock (no test scaffolding); pure-Roc extension is Tier 1"
 
 # ---- 4. confinement swap ----
 if ! _b=$(./target/release/hematite build "$B" --app app-escape --out b8-escape-open 2>&1); then echo "FAIL: build b8-escape-open" >&2; echo "$_b" >&2; exit 1; fi
-[[ "$(cd "$B" && ./bin/b8-escape-open)" == "escape: allowed" ]] || { echo "FAIL: baseline should allow the escaping write"; exit 1; }
+[[ "$(cd "$B" && ./target/hematite/b8-basic-cli/bin/b8-escape-open)" == "escape: allowed" ]] || { echo "FAIL: baseline should allow the escaping write"; exit 1; }
 if ! _b=$(./target/release/hematite build "$B" --world world-confined.toml --app app-escape --out b8-escape-confined 2>&1); then echo "FAIL: build b8-escape-confined" >&2; echo "$_b" >&2; exit 1; fi
 if ! _b=$(./target/release/hematite build "$B" --world world-confined.toml --app app --out b8-confined 2>&1); then echo "FAIL: build b8-confined" >&2; echo "$_b" >&2; exit 1; fi
-[[ "$(cd "$B" && ./bin/b8-escape-confined)" == "escape: denied" ]] || { echo "FAIL: confined world should deny the escaping write"; exit 1; }
-[[ "$(cd "$B" && ./bin/b8-confined | tail -1)" == 'I read the file back. Its contents are: "a string!"' ]] || { echo "FAIL: confined world should allow in-cwd writes"; exit 1; }
+[[ "$(cd "$B" && ./target/hematite/b8-basic-cli/bin/b8-escape-confined)" == "escape: denied" ]] || { echo "FAIL: confined world should deny the escaping write"; exit 1; }
+[[ "$(cd "$B" && ./target/hematite/b8-basic-cli/bin/b8-confined | tail -1)" == 'I read the file back. Its contents are: "a string!"' ]] || { echo "FAIL: confined world should allow in-cwd writes"; exit 1; }
 rm -f "$B/../b8-escape.txt" "$B/out.txt"
 if ! _b=$(./target/release/hematite build "$B" --app app --out b8 2>&1); then echo "FAIL: build b8 (default)" >&2; echo "$_b" >&2; exit 1; fi   # leave the committed default world composed + built
 echo "ok: same app, fs-confined wired instead of fs-unconfined: escape denied, cwd writes allowed"

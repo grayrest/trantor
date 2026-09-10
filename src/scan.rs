@@ -101,9 +101,14 @@ pub fn scan(
     targets_dir: Option<PathBuf>,
     target: &str,
 ) -> Result<(), String> {
-    let arch_dir = targets_dir
-        .unwrap_or_else(|| dir.join("platform").join("targets"))
-        .join(target);
+    let arch_dir = match targets_dir {
+        Some(d) => d,
+        // Generated, so under `target/hematite/<world>` (D-H7-38).
+        None => crate::manifest::out_dir(dir, &crate::manifest::load_world(dir, world_file)?)
+            .join("platform")
+            .join("targets"),
+    }
+    .join(target);
     scan_archives(dir, world_file, &arch_dir, Format::Macho)
 }
 

@@ -55,18 +55,21 @@ fn run(program: &Path, args: &[&str], dir: &Path, what: &str) -> Result<(), Stri
 
 /// Steps 1–4: the merged `platform/targets/wasm32/host.wasm`. Returns the
 /// directory holding the per-component wasm archives (for the scan).
-pub fn stage_host_wasm(dir: &Path, world: &World, r: &Resolved) -> Result<PathBuf, String> {
+pub fn stage_host_wasm(dir: &Path, gen: &Path, world: &World, r: &Resolved) -> Result<PathBuf, String> {
     // Every path below is handed to a tool running in `dir`, so make them
-    // absolute once rather than relative-to-relative.
+    // absolute once rather than relative-to-relative. `dir` is the SOURCE
+    // tree; `gen` is `target/hematite/<world>`, where everything is written.
     let dir = &dir.canonicalize().map_err(|e| format!("canonicalize {}: {e}", dir.display()))?;
+    std::fs::create_dir_all(gen).map_err(|e| format!("mkdir {}: {e}", gen.display()))?;
+    let gen = &gen.canonicalize().map_err(|e| format!("canonicalize {}: {e}", gen.display()))?;
     // 1. cargo, every component, for wasm32 (panic=abort: no unwinder there) —
     //    under the workspace build lock until the members are extracted
     //    (D-H7-34).
     let lock = crate::cargo::build_lock(dir, world)?;
-    let built = crate::cargo::build(dir, world, r, Some(WASM_TRIPLE))?;
+    let built = crate::cargo::build(dir, gen, world, r, Some(WASM_TRIPLE))?;
 
     // 2. wasm-only archives per component.
-    let work = dir.join(WORK_DIR);
+    let work = gen.join(WORK_DIR);
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| format!("mkdir {}: {e}", work.display()))?;
     let mut archives: Vec<(String, PathBuf, Vec<PathBuf>)> = Vec::new();
@@ -95,7 +98,7 @@ pub fn stage_host_wasm(dir: &Path, world: &World, r: &Resolved) -> Result<PathBu
     drop(lock);
 
     // 3 + 4. The merge: driver whole (first in archive_order), components rooted.
-    let out = dir.join("platform").join("targets").join("wasm32");
+    let out = gen.join("platform").join("targets").join("wasm32");
     std::fs::create_dir_all(&out).map_err(|e| format!("mkdir {}: {e}", out.display()))?;
     // `--strip-debug`: the relocatable carries every member's DWARF otherwise,
     // and nothing downstream reads it — roc's final link is what `wasm-opt`
@@ -181,6 +184,7 @@ fn root_members(members: &[PathBuf], prefix: &str) -> Result<Vec<PathBuf>, Strin
 /// Step 5: scan the wasm archives, then check and link the app.
 pub fn link_app(
     dir: &Path,
+    gen: &Path,
     world_file: &str,
     work: &Path,
     app: Option<&str>,
@@ -197,9 +201,11 @@ pub fn link_app(
     // its modules, since a Roc app names exactly one platform.
     let app_main = if app.ends_with(".roc") { app.to_string() } else { format!("{app}/main.roc") };
     roc_capped(&["check", &app_main], dir, "roc check")?;
-    std::fs::create_dir_all(dir.join("bin")).map_err(|e| format!("mkdir bin: {e}"))?;
-    let out_flag = format!("--output=bin/{out}.wasm");
+    let bin = gen.join("bin");
+    std::fs::create_dir_all(&bin).map_err(|e| format!("mkdir {}: {e}", bin.display()))?;
+    let bin = bin.canonicalize().map_err(|e| format!("canonicalize {}: {e}", bin.display()))?;
+    let out_flag = format!("--output={}/{out}.wasm", bin.display());
     roc_capped(&["build", "--target=wasm32", &out_flag, &app_main], dir, "roc build (wasm32)")?;
-    eprintln!("hematite build: linked bin/{out}.wasm");
+    eprintln!("hematite build: linked {}/{out}.wasm", bin.display());
     Ok(())
 }

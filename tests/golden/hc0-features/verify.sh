@@ -11,8 +11,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 H=tests/golden/hc0-features
-MARK="$H/components/marker/Cargo.toml"
-ARCH="$H/platform/targets/arm64mac/libmarker.a"
+MARK="$H/target/hematite/hc0-features/components/marker/Cargo.toml"
+ARCH="$H/target/hematite/hc0-features/platform/targets/arm64mac/libmarker.a"
 cargo build --release -q
 
 feat_line() { grep -E '^default = ' "$MARK"; }
@@ -30,7 +30,7 @@ git diff --quiet -- "$MARK" || { echo "FAIL: composing the default world changed
 [[ "$(feat_line)" == 'default = ["extra"]' ]] || { echo "FAIL: default world should map features=[extra] to 'default = [\"extra\"]', got: $(feat_line)"; exit 1; }
 if ! _b=$(./target/release/hematite build "$H" --app app --out hc0 2>&1); then echo "FAIL: build hc0 (feature on)" >&2; echo "$_b" >&2; exit 1; fi
 has_sym || { echo "FAIL: extra-gated symbol missing with the feature ON"; exit 1; }
-[[ "$(cd "$H" && ./bin/hc0)" == "ping: hc0" ]] || { echo "FAIL: app did not run"; exit 1; }
+[[ "$(cd "$H" && ./target/hematite/hc0-features/bin/hc0)" == "ping: hc0" ]] || { echo "FAIL: app did not run"; exit 1; }
 echo "ok: features=[\"extra\"] -> default=[\"extra\"], gated symbol present, app runs"
 
 # ---- 2. feature OFF ----

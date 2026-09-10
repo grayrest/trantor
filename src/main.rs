@@ -122,17 +122,20 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         other => return Err(format!("unknown subcommand {other:?}")),
     }
-    let mut out = dir.clone();
+    let mut out: Option<PathBuf> = None;
     let mut world_file = String::from("world.toml");
     while let Some(flag) = it.next() {
         match flag.as_str() {
-            "--out" => out = PathBuf::from(it.next().ok_or("--out: missing path")?),
+            "--out" => out = Some(PathBuf::from(it.next().ok_or("--out: missing path")?)),
             "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
             other => return Err(format!("unknown flag {other:?}")),
         }
     }
 
     let world = manifest::load_world(&dir, &world_file)?;
+    // Generated output goes under `target/hematite/<world>` unless `--out`
+    // names somewhere else (D-H7-38).
+    let out = out.unwrap_or_else(|| manifest::out_dir(&dir, &world));
     let driver = manifest::load_driver(&dir, &world)?;
     let resolved = resolve::resolve(&dir, &world, &driver)?;
     codegen::emit(&dir, &out, &world, &driver, &resolved)?;

@@ -49,6 +49,7 @@ pub fn package_name(cargo_toml: &Path) -> Result<String, String> {
 /// `archive_order`, each component and the archive cargo produced for it.
 pub fn build(
     dir: &Path,
+    gen: &Path,
     world: &World,
     r: &Resolved,
     wasm_triple: Option<&str>,
@@ -101,10 +102,14 @@ pub fn build(
     let Some(cargo_root) = &world.world.cargo_root else {
         // The world's own generated workspace: one build, archives named by
         // the sanitized component name (cargo replaces `-` the same way).
+        //
+        // Run in `gen`, not the world dir: the workspace manifest is generated
+        // (D-H7-38), so the world dir holds no Cargo.toml and cargo would walk
+        // UP out of the fixture and adopt whatever workspace it found first.
         let mut args = vec!["build".to_string(), "--release".to_string()];
         target_args(&mut args);
-        run(&args, dir)?;
-        let built = profile_dir(dir);
+        run(&args, gen)?;
+        let built = profile_dir(gen);
         return Ok(r
             .archive_order
             .iter()
@@ -114,10 +119,12 @@ pub fn build(
 
     // The host workspace: per-package builds with this world's abi patched in.
     let root = dir.join(cargo_root);
-    let abi = dir
+    // The world's abi crate is generated, so it lives under `gen`, not beside
+    // the world file (D-H7-38).
+    let abi = gen
         .join("abi")
         .canonicalize()
-        .map_err(|e| format!("canonicalize {}/abi: {e}", dir.display()))?;
+        .map_err(|e| format!("canonicalize {}/abi: {e}", gen.display()))?;
     let patch = format!("patch.crates-io.{ABI_PACKAGE}.path=\"{}\"", abi.display());
     let built = profile_dir(&root);
     let mut out = Vec::new();

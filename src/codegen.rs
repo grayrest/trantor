@@ -31,17 +31,44 @@ pub fn emit(
     // Under a host workspace (cargo_root) the crates already have one; a
     // second, nested workspace claiming them is a cargo error (D-H7-14).
     if world.world.cargo_root.is_none() {
-        w("Cargo.toml", workspace_toml(world, r))?;
+        w("Cargo.toml", workspace_toml(world, r)?)?;
     }
     // A driver living at its own `path` is an authored crate end to end:
     // hematite writes nothing into it (D-H7-4). Otherwise the crate manifest is
     // generated, and so is the host unless the driver authors it (a reactor
     // driver ships its own src/lib.rs; H7 finding).
-    let driver_component = &world.components[&r.driver];
-    if driver_component.path.is_none() {
-        w(&format!("components/{}/Cargo.toml", r.driver), driver_cargo(&r.driver))?;
-        if !driver.authored_host {
-            w(&format!("components/{}/src/lib.rs", r.driver), driver_lib(driver))?;
+    //
+    // Every component crate the generated workspace owns is materialized under
+    // the output dir (D-H7-38): its `src/` copied from the source tree, its
+    // Cargo.toml copied or generated. Half a crate in each tree is not a crate,
+    // and cargo will not take a member outside its root.
+    // The whole tree, not just the declared components: a component crate may
+    // depend on a sibling support crate that is not itself a component
+    // (`sync-io-core = { path = "../sync-io-core" }`), and a workspace member
+    // whose path dependency is missing does not build.
+    copy_tree(&src.join("components"), &out.join("components"))?;
+    for (name, c) in &world.components {
+        if c.kind == "roc" || c.path.is_some() {
+            continue;
+        }
+        let from = src.join("components").join(name);
+        let into = format!("components/{name}");
+        if name == &r.driver {
+            w(&format!("{into}/Cargo.toml"), driver_cargo(&r.driver))?;
+            if !driver.authored_host {
+                w(&format!("{into}/src/lib.rs"), driver_lib(driver))?;
+            }
+        } else if from.join("Cargo.toml").is_file() {
+            // A host component's authored manifest, with `[features] default`
+            // rewritten to the composed set when the world names one (HC0/H12).
+            let text = std::fs::read_to_string(from.join("Cargo.toml"))
+                .map_err(|e| format!("read {}/Cargo.toml: {e}", from.display()))?;
+            let text = if c.features.is_empty() && c.default_features.is_none() {
+                text
+            } else {
+                set_default_features(&text, &c.features)
+            };
+            w(&format!("{into}/Cargo.toml"), text)?;
         }
     }
     w("abi/Cargo.toml", abi_cargo())?;
@@ -58,6 +85,7 @@ pub fn emit(
     }
     // The driver's own contract modules (Cmd/Event/Env/…): copied from its
     // crate with the `## @hematite(...)` blocks filled (D-H7-6).
+    let driver_component = &world.components[&r.driver];
     let ddir = component_dir(src, &r.driver, driver_component);
     for module in &driver_component.exports {
         let from = module_path(&ddir, module);
@@ -122,37 +150,26 @@ pub fn emit(
             }
         }
     }
-    // Per-component Cargo features (HC0/H12): a host component whose manifest
-    // sets `features`/`default_features` has its authored Cargo.toml re-emitted
-    // with the crate's `[features] default` rewritten to the composed set —
-    // everything else verbatim, so the crate's feature *definitions* and deps
-    // are untouched. Only the `default` line moves, so whole-workspace
-    // `cargo build` builds this member with exactly these features (no CLI
-    // flags, no cross-member unification). Components without the fields are
-    // left alone (zero churn). The driver's Cargo.toml is generated separately.
-    for (name, c) in &world.components {
-        if c.kind != "host" {
-            continue;
+    // Per-component Cargo features (HC0/H12) are applied when the component
+    // crate is materialized above; a `cargo_root` world passes them to cargo
+    // as `--features` instead (cargo.rs), owning crates hematite must not copy.
+    Ok(())
+}
+
+/// Copy a directory tree, writing each file only if it changed.
+fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+    if !from.is_dir() {
+        return Ok(());
+    }
+    for e in std::fs::read_dir(from).map_err(|e| format!("read {}: {e}", from.display()))?.flatten() {
+        let p = e.path();
+        let dest = to.join(e.file_name());
+        if p.is_dir() {
+            copy_tree(&p, &dest)?;
+        } else {
+            let bytes = std::fs::read(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
+            write_if_changed(&dest, &bytes)?;
         }
-        if c.features.is_empty() && c.default_features.is_none() {
-            continue;
-        }
-        if world.world.cargo_root.is_some() {
-            continue; // passed to cargo as --features flags instead (cargo.rs)
-        }
-        if c.path.is_some() {
-            // The rewrite edits the crate's own Cargo.toml; a crate at its own
-            // path is shared between worlds, which must not fight over it.
-            return Err(format!(
-                "component `{name}`: `features`/`default_features` need `[world] cargo_root` with \
-                 `path` (the Cargo.toml rewrite would edit a shared crate in place)"
-            ));
-        }
-        let rel = format!("components/{name}/Cargo.toml");
-        let from = src.join(&rel);
-        let text = std::fs::read_to_string(&from)
-            .map_err(|e| format!("read {}: {e}", from.display()))?;
-        w(&rel, set_default_features(&text, &c.features))?;
     }
     Ok(())
 }
@@ -298,22 +315,34 @@ fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {
     s
 }
 
-fn workspace_toml(world: &World, r: &Resolved) -> String {
-    // members: abi + every host/driver component crate (pure-Roc excluded).
+/// The workspace is generated under `target/hematite/<world>` (D-H7-38), and
+/// cargo refuses a member that is not hierarchically below its root — so every
+/// member is MATERIALIZED there: `abi`, plus one `components/<name>` per
+/// component crate. A component with its own `path` is a crate with a home and
+/// is never copied (D-H7-4); it needs `[world] cargo_root`, which builds in
+/// that workspace and generates none.
+///
+/// Because the crates are materialized beside the generated `abi`, a component
+/// manifest's `hematite-abi = { path = "../../abi" }` resolves exactly as it
+/// did when the world composed in place.
+fn workspace_toml(world: &World, r: &Resolved) -> Result<String, String> {
     let mut members = vec!["\"abi\"".to_string()];
     for (name, c) in &world.components {
-        if c.kind != "roc" {
-            match &c.path {
-                Some(p) => members.push(format!("\"{p}\"")),
-                None => members.push(format!("\"components/{name}\"")),
-            }
+        if c.kind == "roc" {
+            continue;
         }
+        if c.path.is_some() {
+            return Err(format!(
+                "component `{name}`: `path` needs `[world] cargo_root` — a crate with its own home cannot be a member of the generated workspace (D-H7-4/38)"
+            ));
+        }
+        members.push(format!("\"components/{name}\""));
     }
     let _ = r;
-    format!(
+    Ok(format!(
         "{GEN}\n[workspace]\nresolver = \"2\"\nmembers = [{}]\n\n[profile.release]\npanic = \"unwind\"\n",
         members.join(", ")
-    )
+    ))
 }
 
 fn driver_cargo(driver: &str) -> String {

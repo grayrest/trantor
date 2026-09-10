@@ -1,4 +1,4 @@
-app [run!] { pf: platform "../platform/main.roc" }
+app [run!] { pf: platform "../target/hematite/b1-streams/platform/main.roc" }
 import pf.Streams
 import pf.Memory
 import pf.FileIo

@@ -15,7 +15,7 @@ cargo build --release -q
 if ! _b=$(./target/release/hematite build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1" >&2; echo "$_b" >&2; exit 1; fi
 
 rm -f /tmp/hematite-sq1.db
-set +e; out=$(cd "$S" && ./bin/sq1 2>/dev/null); code=$?; set -e
+set +e; out=$(cd "$S" && ./target/hematite/sqlite-unsound/bin/sq1 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: sq1 exit $code"; echo "$out"; exit 1; }
 want=$'sum-id: 6\nnames: alice,amy,bob\na-names: 2\nhi-scores: 1'
 [[ "$out" == "$want" ]] || { echo "FAIL: fold output"; diff <(echo "$want") <(echo "$out") || true; exit 1; }
@@ -24,12 +24,12 @@ echo "ok: generic-state fold over rusqlite — Integer aggregate, Text concat (c
 # The fold drop-balances: row spines, boxes, reducer, result strings all freed;
 # borrowed cells add no alloc/free.
 rm -f /tmp/hematite-sq1.db
-g=$(cd "$S" && HEMATITE_ALLOC_GAUGE=1 ./bin/sq1 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
+g=$(cd "$S" && HEMATITE_ALLOC_GAUGE=1 ./target/hematite/sqlite-unsound/bin/sq1 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
 grep -q 'live=0' <<<"$g" || { echo "FAIL: fold leaked heap: $g"; exit 1; }
 echo "ok: fold drop-balanced ($g)"
 
 # H0c: libsqlite3 lives only in librusqlite_host.a.
-T="$S/platform/targets/arm64mac"
+T="$S/target/hematite/sqlite-unsound/platform/targets/arm64mac"
 { ar t "$T/librusqlite_host.a" 2>/dev/null || true; } | grep -iE 'sqlite3|libsqlite' >/dev/null || { echo "FAIL: rusqlite-host bundles no libsqlite3"; exit 1; }
 for a in "$T"/lib*.a; do
   [[ "$(basename "$a")" == "librusqlite_host.a" ]] && continue
@@ -48,22 +48,22 @@ grep -q 'turso' "$S/components/turso-host/Cargo.toml" || { echo "FAIL: no turso-
 rm -f /tmp/hematite-sq1.db*
 if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app app --out sq-turso 2>&1); then echo "FAIL: build turso world (framework link? R-SQ2)" >&2; echo "$_b" >&2; exit 1; fi
 rm -f /tmp/hematite-sq1.db*
-set +e; tout=$(cd "$S" && ./bin/sq-turso 2>/dev/null); tcode=$?; set -e
+set +e; tout=$(cd "$S" && ./target/hematite/sqlite-unsound/bin/sq-turso 2>/dev/null); tcode=$?; set -e
 [[ $tcode -eq 0 ]] || { echo "FAIL: sq-turso exit $tcode"; echo "$tout"; exit 1; }
 [[ "$tout" == "$want" ]] || { echo "FAIL: turso output differs from rusqlite (substitution broken)"; diff <(echo "$want") <(echo "$tout") || true; exit 1; }
 echo "ok: the same fold app runs identically on rusqlite and turso — substitution by one wiring line (H5)"
 
 # turso drop-balances too.
 rm -f /tmp/hematite-sq1.db*
-tg=$(cd "$S" && HEMATITE_ALLOC_GAUGE=1 ./bin/sq-turso 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
+tg=$(cd "$S" && HEMATITE_ALLOC_GAUGE=1 ./target/hematite/sqlite-unsound/bin/sq-turso 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
 grep -q 'live=0' <<<"$tg" || { echo "FAIL: turso fold leaked heap: $tg"; exit 1; }
 echo "ok: turso fold drop-balanced ($tg)"
 
 # Sole-vendor: each app links exactly one engine (rusqlite XOR turso).
-r_rus=$({ nm "$S/bin/sq1" 2>/dev/null || true; } | grep -icE 'rusqlite' || true)
-r_tur=$({ nm "$S/bin/sq1" 2>/dev/null || true; } | grep -icE 'turso_core|turso_sdk' || true)
-t_rus=$({ nm "$S/bin/sq-turso" 2>/dev/null || true; } | grep -icE 'rusqlite' || true)
-t_tur=$({ nm "$S/bin/sq-turso" 2>/dev/null || true; } | grep -icE 'turso_core|turso_sdk' || true)
+r_rus=$({ nm "$S/target/hematite/sqlite-unsound/bin/sq1" 2>/dev/null || true; } | grep -icE 'rusqlite' || true)
+r_tur=$({ nm "$S/target/hematite/sqlite-unsound/bin/sq1" 2>/dev/null || true; } | grep -icE 'turso_core|turso_sdk' || true)
+t_rus=$({ nm "$S/target/hematite/sqlite-unsound/bin/sq-turso" 2>/dev/null || true; } | grep -icE 'rusqlite' || true)
+t_tur=$({ nm "$S/target/hematite/sqlite-unsound/bin/sq-turso" 2>/dev/null || true; } | grep -icE 'turso_core|turso_sdk' || true)
 [[ "$r_rus" -gt 0 && "$r_tur" -eq 0 ]] || { echo "FAIL: rusqlite app should link rusqlite only (rusqlite=$r_rus turso=$r_tur)"; exit 1; }
 [[ "$t_tur" -gt 0 && "$t_rus" -eq 0 ]] || { echo "FAIL: turso app should link turso only (rusqlite=$t_rus turso=$t_tur)"; exit 1; }
 echo "ok: sole-vendor — rusqlite app links rusqlite ($r_rus)/turso(0); turso app links turso ($t_tur)/rusqlite(0)"
@@ -77,7 +77,7 @@ echo "SQ2 PASS"
 # Vector search rides the base sql_fold! on turso; rusqlite rejects vector32.
 # Encryption is host-side (key from env): correct reads, ciphertext at rest.
 if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app vector-app --out vec-turso 2>&1); then echo "FAIL: build vector-app (turso)" >&2; echo "$_b" >&2; exit 1; fi
-vt=$(cd "$S" && ./bin/vec-turso 2>/dev/null || true)
+vt=$(cd "$S" && ./target/hematite/sqlite-unsound/bin/vec-turso 2>/dev/null || true)
 [[ "$vt" == "vector: near,mid,far" ]] || { echo "FAIL: turso vector ordering (got: $vt)"; exit 1; }
 
 KEY=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
@@ -85,12 +85,12 @@ ENCDB=/tmp/hematite-sq3-enc.db
 if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app enc-app --out enc-turso 2>&1); then echo "FAIL: build enc-app" >&2; echo "$_b" >&2; exit 1; fi
 # control: no key -> plaintext leaks into the file/wal (so the check isn't vacuous).
 rm -f "$ENCDB" "$ENCDB"-wal "$ENCDB"-shm
-( cd "$S" && ./bin/enc-turso >/dev/null 2>&1 ) || true
+( cd "$S" && ./target/hematite/sqlite-unsound/bin/enc-turso >/dev/null 2>&1 ) || true
 plain=$(strings "$ENCDB" "$ENCDB"-wal 2>/dev/null | grep -c topsecret || true)
 [[ "${plain:-0}" -gt 0 ]] || { echo "FAIL: unencrypted control shows no plaintext — the check is vacuous"; exit 1; }
 # with key -> correct read, no plaintext at rest.
 rm -f "$ENCDB" "$ENCDB"-wal "$ENCDB"-shm
-er=$(cd "$S" && HEMATITE_TURSO_ENCRYPTION_HEXKEY="$KEY" ./bin/enc-turso 2>/dev/null || true)
+er=$(cd "$S" && HEMATITE_TURSO_ENCRYPTION_HEXKEY="$KEY" ./target/hematite/sqlite-unsound/bin/enc-turso 2>/dev/null || true)
 [[ "$er" == "enc-read: topsecret-alice" ]] || { echo "FAIL: encrypted read (got: $er)"; exit 1; }
 cipher=$(strings "$ENCDB" "$ENCDB"-wal 2>/dev/null | grep -c topsecret || true)
 [[ "${cipher:-0}" -eq 0 ]] || { echo "FAIL: plaintext leaked in the encrypted db/wal ($cipher)"; exit 1; }
@@ -99,7 +99,7 @@ echo "ok: turso encryption host-side — correct reads with the key, ciphertext 
 
 # rusqlite rejects vector SQL (the negative half).
 if ! _b=$(./target/release/hematite build "$S" --app vector-app --out vec-rusqlite 2>&1); then echo "FAIL: build vector-app (rusqlite)" >&2; echo "$_b" >&2; exit 1; fi
-vr=$(cd "$S" && ./bin/vec-rusqlite 2>/dev/null || true)
+vr=$(cd "$S" && ./target/hematite/sqlite-unsound/bin/vec-rusqlite 2>/dev/null || true)
 [[ "$vr" == "vector: unsupported" ]] || { echo "FAIL: rusqlite should reject vector32 (got: $vr)"; exit 1; }
 echo "ok: vector search runs on turso (near,mid,far), rejected by rusqlite — base SQL, no Roc leaf; encryption env-side"
 
@@ -113,20 +113,20 @@ echo "SQ3 PASS"
 # CREATE TRIGGER body. The rusqlite world does not expose roc:turso.
 grep -q 'turso_register_scalar' "$S/interfaces/turso/Turso.roc" || { echo "FAIL: no turso_register_scalar leaf"; exit 1; }
 if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app udf-app --out udf-turso 2>&1); then echo "FAIL: build udf-app (turso)" >&2; echo "$_b" >&2; exit 1; fi
-uo=$(cd "$S" && ./bin/udf-turso 2>/dev/null || true)
+uo=$(cd "$S" && ./target/hematite/sqlite-unsound/bin/udf-turso 2>/dev/null || true)
 want_udf=$'triple-sum: 24\ntrigger-val: 30'
 [[ "$uo" == "$want_udf" ]] || { echo "FAIL: Roc scalar from query/trigger (got: $uo)"; diff <(echo "$want_udf") <(echo "$uo") || true; exit 1; }
 echo "ok: a Roc closure runs as a turso SQL scalar from a SELECT (24) and a TRIGGER (30)"
 
 # The registered scalar is retained for the process by design: exactly one live
 # allocation (the closure box), not a leak.
-ug=$(cd "$S" && HEMATITE_ALLOC_GAUGE=1 ./bin/udf-turso 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
+ug=$(cd "$S" && HEMATITE_ALLOC_GAUGE=1 ./target/hematite/sqlite-unsound/bin/udf-turso 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
 grep -q 'live=1' <<<"$ug" || { echo "FAIL: udf balance expected live=1 (the one registered closure): $ug"; exit 1; }
 echo "ok: exactly the one registered scalar closure is retained ($ug)"
 
 # The rusqlite world is not a turso superset: no Turso module, so udf-app can't build there.
 ./target/release/hematite compose "$S" >/dev/null
-grep -q 'Turso' "$S/platform/main.roc" && { echo "FAIL: rusqlite world exposes Turso"; exit 1; } || true
+grep -q 'Turso' "$S/target/hematite/sqlite-unsound/platform/main.roc" && { echo "FAIL: rusqlite world exposes Turso"; exit 1; } || true
 if ./target/release/hematite build "$S" --app udf-app --out udf-rusqlite >/dev/null 2>&1; then echo "FAIL: udf-app built on rusqlite (roc:turso should be unavailable)"; exit 1; fi
 echo "ok: rusqlite world has no roc:turso — udf-app only builds on the turso superset"
 
@@ -145,8 +145,8 @@ echo "ok: record decode type-checks (API shape) — the documented clone-on-incr
 
 # Publish the rusqlite world: engine + lock, no test scaffolding; Tier 2.
 ./target/release/hematite publish "$S" >/dev/null 2>&1
-D="$S/dist/platform/targets/arm64mac"
-{ [[ -f "$S/dist/baseline.lock" ]] && grep -q abi_fingerprint "$S/dist/baseline.lock"; } || { echo "FAIL: rusqlite publish produced no baseline.lock"; exit 1; }
+D="$S/target/hematite/sqlite-unsound/dist/platform/targets/arm64mac"
+{ [[ -f "$S/target/hematite/sqlite-unsound/dist/baseline.lock" ]] && grep -q abi_fingerprint "$S/target/hematite/sqlite-unsound/dist/baseline.lock"; } || { echo "FAIL: rusqlite publish produced no baseline.lock"; exit 1; }
 [[ -f "$D/librusqlite_host.a" ]] || { echo "FAIL: rusqlite baseline lacks the engine archive"; exit 1; }
 [[ ! -f "$D/libreport_host.a" ]] || { echo "FAIL: test-only report-host leaked into the baseline"; exit 1; }
 ./target/release/hematite tier "$S" | grep -q '^Tier 2' || { echo "FAIL: sqlite world should tier as Tier 2 (host code)"; exit 1; }
@@ -156,7 +156,7 @@ echo "ok: rusqlite baseline publishes (engine + lock, no test scaffolding); Tier
 if ! _b=$(./target/release/hematite build "$S" --world world-turso.toml --app app --out sq-turso 2>&1); then echo "FAIL: build sq-turso" >&2; echo "$_b" >&2; exit 1; fi
 ./target/release/hematite publish "$S" >/dev/null 2>&1
 { [[ -f "$D/libturso_host.a" ]] && [[ ! -f "$D/librusqlite_host.a" ]]; } || { echo "FAIL: turso baseline should ship turso, not rusqlite"; exit 1; }
-[[ -f "$S/dist/platform/Turso.roc" ]] || { echo "FAIL: turso baseline lacks the roc:turso module"; exit 1; }
+[[ -f "$S/target/hematite/sqlite-unsound/dist/platform/Turso.roc" ]] || { echo "FAIL: turso baseline lacks the roc:turso module"; exit 1; }
 echo "ok: turso baseline publishes (turso engine + Turso module, no rusqlite, no test scaffolding)"
 
 grep -q 'clone-on-incref' notes/2026-09-05-sqlite-unsound-design-log.md || { echo "FAIL: design log missing the clone-on-incref record"; exit 1; }

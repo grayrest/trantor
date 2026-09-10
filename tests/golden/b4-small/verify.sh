@@ -11,7 +11,7 @@ for m in Utc Sleep Random Locale Url InternalDateTime; do
 done
 echo "ok: Utc/Sleep/Random/Locale/Url/InternalDateTime byte-identical to basic-cli 0.21"
 if ! _b=$(./target/release/hematite build "$B" --app app --out b4 2>&1); then echo "FAIL: build b4" >&2; echo "$_b" >&2; exit 1; fi
-set +e; out=$(cd "$B" && LANG=en_US.UTF-8 B4_TAG=zh-Hant-TW ./bin/b4 2>/dev/null); code=$?; set -e
+set +e; out=$(cd "$B" && LANG=en_US.UTF-8 B4_TAG=zh-Hant-TW ./target/hematite/b4-small/bin/b4 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code"; echo "$out"; exit 1; }
 want=$'utc-year-prefix: ok\nslept: ok\nrandom: ok\nlocale: ok\nlocales-listed: some\nlocale-parse: zh-Hant-TW\nurl-host: example.com'
 [[ "$out" == "$want" ]] || { echo "FAIL: output"; diff <(echo "$want") <(echo "$out") || true; exit 1; }

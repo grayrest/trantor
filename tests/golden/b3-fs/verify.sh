@@ -18,11 +18,11 @@ echo "ok: roc:os-path is the lossless [Text|Raw] impl, no stray Path tokens"
 expected_common=$'read: one\ntwo\nkind: file\nlist: note.txt\ncwd-ok: yes'
 run() { # $1 world  $2 out  $3 expected escape line  $4 expected Path decl
   ./target/release/hematite compose "$B" --world "$1" >/dev/null
-  local decl; decl=$(grep -m1 -E '^(Path|OsPath) :=' "$B/platform/Path.roc")
+  local decl; decl=$(grep -m1 -E '^(Path|OsPath) :=' "$B/target/hematite/b3-fs/platform/Path.roc")
   [[ "$decl" == "$4"* ]] || { echo "FAIL [$1]: platform Path.roc decl is '$decl', want '$4'"; exit 1; }
   if ! _b=$(./target/release/hematite build "$B" --world "$1" --app app --out "$2" 2>&1); then echo "FAIL: build $2" >&2; echo "$_b" >&2; exit 1; fi
   local out code
-  set +e; out=$(cd "$B" && ./bin/$2 2>/dev/null); code=$?; set -e
+  set +e; out=$(cd "$B" && ./target/hematite/b3-fs/bin/$2 2>/dev/null); code=$?; set -e
   [[ $code -eq 0 ]] || { echo "FAIL [$1]: exit $code (live descriptors leaked)"; echo "$out"; exit 1; }
   [[ "$out" == "$expected_common"$'\n'"escape: $3" ]] || { echo "FAIL [$1]: output"; echo "$out"; exit 1; }
   echo "ok: $1 -> $4… ; escape: $3 ; live=0"

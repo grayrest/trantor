@@ -19,7 +19,7 @@ grep -q '"CONNECT", "DELETE", "QUERY", "GET"' "$B/components/http-host/src/lib.r
 grep -q 'packages' "$B/world.toml" || { echo "FAIL: world lacks [packages] (verbatim Http.roc needs import http.*)"; exit 1; }
 
 if ! _b=$(./target/release/hematite build "$B" --app app --out b6 2>&1); then echo "FAIL: build b6" >&2; echo "$_b" >&2; exit 1; fi
-set +e; out=$(cd "$B" && ./bin/b6 2>/dev/null); code=$?; set -e
+set +e; out=$(cd "$B" && ./target/hematite/b6-net/bin/b6 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code (nonzero = leaked socket resources or a failed step)"; echo "$out"; exit 1; }
 want=$'tcp-echo: hi\nhttp-get: hello-http\nudp-echo: dgram\ntcp-accept: ping'
 [[ "$out" == "$want" ]] || { echo "FAIL: output"; diff <(echo "$want") <(echo "$out") || true; exit 1; }
@@ -32,10 +32,10 @@ echo "B6 PASS"
 # followed, both occurrences of a repeated header survive, a mid-body cutoff
 # surfaces as StreamErr on read (H15), and a stall trips Timeout (H9). Exit code
 # is the live resource count (0 = drop-balanced).
-grep -q 'ureq' "$B/components/http-host/Cargo.toml" || { echo "FAIL: http-host is not built over ureq"; exit 1; }
+grep -q 'ureq' "$B/target/hematite/b6-net/components/http-host/Cargo.toml" || { echo "FAIL: http-host is not built over ureq"; exit 1; }
 grep -q 'body_stream' "$B/interfaces/sync-http/HttpHost.roc" || { echo "FAIL: HttpHost.Response is not a streaming body"; exit 1; }
 if ! _b=$(./target/release/hematite build "$B" --app http-stream-app --out b6-httpstream 2>&1); then echo "FAIL: build http-stream-app" >&2; echo "$_b" >&2; exit 1; fi
-set +e; sout=$(cd "$B" && ./bin/b6-httpstream 2>/dev/null); scode=$?; set -e
+set +e; sout=$(cd "$B" && ./target/hematite/b6-net/bin/b6-httpstream 2>/dev/null); scode=$?; set -e
 [[ $scode -eq 0 ]] || { echo "FAIL: http-stream-app exit $scode (leaked stream/socket resources)"; echo "$sout"; exit 1; }
 grep -qxF 'large: 100000' <<<"$sout" || { echo "FAIL: large body not streamed whole"; echo "$sout"; exit 1; }
 grep -qxF 'redirect: 200 10' <<<"$sout" || { echo "FAIL: redirect not followed to /final"; echo "$sout"; exit 1; }
@@ -45,13 +45,13 @@ grep -qxF 'stall: timeout' <<<"$sout" || { echo "FAIL: stall did not trip Timeou
 echo "ok: streamed large body whole, followed redirect, preserved multi-value header, StreamErr on cutoff, Timeout on stall; live=0"
 
 # H16: HEMATITE_HTTP_MAX_REDIRECTS=0 returns the 3xx unfollowed.
-rout=$(cd "$B" && HEMATITE_HTTP_MAX_REDIRECTS=0 ./bin/b6-httpstream 2>/dev/null | grep '^redirect:' || true)
+rout=$(cd "$B" && HEMATITE_HTTP_MAX_REDIRECTS=0 ./target/hematite/b6-net/bin/b6-httpstream 2>/dev/null | grep '^redirect:' || true)
 [[ "$rout" == "redirect: 302 0" ]] || { echo "FAIL: HEMATITE_HTTP_MAX_REDIRECTS=0 should return the 302 (got: $rout)"; exit 1; }
 echo "ok: HEMATITE_HTTP_MAX_REDIRECTS=0 returns the 302 unfollowed"
 
 # alloc-gauge: the streaming body paths drop-balance (heap-data leaks resource
 # live() can't see).
-g=$(cd "$B" && HEMATITE_ALLOC_GAUGE=1 ./bin/b6-httpstream 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
+g=$(cd "$B" && HEMATITE_ALLOC_GAUGE=1 ./target/hematite/b6-net/bin/b6-httpstream 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
 [[ -n "$g" ]] || { echo "FAIL: no alloc-gauge line from http-stream-app"; exit 1; }
 grep -q 'live=0' <<<"$g" || { echo "FAIL: http streaming leaked heap allocations: $g"; exit 1; }
 echo "ok: alloc-gauge drop-balanced across the http streaming paths ($g)"
@@ -71,42 +71,42 @@ just make-local-cert "$CERT" >/dev/null 2>&1 || { echo "FAIL: just make-local-ce
 
 # default world = tls on.
 ./target/release/hematite compose "$B" >/dev/null
-grep -q '^default = \["tls"\]' "$B/components/http-host/Cargo.toml" || { echo "FAIL: default world should compose http-host with tls"; exit 1; }
+grep -q '^default = \["tls"\]' "$B/target/hematite/b6-net/components/http-host/Cargo.toml" || { echo "FAIL: default world should compose http-host with tls"; exit 1; }
 if ! _b=$(./target/release/hematite build "$B" --app app --out b6 2>&1); then echo "FAIL: build b6" >&2; echo "$_b" >&2; exit 1; fi
-cap "$ROC" build --output="$B/bin/https-app" "$B/https-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build https-app"; exit 1; }
-tls_on=$({ ar t "$B/platform/targets/arm64mac/libhttp_host.a" 2>/dev/null || true; } | grep -icE 'rustls|webpki' || true)
+cap "$ROC" build --output="$B/target/hematite/b6-net/bin/https-app" "$B/https-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build https-app"; exit 1; }
+tls_on=$({ ar t "$B/target/hematite/b6-net/platform/targets/arm64mac/libhttp_host.a" 2>/dev/null || true; } | grep -icE 'rustls|webpki' || true)
 [[ "$tls_on" -gt 0 ]] || { echo "FAIL: tls-on http-host bundles no rustls (not self-contained)"; exit 1; }
 
 # https GET with the extra CA trusted -> handshake + streamed body over TLS.
-ho=$(cd "$B" && HEMATITE_TEST_CERT="$CERT" HEMATITE_HTTP_EXTRA_CA="$CERT" ./bin/https-app 2>/dev/null || true)
+ho=$(cd "$B" && HEMATITE_TEST_CERT="$CERT" HEMATITE_HTTP_EXTRA_CA="$CERT" ./target/hematite/b6-net/bin/https-app 2>/dev/null || true)
 [[ "$ho" == "https: 200 https-hello" ]] || { echo "FAIL: https GET over TLS (got: $ho)"; exit 1; }
 echo "ok: https:// over local rustls TLS with the extra CA trusted (handshake + cert validation + body-over-TLS)"
 
 # Same cert, but NOT trusted -> validation fails (proves the trust is real, not blanket).
-hu=$(cd "$B" && HEMATITE_TEST_CERT="$CERT" ./bin/https-app 2>/dev/null || true)
+hu=$(cd "$B" && HEMATITE_TEST_CERT="$CERT" ./target/hematite/b6-net/bin/https-app 2>/dev/null || true)
 [[ "$hu" != "https: 200 https-hello" && "$hu" == https:* ]] || { echo "FAIL: untrusted cert should be rejected (got: $hu)"; exit 1; }
 echo "ok: without HEMATITE_HTTP_EXTRA_CA the cert is rejected — trust is additive/opt-in, not blanket"
 
-g=$(cd "$B" && HEMATITE_TEST_CERT="$CERT" HEMATITE_HTTP_EXTRA_CA="$CERT" HEMATITE_ALLOC_GAUGE=1 ./bin/https-app 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
+g=$(cd "$B" && HEMATITE_TEST_CERT="$CERT" HEMATITE_HTTP_EXTRA_CA="$CERT" HEMATITE_ALLOC_GAUGE=1 ./target/hematite/b6-net/bin/https-app 2>&1 1>/dev/null | grep '^\[alloc-gauge\]' || true)
 grep -q 'live=0' <<<"$g" || { echo "FAIL: https path leaked heap: $g"; exit 1; }
 echo "ok: https streaming path drop-balances ($g)"
 
 # tls-OFF world (HC0 knob): reject https with Other, shed rustls/webpki.
 ./target/release/hematite compose "$B" --world world-notls.toml >/dev/null
-grep -q '^default = \[\]' "$B/components/http-host/Cargo.toml" || { echo "FAIL: world-notls should compose http-host with tls off"; exit 1; }
+grep -q '^default = \[\]' "$B/target/hematite/b6-net/components/http-host/Cargo.toml" || { echo "FAIL: world-notls should compose http-host with tls off"; exit 1; }
 if ! _b=$(./target/release/hematite build "$B" --world world-notls.toml --app app --out b6 2>&1); then echo "FAIL: build b6 (tls off)" >&2; echo "$_b" >&2; exit 1; fi
-cap "$ROC" build --output="$B/bin/https-app" "$B/https-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build https-app (tls off)"; exit 1; }
-hn=$(cd "$B" && HEMATITE_TEST_CERT="$CERT" HEMATITE_HTTP_EXTRA_CA="$CERT" ./bin/https-app 2>/dev/null || true)
+cap "$ROC" build --output="$B/target/hematite/b6-net/bin/https-app" "$B/https-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: build https-app (tls off)"; exit 1; }
+hn=$(cd "$B" && HEMATITE_TEST_CERT="$CERT" HEMATITE_HTTP_EXTRA_CA="$CERT" ./target/hematite/b6-net/bin/https-app 2>/dev/null || true)
 [[ "$hn" == "https: other" ]] || { echo "FAIL: tls-off world should reject https with Other (got: $hn)"; exit 1; }
-tls_off=$({ ar t "$B/platform/targets/arm64mac/libhttp_host.a" 2>/dev/null || true; } | grep -icE 'rustls|webpki' || true)
+tls_off=$({ ar t "$B/target/hematite/b6-net/platform/targets/arm64mac/libhttp_host.a" 2>/dev/null || true; } | grep -icE 'rustls|webpki' || true)
 [[ "$tls_off" -eq 0 ]] || { echo "FAIL: tls-off http-host still bundles rustls ($tls_off members)"; exit 1; }
 echo "ok: tls-off world rejects https:// with Other(msg) and sheds the crypto stack (rustls/webpki members: $tls_on on, $tls_off off)"
 
 # H0c: a world WITHOUT sync-http links no ureq/rustls at all.
-[[ -x tests/golden/b4-small/bin/b4 ]] || ./target/release/hematite build tests/golden/b4-small --app app --out b4 >/dev/null 2>&1
-b4syms=$({ nm tests/golden/b4-small/bin/b4 2>/dev/null || true; } | grep -c . || true)
+[[ -x tests/golden/b4-small/target/hematite/b4-small/bin/b4 ]] || ./target/release/hematite build tests/golden/b4-small --app app --out b4 >/dev/null 2>&1
+b4syms=$({ nm tests/golden/b4-small/target/hematite/b4-small/bin/b4 2>/dev/null || true; } | grep -c . || true)
 [[ "$b4syms" -gt 100 ]] || { echo "FAIL: b4 has $b4syms symbols (stripped?) — the check would be vacuous"; exit 1; }
-b4net=$({ nm tests/golden/b4-small/bin/b4 2>/dev/null || true; } | grep -icE 'ureq|rustls' || true)
+b4net=$({ nm tests/golden/b4-small/target/hematite/b4-small/bin/b4 2>/dev/null || true; } | grep -icE 'ureq|rustls' || true)
 [[ "$b4net" -eq 0 ]] || { echo "FAIL: an http-less world (b4) links ureq/rustls ($b4net symbols)"; exit 1; }
 echo "ok: a world without sync-http links no ureq/rustls (H0c)"
 
