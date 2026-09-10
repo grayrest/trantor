@@ -929,6 +929,46 @@ silently become empty. Each is now positively controlled — the probe is run
 against something it must match, the checker prints what it examined, and the
 fixtures have nothing left to go stale.
 
+## D-H7-39 — one world per distinct wiring, named for what it wires (2026-09-10)
+
+Raised by asking whether colorhunt still needed a world once clay became the
+base. It did not: stripping comments and the `name` line, `colorhunt` and
+`clay` were byte-identical. So were two more pairs — `dbx`/`gate-dbx` and
+`conduit`/`gate-net`.
+
+That was D-H7-36's doing, one change earlier. The gate worlds were split off
+so a gate would not break because an app trimmed its exports; but they were
+built as clay's base plus one service, and P10 had already trimmed each app
+world to exactly that. The reasoning was about divergence that had not
+happened, and the cost was immediate: three redundant worlds, 277 MB of
+duplicate driver archives, three extra composes in every full run.
+
+Eight worlds now, each named for what it wires: `clay` (nothing — the base,
+178 entries), `dbx`, `net`, `notes`, `doc`, `spawn`, `audio`, and `dom` for
+the other driver. `conduit` became `net` and `notesviewer` became `notes`,
+because a world named after one of its consumers reads wrong the moment a
+second consumer arrives — which is exactly what happened when the gates moved.
+
+The exports worry is answered without a mechanism: removing an export breaks
+its importer loudly (`roc check` names the module, `roc build` segfaults —
+which is why the world file carries that warning), and the gates run on every
+change. A guard in `world-deps` was considered and rejected as a second
+mechanism for something the compiler already reports.
+
+`just world-nm` now reads one line per service, and target/hematite went from
+996 MB to 727 MB. im-check 133/133 in 82s.
+
+**Process note.** Three separate edits in this session silently deleted
+Justfile content, because each replaced a SPAN located by matching its first
+and last lines and the span reached further than intended: `world-clean`
+vanished inside the world-nm edit (restored a change later, in the commit that
+found it), and a regex meant to drop two host recipes took 113 lines with it
+(caught by `git diff --stat` before it was committed). Nothing in the repo
+checks that a recipe still exists, so the only defence was reading the diff.
+The last of these edits was done by exact line anchors and verified by diffing
+the recipe-name set against HEAD, which is the check that should have been
+running all along.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

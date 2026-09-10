@@ -1,6 +1,9 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: COMPLETE 2026-09-09 (P0–P10).** Follow-up 2026-09-10: a world
+> **Status: COMPLETE 2026-09-09 (P0–P10).** Follow-up 2026-09-10: eight
+> worlds, one per distinct wiring and each named for what it wires —
+> `clay` (nothing), `dbx`, `net`, `notes`, `doc`, `spawn`, `audio`, `dom`
+> (D-H7-39). A world
 > composes into `target/hematite/<world>/` — generated files are separated
 > from source by construction, and a world directory holds only its
 > `world*.toml` (D-H7-38). clay is
