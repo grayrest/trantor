@@ -807,6 +807,70 @@ worlds turned an invariant that held by construction into one that has to be
 checked, and the first fifteen violations shipped in the same commit that
 created the possibility.
 
+## D-H7-36 — clay is the base, and wires nothing (2026-09-10)
+
+Raised by reading P10's result: there should not be a TLS stack, SQLite and a
+PDF engine in clay. There were, in all three cases, and P10 had only moved
+four apps off them.
+
+**184 app entries build against clay; 178 name no service at all.** Every one
+of those binaries linked `libsvc_dbx.a` + `libsvc_doc.a` + `libsvc_net.a` +
+`libsvc_notes.a` + `libsvc_spawn.a`, measured at 27 MB with 280 sqlite / 1,406
+rustls / 1,954 hayro symbols against 17 MB and none of them on a world that
+wires nothing. That was not an oversight in P10 so much as an inheritance: P0
+made clay the one-for-one replacement for the monolithic `platform-im`, whose
+whole content was "everything", and the exit measured the four worlds carved
+out rather than the 178 left behind.
+
+So clay wires nothing, and the six entries that DO name a service move to
+`platform/gate-<service>` — `gate-dbx`, `gate-net`, `gate-doc`, `gate-spawn`.
+The 178 do not move at all; they keep naming clay, which is why the change is
+small. `platform/audio` was carrying the same five for the same reason and now
+wires `audio` alone; clay's `world-eink-sim`/`world-vello` variants likewise.
+Every world now wires exactly what its name says, and `just world-nm` shows
+clay staging `libhost_im.a` by itself.
+
+A gate world per service rather than pointing the gates at the app worlds that
+already wire dbx/net/notes: a gate must not break because an app trimmed its
+exports. They fit today — checked — but by coincidence, and the coupling would
+be discovered as a failure in the wrong gate.
+
+**What the app's imports could not tell us.** `im-dbx-link` is the
+bundled-SQLite link proof; its Roc imports `View`, `Ui` and `Id` and nothing
+else, and it needs dbx wired because it asks the `dbx-link` GATE HOOK, which
+exists only inside svc-dbx. Reading imports would never have found it; the
+suite did. `just world-deps` now reads the hooks out of every
+`crates/svc-*/src/contract.rs` and checks a recipe that asks for one builds
+against a world that wires it.
+
+**And the checker was not checking.** `world-deps` matched `platform "../../`
+with a fixed two levels, so every `tests/integration/<gate>/x.roc` — three
+deep, and where all six service entries live — classified as "no world" and
+passed by not looking. Depth-agnostic now, and it immediately found a third
+recipe (`im-ground-gpu`) that had never composed anything. Second time in two
+days that a green check was green because it could not see; the first was
+`world-nm`'s `_5hayro`. Both are now positively controlled: a probe is run
+against something it must match, and the count of what was examined is
+printed.
+
+**D-H7-37 — the build lock covers the framework sysroot too.** Six gate
+recipes share `gate-dbx`, so six hematite processes composed the same world at
+once. `sync_framework_sysroot` rebuilds from scratch — `remove_dir_all`, then
+re-symlink — so one process deleted the tree while another's linker was
+reading it: `framework not found for -framework CoreText` on frameworks the
+world plainly declares, from a world that had just composed cleanly. Same
+hazard as D-H7-34's archive staging, one step further down the same function,
+and the same fix: the lock now runs through the sysroot sync. Beside it, every
+`<world>-host` recipe learned `im-host`'s `IM_HOST_READY` short-circuit and
+`im-check` composes all ten worlds once before the fan-out — which also took
+the suite from 234s to 91s, since a world was previously composed once per
+gate that used it.
+
+Also: a service crate compiles against the abi of a world that wires it, so
+`lint` and `test-host` pin each of the five to its own world's abi the way
+svc-audio already was. The workspace default abi is clay's, and clay no longer
+has a service type in it.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

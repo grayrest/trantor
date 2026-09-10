@@ -1,6 +1,10 @@
 # Plan: H7 — decompose roc-solid's platform-im into hematite components
 
-> **Status: COMPLETE 2026-09-09 (P0–P10).** Follow-up 2026-09-10: a driver's
+> **Status: COMPLETE 2026-09-09 (P0–P10).** Follow-up 2026-09-10: clay is
+> now THE BASE and wires nothing (D-H7-36) — 178 of its 184 app entries
+> named no service yet linked SQLite, rustls and hayro; the six that do
+> moved to `platform/gate-<service>`. A clay app is 17 MB with none of the
+> three, against 27 MB with all of them. Also: a driver's
 > `exports`/`frameworks` default into every world that wires it, so seven world
 > files stopped carrying the same two lists (D-H7-35), and `just world-clean`
 > drops the ~800 MB of composed output. P10: four per-app worlds
