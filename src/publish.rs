@@ -23,42 +23,47 @@ fn fnv1a(bytes: &[u8], mut h: u64) -> u64 {
     h
 }
 
-fn hash_file(path: &Path, h: u64) -> u64 {
-    match std::fs::read(path) {
-        Ok(b) => fnv1a(&b, h),
-        Err(_) => h,
-    }
+fn hash_file(path: &Path, h: u64) -> Result<u64, String> {
+    let b = std::fs::read(path)
+        .map_err(|e| format!("ABI fingerprint: read {}: {e}", path.display()))?;
+    Ok(fnv1a(&b, h))
 }
 
 /// Fingerprint what determines `libhost`'s ABI: the roc compiler binary's
 /// (size,mtime) and the glue spec. It deliberately does NOT hash the platform
 /// `.roc` sources — a Tier-1 pure-Roc addition (a new module + an `exposes`
 /// edit) changes those but adds no hosted symbols, so the prebuilt archives
-/// stay valid and the fingerprint must stay stable. The check a Tier-1 consumer
-/// runs is: does my compiler+glue match the baseline's? If yes, the prebuilt
-/// `libhost` was glued against a compatible ABI and can be reused without cargo
-/// or glue (H11). The `_dir` argument is kept for a future per-hosted-surface
-/// hash if a stricter check is wanted.
+/// stay valid and the fingerprint must stay stable.
+///
+/// **Machine-local by construction** (path, size and mtime are all local), so
+/// it answers "did my toolchain move since I published?" and NOT "is this
+/// baseline's toolchain the same as mine?". Making it portable is Track B
+/// (D-U1-5), deferred with the rest of prebuilt baselines (D-U1-9).
+///
+/// Every input is mandatory (D-U1-10). It used to swallow both failures —
+/// `hash_file` returned the accumulator unchanged on a read error and the roc
+/// block sat inside `if let Ok(md)` — so a machine with neither roc nor glue
+/// produced the bare FNV offset basis `cbf29ce484222325`, a plausible-looking
+/// hex string IDENTICAL ON EVERY MACHINE. A fingerprint that agrees with
+/// everything is worse than none: it is the stale-glue segfault this exists to
+/// prevent, wearing the costume of a passing check.
 pub fn abi_fingerprint(_dir: &Path) -> Result<String, String> {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    if let Ok(roc) = std::env::var("ROC").or_else(|_| {
-        std::env::var("HOME").map(|home| format!("{home}/.bin/roc"))
-    }) {
-        if let Ok(md) = std::fs::metadata(&roc) {
-            h = fnv1a(roc.as_bytes(), h);
-            h = fnv1a(&md.len().to_le_bytes(), h);
-            if let Ok(mtime) = md.modified() {
-                if let Ok(d) = mtime.duration_since(std::time::UNIX_EPOCH) {
-                    h = fnv1a(&d.as_secs().to_le_bytes(), h);
-                }
-            }
-        }
-    }
-    if let Ok(glue) = std::env::var("GLUE").or_else(|_| {
-        std::env::var("HOME").map(|home| format!("{home}/.bin/RustGlue.roc"))
-    }) {
-        h = hash_file(Path::new(&glue), h);
-    }
+    let home = std::env::var("HOME")
+        .map_err(|_| "ABI fingerprint: no $HOME and no $ROC to locate the roc compiler".to_string())?;
+    let roc = std::env::var("ROC").unwrap_or_else(|_| format!("{home}/.bin/roc"));
+    let md = std::fs::metadata(&roc)
+        .map_err(|e| format!("ABI fingerprint: stat roc at {roc}: {e} (set $ROC)"))?;
+    h = fnv1a(roc.as_bytes(), h);
+    h = fnv1a(&md.len().to_le_bytes(), h);
+    let mtime = md
+        .modified()
+        .map_err(|e| format!("ABI fingerprint: mtime of {roc}: {e}"))?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("ABI fingerprint: mtime of {roc} predates the epoch: {e}"))?;
+    h = fnv1a(&mtime.as_secs().to_le_bytes(), h);
+    let glue = std::env::var("GLUE").unwrap_or_else(|_| format!("{home}/.bin/RustGlue.roc"));
+    h = hash_file(Path::new(&glue), h)?;
     Ok(format!("{h:016x}"))
 }
 
@@ -87,6 +92,22 @@ pub fn publish(dir: &Path) -> Result<(), String> {
     }
     // Archives of test-only components (e.g. a testnet server) are linked into
     // the app but MUST NOT ship in the baseline: collect their file names to skip.
+    //
+    // KNOWN INCONSISTENCY, recorded not fixed (D-U1-10). The published
+    // `main.roc` is copied verbatim, and it still lists the skipped archive in
+    // `inputs:` and still binds its hosted symbols — so a baseline with any
+    // `test_only` component declares a file this function deliberately deleted
+    // and cannot link. Measured on b8-basic-cli: `libtestnet_host.a` in both
+    // targets' `inputs`, `trantor__testnet_host__start_test_server` in the
+    // hosted block, 12 archives shipped and that not one of them.
+    // `b8-basic-cli/verify.sh` asserts the archive is ABSENT and calls that a
+    // pass. Two-component has no test_only component, which is why
+    // `verify-tier.sh` builds a Tier-1 app from its dist and stays green.
+    //
+    // Fixing it needs a Track B decision: strip the component from
+    // `archive_order` and the hosted block too — and the published platform
+    // then differs from the one that was tested — or drop `test_only` and move
+    // test scaffolding into an overlay world. Deferred with D-U1-9.
     let test_archives: std::collections::BTreeSet<String> =
         match crate::manifest::load_world(dir, "world.toml") {
             Ok(world) => world
@@ -136,16 +157,34 @@ pub enum Tier {
 
 /// Classify a world's components into the extension tier. A world that adds any
 /// `kind = "host"`/`"driver"` component beyond a pure-Roc set is Tier 2.
-pub fn classify(world: &World) -> Tier {
+///
+/// An extension manifest is deliberately a PARTIAL world — `two-component`'s
+/// `extensions/tier1.toml` names `driver = "cli"` without declaring it, because
+/// the driver belongs to the baseline being extended and the manifest lists
+/// only what is ADDED. So this must not resolve the world; classification is a
+/// question about the delta, not about a composable whole.
+///
+/// It must, however, refuse an EMPTY delta (D-U1-10). With no components at all
+/// `host.is_empty()` was true and the answer was a confident "Tier 1: reuses the
+/// baseline's prebuilt archives" about a world that adds nothing and was never
+/// built — and a world scaffolded by `trantor new` has exactly that shape. The
+/// count is printed for the same reason: a check reports the size of what it
+/// examined.
+pub fn classify(world: &World) -> Result<(Tier, usize), String> {
+    let n = world.components.len();
+    if n == 0 {
+        return Err(
+            "tier: this world declares no components, so there is no extension to classify. \
+             An extension manifest lists what it ADDS over a baseline (see \
+             tests/golden/two-component/extensions/tier1.toml); an empty one answers nothing."
+                .to_string(),
+        );
+    }
     let host: Vec<String> = world
         .components
         .iter()
         .filter(|(_, c)| c.kind == "host" || c.kind == "driver")
         .map(|(n, _)| n.clone())
         .collect();
-    if host.is_empty() {
-        Tier::One
-    } else {
-        Tier::Two(host)
-    }
+    Ok((if host.is_empty() { Tier::One } else { Tier::Two(host) }, n))
 }

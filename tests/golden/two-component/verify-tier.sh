@@ -19,7 +19,7 @@ echo "ok: pure-Roc extension -> Tier 1; host extension -> Tier 2"
 
 # Tier-1 build from the PUBLISHED dist, no cargo/glue.
 T=$(mktemp -d)
-cp -r "$FIX/dist" "$T/baseline"
+cp -r "$FIX/target/trantor/two-component/dist" "$T/baseline"   # D-H7-38 moved this; line 11 was updated and this one was not
 cat > "$T/baseline/platform/Greet.roc" <<'ROC'
 Greet :: [].{
 	banner : Str -> Str
@@ -27,7 +27,7 @@ Greet :: [].{
 }
 ROC
 sed -i '' 's/exposes \[Path, Stdio, Env\]/exposes [Path, Stdio, Env, Greet]/; s/^import Env$/import Env\nimport Greet/' "$T/baseline/platform/main.roc"
-mkdir -p "$T/app" "$T/bin"
+mkdir -p "$T/app" "$T/target/trantor/two-component/bin"   # D-H7-38 moved bin/ too
 cat > "$T/app/main.roc" <<'ROC'
 app [main!] { pf: platform "../baseline/platform/main.roc" }
 import pf.Stdio

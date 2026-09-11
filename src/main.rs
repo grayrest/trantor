@@ -110,7 +110,8 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             let world = manifest::load_world(&dir, &world_file)?;
-            match publish::classify(&world) {
+            let (tier, examined) = publish::classify(&world)?;
+            match tier {
                 publish::Tier::One => {
                     println!("Tier 1: pure-Roc extension — reuses the baseline's prebuilt archives, no Rust toolchain (glue + libhost unchanged). Add module + edit exposes/import.");
                 }
@@ -118,6 +119,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     println!("Tier 2: adds host component(s) {hosts:?} — new hosted symbols, so full source composition (cargo + roc glue) is required. This crosses the tier cliff (D11).");
                 }
             }
+            println!("({examined} component(s) examined)");
             return Ok(());
         }
         other => return Err(format!("unknown subcommand {other:?}")),
