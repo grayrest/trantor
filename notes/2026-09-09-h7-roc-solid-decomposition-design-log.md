@@ -1073,15 +1073,39 @@ through the merge does not help — roc's link drops every custom section, so
 `bin/app.wasm` has none regardless. The stack is unreadable by construction;
 `nm` on the pre-merge archives is where the answer was.
 
+## The nomadic reader, migrated (2026-09-11)
+
+P8's remaining consumer. It now speaks `Cmd.Doc`/`Event.Doc` against the `doc`
+world, in `/Users/grayrest/Repositories/nomad/nomadic` — not `../nomad/nomadic`
+as this log said, which is worth correcting because the path mattered: its
+`../roc-solid` is a SYMLINK, and it pointed at the `roc-solid-eink` worktree, a
+branch that predates the whole decomposition. The reader was therefore not one
+re-point away from the typed union; it was building against a platform that had
+no `svc-doc` at all.
+
+Re-pointed at main, which is where that repo's own README already said the
+symlink went. The reader's imports are all standard modules, so its app code
+was portable; what was NOT portable is the device build, whose scripts pin
+`roc-solid-eink` by name and stay blocked until that branch merges main. Left
+that way deliberately and recorded in the reader's README — rewriting those
+scripts for a post-merge layout nobody has seen would be a guess.
+
+**What the typed union bought, measured.** `Doc.roc` 383 -> 187 lines and
+`Epub.roc` 475 -> 361: two hand-written wire formats and every parser for them,
+gone. The reader's verbs turned out to be exactly the interface's eleven, which
+is unsurprising — P8 designed the union from this reader — so the mapping was
+1:1 and the compiler found every call site. 254 expectations pass.
+
+The one shape change worth naming: `Doc.Block` was `{ rect, em, text }` and the
+event carries `{ x, y, w, h, em, text }`. Keeping the nesting would have meant
+rewrapping every block of every page — the per-page copy the typed union exists
+to remove — so the app flattened instead, nine call sites.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
   check` still runs its gates).
 - `roc:test/quiesce` (D20) across several effect sources — first real chance is
   `platform/clay` with dbx + net + spawn in flight; not a gate of this pass.
-- The nomadic reader (`../nomad/nomadic`) speaks `Cmd.Service("doc", …)` and
-  parses text; it needs re-pointing at `Cmd.Doc`/`DocEvent` in its own repo,
-  against a world that wires `svc-doc` (clay does). Its `test(doc)` and
-  cropped-page gates are the reader-side evidence P8 named.
 - `conduit-spec` (308/308) re-run the moment a toolchain builds `apps/conduit`
   again (`im-check-known-red` retries the build; the spec is one recipe more).
