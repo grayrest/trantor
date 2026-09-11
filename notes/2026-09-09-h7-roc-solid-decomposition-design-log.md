@@ -1007,6 +1007,35 @@ The general lesson: a seam that reaches for the environment or the filesystem
 is usually reporting that its API is missing a parameter or a return value.
 Both were true here, one of each.
 
+## The silent-check pattern, four times (2026-09-10/11)
+
+Worth naming, because it has now happened four times in this campaign and each
+time the check was green:
+
+1. `world-nm`'s hayro probe was `_5hayro`, which matches zero symbols in the
+   archive carrying 4,815 of them.
+2. `world-deps` matched app headers at a fixed `../../` depth, so every
+   `tests/integration/<gate>/x.roc` classified as "no world".
+3. The golden fixtures diffed regenerated output against committed copies of
+   itself, so a fixture could pass against output nobody had regenerated.
+4. `world-deps` again: after composed output moved under `target/trantor`
+   (D-H7-38) its pattern still said `platform/<world>/`, and it resolved 3 of
+   ~150 app builds — all three the legacy `signals` platform — straight through
+   the world collapse and the rename.
+
+The shape is always the same: a probe whose SUBJECT can silently become empty,
+reporting the absence of what it can no longer see as the absence of a problem.
+Neither a passing run nor a careful reading catches it; only asking the check
+what it examined does.
+
+So the rule this campaign ends with: **every check prints the size of what it
+examined, and fails when that is zero.** `world-nm` runs each probe against the
+archive that owns its symbols and fails if one matches nothing. `world-deps`
+prints app builds / gate-hook calls / abi uses, and treats a missing default
+abi patch as an error rather than a disabled branch. The fixtures compare
+against a reviewed snapshot that a perturbation test proved can fail. A count
+that falls off a cliff is the only warning these give.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
