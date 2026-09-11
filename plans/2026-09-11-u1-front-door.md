@@ -1,45 +1,73 @@
 # Plan: U1 — the front door (project setup, dependencies, new interfaces)
 
-> **Status: NOT STARTED.** Design log:
+> **Status: NOT STARTED. Revised 2026-09-11** after an independent review that
+> measured the tree rather than the prose; findings and the decisions they
+> forced are in the design log's "Independent review" and "Decisions from the
+> review" sections. **Scope halved: prebuilt baselines are deferred (D-U1-9).**
+> Design log:
 > [`notes/2026-09-11-u1-front-door-design-log.md`](../notes/2026-09-11-u1-front-door-design-log.md)
-> (D-U1-1…8). Toolchain pinned at `~/.bin/roc` = `roc-b07d7e-rebased-main`,
-> `RustGlue-b07d7e-rebased-main.roc`.
+> (D-U1-1…15). Toolchain pinned at `~/.bin/roc` = `roc-b07d7e-rebased-main`,
+> `RustGlue-b07d7e-rebased-main.roc`. macOS only, unchanged by this pass.
 
-One repo changes: **trantor**. A second repo is created: a published baseline
-(P6), which is where the whole thing is proved.
+One repo changes: **trantor**.
 
-Today the smallest working project is 10 authored files and 131 lines to print
-one string; there is no dependency mechanism (`InterfaceRef.source` is dead
-code); nothing reads a published baseline back; and the ABI fingerprint is
-machine-local so it could not match one if it did. This plan closes those four
-and adds `interface-stub`.
+## Scope
+
+**In (Track A) — dependencies and project setup, all source-composed.** A
+dependency is one line, fetched from GitHub or a local path and composed from
+source. A project authors no driver, no interfaces directory and no components
+directory. `cargo add` works. A new interface's Rust signature is generated
+rather than guessed.
+
+**Out (Track B) — prebuilt baselines, deferred to a second publisher
+(D-U1-9).** The portable fingerprint, release assets, and Tier-1 consumption.
+The design is settled and recorded; only the timing moved. Track A does not
+depend on any of it, and the deferred surface is disarmed rather than left
+lying (P0).
+
+**Dropped: the "no Rust toolchain" claim.** Composing from source needs cargo,
+which is what every Rust project needs. Say the true thing.
+
+**Dropped: old exit criterion 7.** Already implemented — `scan.rs:225-236`
+names both components, the symbol and `shared_symbols`, and
+`nm-scan/verify.sh:26-27` already asserts all three.
 
 ## Exit (the whole plan)
 
-Gated by `tests/golden/u1-front-door/verify.sh` unless noted. Every check
-prints the size of what it examined and fails when that is zero.
+Gated by `tests/golden/u1-front-door/verify.sh` and a new aggregate runner.
+Every check prints the size of what it examined and fails when that is zero.
 
-1. `trantor new resize --cli` produces a project of **exactly 2 authored files
-   totalling ≤ 15 lines**; the gate prints the file list and the line count and
-   fails on either a third file or a zero count.
-2. That project builds and runs **with `cargo` removed from `PATH`**, against a
-   baseline resolved from a GitHub release asset. The gate scrubs PATH, asserts
-   `command -v cargo` is empty, then builds — a run that finds cargo is a
-   failed test, not a passed one.
-3. `trantor add <org>/<repo>` resolves a semver tag on a real repo, writes
-   `trantor.lock` with a commit sha, and composes. A second run is a no-op that
-   changes no byte of the lock.
-4. Deleting the tag from the test repo and re-resolving falls back to default
-   branch HEAD, and the lock records the branch and sha rather than a tag.
-5. `trantor interface-stub resize` emits Rust that **compiles unmodified**
-   against the generated glue. The gate compiles it; it does not grep it.
-6. The Tier 2 crossing: `cargo add image` into the scaffolded host component,
-   rebuild, and the app still runs. `trantor tier` reports Tier 1 before and
-   Tier 2 after, and the gate asserts both.
-7. Two components vendoring one native produce a scan error naming **both
-   component names, the symbol, and `shared_symbols`**. Asserted on the message
-   text, extending `tests/golden/nm-scan`.
-8. Existing golden suite green (19 fixtures), zero-warning build, clippy clean.
+1. **Every command in the walkthrough exits zero and prints no error text**
+   (D-U1-15, replacing the old file-count metric). The gate captures stdout and
+   stderr per command and fails on a non-zero exit or a non-empty stderr. It
+   also records the `world.toml` diff the user hand-writes at each step, and
+   fails if any step requires editing a file the walkthrough did not name.
+2. `cargo add image` into a component scaffolded by `trantor new-interface`
+   **exits zero on a project fresh from `trantor new`**, with no prior compose.
+   `cargo metadata` on that component also exits zero — that is the
+   rust-analyzer precondition, and it is the half that actually gets used.
+3. `trantor add <org>/<repo>` resolves a semver tag, writes `trantor.lock` with
+   a peeled commit sha, and composes. A second `add` is a no-op changing no
+   byte of the lock. `trantor update` is what moves a pin, and the gate asserts
+   it moves exactly the one named.
+4. A `{ path = … }` dep composes with the network unreachable. The gate runs it
+   with no network and fails if anything resolves by reaching out.
+5. `trantor interface-stub resize` emits Rust that compiles unmodified, **links
+   into the composed world, and runs the app clean under the alloc gauge** —
+   `TRANTOR_ALLOC_GAUGE=1` reporting `allocs > 0` and `live == 0`, the
+   `b8-basic-cli/verify.sh` `balance()` shape. Compiling is the precondition,
+   not the gate: a `todo!()` body compiles, and the owned-argument rule
+   (D-U1-7) is a runtime property.
+6. Two deps colliding on a Roc module name, an archive name after `sanitize`,
+   a `[packages]` alias, or one wiring key each produce an error naming **both
+   packages**. Four cases, four fixtures.
+7. A dep whose manifest declares `cargo_root = "../../.."` (or an absolute
+   `path`, or an escaping `interfaces_dir`) is rejected before cargo runs.
+8. `trantor --help` lists every subcommand; `trantor` with no args does the
+   same and exits non-zero.
+9. Aggregate runner green across all 20 fixtures, and `git status --porcelain`
+   **empty afterwards** — the check that fails when P5's `.gitignore` prune is
+   wrong. Zero-warning build, clippy clean.
 
 ## Manifest additions
 
@@ -50,16 +78,16 @@ prints the size of what it examined and fails when that is zero.
 name = "resize"
 version = "0.2.0"            # informational; the resolved tag is the truth
 
-[provides.resize]            # one per interface offered
+[provides.resize]
 module = "Resize"
 component = "resize-host"
 
 [components.resize-host]
 kind = "host"
-path = "."                   # relative to the package root
+path = "."                   # confined to the package root (D-U1-13)
 
-[deps]                       # a package may have its own
-io = { github = "karl/roc-io" }
+[deps]
+io = { path = "../roc-io" }  # or { github = "karl/roc-io" }
 ```
 
 A baseline additionally declares what a consumer inherits (D-U1-6):
@@ -70,7 +98,9 @@ name = "basic-cli"
 provides_driver = "main-driver"
 ```
 
-`world.toml` — one new section, everything existing unchanged:
+`world.toml` — one new section; `driver`, `components` and `wiring` become
+optional (they are required today, `manifest.rs:15-26`, which is why the
+four-line manifest in the previous revision of this plan did not parse):
 
 ```toml
 [world]
@@ -79,157 +109,195 @@ name = "resize"
 
 [deps]
 basic-cli = { github = "karl/roc-basic-cli" }
-resize    = { github = "someone/roc-resize" }
+resize    = { path = "../roc-resize" }
 ```
 
-Expansion order at compose time: `[deps]` are expanded into `[interfaces]`,
-`[components]` and `[wiring]` entries first; anything the world states
-explicitly then **overrides** the expansion, keyed by name. That ordering is
-the whole of D-U1-1 — record it in `resolve.rs`, and add a unit test that a
-world naming `fs = "fs-confined"` beats a dep whose default wiring says
-`fs-unconfined`.
-
-`trantor.lock` — generated, committed:
+`trantor.lock` — generated, committed. No `baseline` field; that was Track B.
 
 ```toml
-# generated by trantor; edit world.toml instead
+# generated by trantor; run `trantor update` to move a pin
 [[package]]
 name = "basic-cli"
 github = "karl/roc-basic-cli"
 tag = "v1.2.0"               # or branch = "main" when the repo has no tags
-commit = "a1b2c3d4…"
-baseline = "sha256:…"        # present only when a release asset matched
+commit = "a1b2c3d4…"         # the PEELED sha (see P3)
 ```
 
 ## Phases
 
-### P0 — measure first (go/no-go)
+Ordered by value-per-risk, not by dependency: P1 ships alone and is useful on
+its own, P2 unblocks the only Rust story left, and the manifest surgery that
+everything else needs comes after both.
 
-Two unknowns that invalidate the plan if they fail, so nothing is built until
-both are answered.
+### P0 — disarm the deferred surface (D-U1-10)
 
-**(a) Can a platform be consumed from prebuilt archives alone?** Take
-`tests/golden/b8-basic-cli`, `trantor publish` it, move `dist/` somewhere else,
-delete the generated workspace and the abi crate, and build an app against the
-`dist/` platform with no cargo and no glue on the box. Every downstream phase
-assumes this works; nothing has ever tried it. If it fails, D-U1-4 collapses
-and the Tier 1 story has to be redesigned before P1.
+Small, and it stops two commands emitting confident wrong answers for however
+long Track B waits.
 
-**(b) Is a version-string fingerprint stable and discriminating?** Two roc
-installs of the same build at different paths must agree; two different builds
-must differ. Test with the pinned `b07d7e` and any second roc available. A
-fingerprint that agrees with everything is worse than none — it would hand a
-consumer archives glued against a different ABI, which is a segfault, not a
-build error.
+- `abi_fingerprint`: hard error when roc or the glue spec is unobtainable.
+  Today both failures are swallowed and the function returns the bare FNV
+  offset basis `cbf29ce484222325`, identical on every machine (measured).
+- `classify`: resolve the world and fail loudly rather than reading an empty
+  component map as purity. `trantor tier tests/golden/b8-basic-cli/extension`
+  prints Tier 1 today on a world `compose` refuses — the fifth instance of the
+  silent-check pattern. Print the component count examined.
+- Record, do not fix, the `test_only`/`dist` inconsistency: the published
+  `main.roc` lists `libtestnet_host.a` in `inputs` and binds its hosted symbol
+  while `publish` deletes the archive. Fixing it needs a Track B decision.
 
-Record both in the design log under "P0 findings" before P1 starts.
-
-### P1 — portable fingerprint + baseline consumption (trantor)
-
-- `publish.rs::abi_fingerprint`: hash the roc **version string** (`roc
-  --version`) and the glue spec's content. Delete the path, size and mtime
-  inputs (D-U1-5).
-- `dist/` gains `package.toml` describing what the baseline provides, so a
-  consumer reads one file rather than inferring from the directory.
-- `build.rs`: accept a resolved baseline directory as an alternative to a
-  composed source world — bind the app against its platform sources, link its
-  prebuilt archives, run neither cargo nor glue.
-- Fingerprint mismatch is an error with the two version strings in it, never a
-  warning. A stale-glue link is a runtime segfault; it does not get to be
-  advisory.
-- Gate: extend `b8-basic-cli/verify.sh` with P0(a) mechanised — publish, build
-  from `dist/` with PATH scrubbed of cargo.
-
-### P2 — package.toml, `[deps]`, and the lock (trantor)
-
-- `manifest.rs`: parse `package.toml`; add `World.deps`.
-- `resolve.rs`: expand deps into the three maps before the world's own entries,
-  with the override ordering above. Delete `InterfaceRef.source` — dead since
-  it was written, and a live `[deps]` makes it misleading rather than merely
-  unused.
-- `~/.trantor/cache/<fingerprint>/` for composed source deps;
-  `~/.trantor/cache/git/<org>/<repo>/<sha>/` for fetched sources.
-- `trantor.lock` read, write, and no-op-on-rerun.
-
-### P3 — `trantor add` (trantor)
-
-- `git ls-remote --tags <url>` → parse semver, pick the newest; no tags → the
-  default branch's HEAD (D-U1-3).
-- `git clone --depth 1 --branch <ref>` into the cache.
-- Release-asset probe: HEAD
-  `https://github.com/<org>/<repo>/releases/download/<tag>/baseline-<fp>.tar.zst`,
-  fetch on 200, fall through to source on 404.
-- No api.github.com anywhere. A test asserting no code path builds that host is
-  cheap and keeps the no-auth property from eroding.
-- Offline and no-network behaviour: a lock entry already in the cache resolves
-  without touching the network at all.
-
-### P4 — `trantor new` and `trantor run` (trantor)
-
-- `trantor new <name> --cli`: `world.toml` (4 lines) + `app/main.roc`. Nothing
-  else — no driver, no `interfaces/`, no `components/`, no workspace, and no
-  `.gitignore` listing generated paths (D-H7-38 already put everything under
-  `target/`, so `target/` alone covers it; the fixtures' per-module gitignores
-  are stale and should be pruned in this phase).
-- `trantor run [-- args]`: build then exec. The one command the walkthrough
-  leans on.
-- `trantor new-interface <name>`: scaffold `interfaces/<name>/` and
-  `components/<name>-host/` plus the wiring, so P5's stub has somewhere to go.
-
-### P5 — `interface-stub` (trantor)
+### P1 — `interface-stub` (independent; ship first)
 
 `trantor interface-stub <interface>` reads the interface's Roc declaration and
 the generated glue and emits the Rust impl skeleton: correct mangled symbol,
-correct generated argument type, correct `decref` per the owned-argument rule
-(D-U1-7). Writes `src/lib.rs` when absent, prints to stdout otherwise, so it is
-re-runnable after the Roc signature changes.
+correct generated argument type (`SubprocessHostExecOutputArgs` and friends are
+undiscoverable otherwise), correct `decref` per the owned-argument rule
+(D-U1-7). Writes `src/lib.rs` when absent, prints to stdout otherwise.
 
-Gate compiles the output. Grepping it would pass on a stub that does not build,
-which is the entire failure mode this is meant to remove.
+Document the sequence, because it is not obvious: for a brand-new interface the
+glue does not exist until `trantor build` has run once, which composes and
+glues (step 2) and then fails at the roc link on the undefined symbol. That
+run is a prerequisite, and the error it ends on is expected.
 
-### P6 — bootstrap the baseline, and the walkthrough
+Gate is exit criterion 5 — the alloc gauge, not a grep and not a bare compile.
 
-The `b8-basic-cli` world becomes its own GitHub repo with a `package.toml`, a
-semver tag, and a release carrying `baseline-<fp>.tar.zst` for the pinned roc.
-Until this exists the front door opens onto nothing.
+### P2 — cargo works in a scaffolded project (D-U1-11)
 
-Then the scenario end to end, as `tests/golden/u1-front-door/verify.sh`:
+Today, on a clean checkout: `cargo add image --manifest-path
+components/marker/Cargo.toml` writes `image = "0.25.10"` and *then* fails,
+because `trantor-abi = { path = "../../abi" }` resolves only inside the
+composed copy. `cargo check`, `cargo clippy` and `cargo metadata` fail
+identically, so rust-analyzer cannot load the crate.
 
-```
-trantor new resize --cli
-trantor run -- big.png small.png          # imagemagick; Tier 1, no cargo on PATH
-trantor new-interface resize
-trantor interface-stub resize             # compiles unmodified
-cargo add image --manifest-path components/resize-host/Cargo.toml
-trantor run -- big.png small.png          # Tier 2, same app code
-```
+`trantor new` emits a workspace root with `[patch.crates-io] trantor-abi =
+{ path = "target/trantor/<world>/abi" }` — the shape `tests/golden/cargo-root`
+already proves for this repo's own tooling. Decide and write down what happens
+before the first compose, when that path does not yet exist.
 
-The gate asserts every numbered exit criterion above. The app's Roc source must
-be **byte-identical across the Tier 1 and Tier 2 runs** — if moving the work
-from imagemagick into Rust changes the app, the interface boundary did not hold
-and the scenario proved nothing.
+Gate is exit criterion 2, on a project fresh from `trantor new`, exit code
+checked. A pre-composed fixture would pass while the user's case fails.
 
-### P7 — error messages
+### P3 — manifest schema (`package.toml`, `[deps]`, confinement)
+
+- Parse `package.toml`; add `World.deps` with `{ github = … }` and
+  `{ path = … }` (D-U1-12 — path deps are what make P4 and P5 testable with no
+  network and no published repo).
+- `#[serde(default)]` on `components` and `wiring`; `driver` becomes
+  `Option<String>` resolved after dep expansion. `load_driver`,
+  `default_driver_lists`, `resolve.rs:154-164` and `codegen.rs:92` all index it
+  unconditionally today.
+- `#[serde(deny_unknown_fields)]` throughout. Without it `driverr = "drv"` is
+  discarded silently and reported as *missing* `driver` at line 1, which is
+  exactly the error shape P6 exists to eliminate — and `[deps]` becoming the
+  primary authored surface makes this the dominant first-user error.
+- Confinement (D-U1-13): reject any `path`, `cargo_root` or `interfaces_dir`
+  from a *dependency* manifest that is absolute or escapes the package root
+  after normalization. Gate is exit criterion 7.
+- Reserve a `version` field, parsed and ignored, so a constraint has somewhere
+  to live later.
+- Delete `InterfaceRef.source` — dead since it was written, and a live `[deps]`
+  makes it misleading rather than merely unused.
+
+### P4 — resolution, the lock, and `add`/`update`/`remove`
+
+- Expansion: deps expand into `[interfaces]`/`[components]`/`[wiring]` first,
+  the world's own entries override by name (D-U1-1). Unit-test that a world
+  naming `fs = "fs-confined"` beats a dep defaulting to `fs-unconfined`.
+- Package-qualified internal keys (D-U1-14). Dep-vs-dep on one wiring key is an
+  error naming both packages. Duplicate `platform/*.roc` writes are an error, a
+  `BTreeSet` in `codegen::emit`. `sanitize` collisions are an error in
+  `resolve`. Gate is exit criterion 6, four fixtures.
+- Overriding the inherited driver must also drop it from the expanded map
+  (D-U1-6 as written did not say so): `resolve.rs:173-180` requires exactly one
+  `provides_runtime`, so an override currently yields two and fails H0c.
+- `git ls-remote --tags`, semver-sorted; **prefer the peeled `^{}` line** or
+  the lock records a tag object rather than a commit. No tags → default branch
+  HEAD via `git ls-remote --symref <url> HEAD`. Nothing touches api.github.com;
+  a test asserts no code path builds that host.
+- Fetch: `git clone --depth 1 --branch <ref>`, then `git rev-parse HEAD` and
+  compare against the lock. Tags are mutable; a mismatch is an error. For a
+  cold cache with a committed lock — the CI case — `git init && git fetch
+  origin <sha> --depth 1`, since `clone --branch` cannot take a sha.
+- `trantor update [<name>]` moves pins; `trantor remove <name>` removes one.
+  Without these the lock's own header tells the user to edit a file they cannot
+  usefully edit.
+- Cache at `~/.trantor/cache/git/<org>/<repo>/<sha>/`, keyed by package
+  identity. Composition stays in the project's own `target/trantor/` — a
+  cross-project compose cache buys a first-time user nothing and brings shared
+  mutable state that `cargo.rs:186` already needed a lock for.
+
+### P5 — `new`, `run`, `check`, `test`
+
+- `trantor new <name> --cli`: `world.toml`, `app/main.roc`, a workspace root
+  (P2), and a `.gitignore`. The `.gitignore` is not optional — without it
+  `git add -A` stages the composed tree, which is 1.8 GB for a basic-cli world.
+  The old metric forbade it; D-U1-15 replaced the metric.
+- Prune the 19 fixtures' stale per-module `.gitignore` lines (D-H7-38 moved
+  that output under `target/`). Not every line is stale — `hc0-features`
+  carries `Cargo.lock`, `b8-basic-cli` carries `examples-run/` and `dist/`.
+  Exact line anchors; the real check is criterion 9's clean `git status`.
+- `trantor check` — compose + `roc check`, no cargo, no link. This is the inner
+  loop and the tool has never had it.
+- `trantor test` — compose, `roc test` on the app, `cargo test` per host
+  component.
+- `trantor run [-- args]` — build then exec, with exit-code passthrough. Define
+  stdin and signal behaviour.
+- Project-root discovery so the commands work from a subdirectory, as cargo
+  does. Every subcommand takes a world-dir positionally today.
+- `trantor new-interface <name>`: scaffold `interfaces/<name>/` and
+  `components/<name>-host/` plus the wiring, so P1's stub has a home.
+
+### P6 — errors, help, and toolchain discovery
 
 The UX is the error messages, so they are a phase and not a cleanup.
 
-- H0c collision: both component names, the symbol, and the `shared_symbols`
-  escape hatch (exit criterion 7).
-- Fingerprint mismatch: both roc version strings, and that the fix is a
-  matching baseline or building from source.
-- No matching release asset: say that it is falling back to a source build and
-  that this needs cargo, before spending four minutes discovering it.
+- `trantor --help` / `-h` / `help` list every subcommand. All three print
+  `trantor: missing <world-dir>` today.
+- Find roc on PATH before `$HOME/.bin/roc` (`build.rs:46-52`), and say what is
+  missing and where it looked when it is not there. Same for `RustGlue.roc`,
+  including that roc's own `roc install` can fetch a glue spec.
 - A dep whose `package.toml` is missing: name the file and the repo, not a TOML
   parse error at line 1.
+- A release-tag URL that 404s is indistinguishable from a repo with no release
+  without the API; say the weaker true thing rather than guessing.
+- Offline with a cache miss — the most likely error a user on a plane sees, and
+  absent from the previous revision's list.
+
+### P7 — the walkthrough, and an aggregate runner
+
+`just verify` running all 20 fixtures, then `git status --porcelain` empty
+(criterion 9). There is no runner today: 19 `verify.sh` files, zero references
+in the justfile, so "golden suite green" has meant a human running nineteen
+scripts and remembering.
+
+Then the scenario, as `tests/golden/u1-front-door/verify.sh`, against a
+`{ path = … }` baseline fixture rather than a GitHub repo:
+
+```
+trantor new resize --cli
+trantor run -- big.png small.png          # imagemagick, via the baseline's subprocess
+trantor new-interface resize
+trantor interface-stub resize
+cargo add image --manifest-path components/resize-host/Cargo.toml
+trantor run -- big.png small.png          # same app code, work now in Rust
+```
+
+The app's Roc source must be **byte-identical across both runs**. If moving the
+work from imagemagick into Rust changes the app, the interface boundary did not
+hold and the walkthrough proved nothing.
 
 ## Risks
 
-- **P0(a) is genuinely unproven.** No fixture has consumed a published
-  baseline. Everything from P1 onward assumes it; that is why it is P0.
-- **Fingerprint over-strictness.** Keyed to a roc version string, every roc bump
-  invalidates every published asset. That is correct — the alternative is
-  linking mismatched glue — but it makes publishing cadence a real burden and
-  it should be measured, not discovered by a user (D-U1-4).
-- **The stale `.gitignore` prune in P4 touches 19 fixtures.** Three span-based
-  Justfile edits silently deleted content during H7. Use exact line anchors and
-  diff the file set against HEAD.
+- **P2's `[patch.crates-io]` points into `target/`,** which does not exist
+  before the first compose. If that turns out not to work from a clean
+  checkout, rust-analyzer stays broken and the Rust half of the pitch goes with
+  it. Measure it first inside P2; it is the phase's real content.
+- **P3's schema surgery re-arms four empty-set checks.** Making `components`
+  and `wiring` optional means `publish.rs:146`, `scan.rs:178`, `build.rs:207`
+  and `scan.rs:141` all start seeing empty inputs as clean. The last is the
+  sharpest: dep components live in the cache, so if expansion does not rewrite
+  `path` to an absolute cache path, `read_dir` fails, `rust_files` returns
+  empty, and every dependency's `#[global_allocator]` sails through the D-H7-13
+  guard. Apply the H7 rule to all four in the same commit.
+- **The `.gitignore` prune touches 19 fixtures.** Three span-based Justfile
+  edits silently deleted content during H7. The mitigation is criterion 9's
+  clean `git status`, which checks the effect rather than the edit.
