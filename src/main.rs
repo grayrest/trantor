@@ -32,6 +32,7 @@ mod resolve;
 mod scan;
 mod services;
 mod splice;
+mod stub;
 mod symbols;
 mod wasm;
 
@@ -53,11 +54,24 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut it = args.iter().skip(1);
     let cmd = it
         .next()
-        .ok_or("usage: trantor <compose|build|publish|tier|scan> <world-dir> [flags]")?;
+        .ok_or("usage: trantor <compose|build|publish|tier|scan|interface-stub> <world-dir> [flags]")?;
     let dir = PathBuf::from(it.next().ok_or("missing <world-dir>")?);
 
     match cmd.as_str() {
         "compose" => {}
+        "interface-stub" => {
+            // D-U1-7: the Rust signature for a hosted interface, from the Roc
+            // declaration and the generated glue, instead of guessed.
+            let iface = it.next().ok_or("interface-stub: missing <interface>")?.clone();
+            let mut world_file = String::from("world.toml");
+            while let Some(f) = it.next() {
+                match f.as_str() {
+                    "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
+                    other => return Err(format!("unknown flag {other:?}")),
+                }
+            }
+            return stub::interface_stub(&dir, &world_file, &iface);
+        }
         "publish" => return publish::publish(&dir),
         "build" => {
             // The full pipeline: compose + glue + cargo + scan + roc check/build.

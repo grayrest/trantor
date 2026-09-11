@@ -1,0 +1,25 @@
+# U1 P1: the fixture for `trantor interface-stub` (D-U1-7). One hosted
+# interface with three leaves chosen to cover what the stub has to get right:
+# a refcounted argument AND a refcounted return (`shout!`), a refcounted
+# argument with a scalar return (`count!`), and a scalar argument with no
+# return (`emit!`) — the case where emitting a decref would be wrong.
+[world]
+name = "u1-stub"
+driver = "drv"
+exports = ["Text"]
+
+[interfaces.text]
+source = "u1:text@0.1.0"
+
+[components.drv]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+
+[components.text-host]
+kind = "host"
+lang = "rust"
+exports = ["text"]
+
+[wiring]
+text = "text-host"
