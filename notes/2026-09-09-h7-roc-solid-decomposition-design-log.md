@@ -1036,14 +1036,49 @@ abi patch as an error rather than a disabled branch. The fixtures compare
 against a reviewed snapshot that a perturbation test proved can fail. A count
 that falls off a cliff is the only warning these give.
 
+## D-H7-41 — `wasm_size_correct` is thin LTO, because fat gives every component its own heap (2026-09-11)
+
+D-H7-31's trap, diagnosed. A size-correct DOM world trapped with `memory
+access out of bounds` in the first frame after `svc-notes-dom`'s listing
+arrived; the counter, which never reaches a service completion, ran either way.
+
+`std::sys::alloc::wasm::DLMALLOC` is the heap, and merged components share one
+linear memory, so there must be exactly one. `--allow-multiple-definition`
+gives that, first-wins — but only while the symbol is GLOBAL. Fat LTO
+internalizes it to a LOCAL symbol, which a linker cannot unify, so every
+component ends up with its own dlmalloc handing out the same memory. The first
+allocation after a second component has allocated lands on memory that is
+already owned. `nm` on the two builds is the whole diagnosis: `D` in the plain
+build, `d` in the size-correct one.
+
+The fix is `lto = "thin"`, which keeps the symbol global. It costs nothing
+worth having: the intermediate host.wasm is 796 KB against fat's 635 KB, and
+the FINAL module is 1,082,384 bytes against fat's 1,086,348 — thin is actually
+smaller, because roc's link and wasm-opt GC the difference away. So the unsafe
+option was not buying anything, which is the part worth remembering.
+
+The knob is now ON for `platform/dom`, and both DOM apps run size-correct with
+no traps: the counter increments on click, notesviewer lists `notes/` through
+`svc-notes-dom` — the exact frame that used to trap.
+
+**Checked, not remembered.** `check_one_allocator` refuses a wasm merge in
+which any component defines the allocator state locally, naming the components
+and the fix. Verified by forcing fat LTO back: it refuses. That is the same
+discipline as the rest of this campaign — the failure was invisible for two
+days because nothing looked, and a comment would have been just as invisible.
+
+**What did not work, for the next person:** the note said the trap could not be
+read because the LTO'd module carries no names. Keeping the name section
+through the merge does not help — roc's link drops every custom section, so
+`bin/app.wasm` has none regardless. The stack is unreadable by construction;
+`nm` on the pre-merge archives is where the answer was.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
   check` still runs its gates).
 - `roc:test/quiesce` (D20) across several effect sources — first real chance is
   `platform/clay` with dbx + net + spawn in flight; not a gate of this pass.
-- `wasm_size_correct` traps on the first service completion (D-H7-31); the
-  DOM world builds plain until the trap is diagnosed.
 - The nomadic reader (`../nomad/nomadic`) speaks `Cmd.Service("doc", …)` and
   parses text; it needs re-pointing at `Cmd.Doc`/`DocEvent` in its own repo,
   against a world that wires `svc-doc` (clay does). Its `test(doc)` and

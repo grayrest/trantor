@@ -97,6 +97,9 @@ pub fn stage_host_wasm(dir: &Path, gen: &Path, world: &World, r: &Resolved) -> R
     }
     drop(lock);
 
+    // One heap for the merged module, before anything links against it.
+    check_one_allocator(&archives)?;
+
     // 3 + 4. The merge: driver whole (first in archive_order), components rooted.
     let out = gen.join("platform").join("targets").join("wasm32");
     std::fs::create_dir_all(&out).map_err(|e| format!("mkdir {}: {e}", out.display()))?;
@@ -105,7 +108,7 @@ pub fn stage_host_wasm(dir: &Path, gen: &Path, world: &World, r: &Resolved) -> R
     // runs on. Measured on roc-solid's DOM host (D25): the difference between
     // a 500 KB and a 40 KB host object.
     // `--allow-multiple-definition`: first wins, which is what the roc link
-    // does with archives anyway. Needed because a size-correct build (fat LTO
+    // does with archives anyway. Needed because a size-correct build (LTO
     // into one codegen unit per component) leaves each component's object
     // carrying std's externally-visible runtime singletons —
     // `rust_eh_personality`, `std::panicking::EMPTY_PANIC` — which the driver
@@ -179,6 +182,54 @@ fn root_members(members: &[PathBuf], prefix: &str) -> Result<Vec<PathBuf>, Strin
         }
     }
     Ok(roots)
+}
+
+/// Refuse a merge in which a component carries its OWN copy of std's allocator
+/// state (D-H7-41).
+///
+/// `std::sys::alloc::wasm::DLMALLOC` is the heap. Merged components share one
+/// linear memory, so there must be exactly one — which `--allow-multiple-
+/// definition` gives, first-wins, as long as the symbol stays GLOBAL. Fat LTO
+/// internalizes it to a local symbol, which the linker cannot unify: each
+/// component then hands out the same memory twice, and the module traps with
+/// `memory access out of bounds` on the first allocation after a second
+/// component has allocated. That cost a day to find, so it is checked rather
+/// than remembered.
+fn check_one_allocator(archives: &[(String, PathBuf, Vec<PathBuf>)]) -> Result<(), String> {
+    const ALLOC_STATE: &str = "3sys5alloc4wasm8DLMALLOC";
+    let nm = llvm_tool("llvm-nm");
+    let mut private = Vec::new();
+    for (comp, archive, _) in archives {
+        let out = Command::new(&nm)
+            .arg("--defined-only")
+            .arg(archive)
+            .output()
+            .map_err(|e| format!("run {} on {}: {e}", nm.display(), archive.display()))?;
+        let mut saw = false;
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            if f.len() == 3 && f[2].contains(ALLOC_STATE) {
+                saw = true;
+                // Lowercase is a local binding: private to this object.
+                if f[1] == "d" || f[1] == "b" {
+                    private.push(comp.clone());
+                }
+            }
+        }
+        let _ = saw;
+    }
+    if !private.is_empty() {
+        return Err(format!(
+            "components {private:?} carry a PRIVATE copy of std's allocator state \
+             ({ALLOC_STATE} is a local symbol). Merged components share one linear \
+             memory, so a private heap hands out memory another component already \
+             owns — the module traps with `memory access out of bounds` on the first \
+             allocation after a second component has allocated. Fat LTO does this; \
+             `lto = \"thin\"` keeps the symbol global so first-wins gives the module \
+             one allocator (D-H7-41)."
+        ));
+    }
+    Ok(())
 }
 
 /// Step 5: scan the wasm archives, then check and link the app.

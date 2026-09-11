@@ -85,9 +85,22 @@ pub fn build(
             // a workspace member is ignored, and `cargo-features =
             // ["panic-immediate-abort"]` would make the whole workspace fail
             // to parse on stable.
+            // The D25 recipe, as environment overrides: a `[profile]` block in
+            // a workspace member is ignored, and `cargo-features =
+            // ["panic-immediate-abort"]` would make the whole workspace fail
+            // to parse on stable.
+            //
+            // `lto = "thin"`, NOT fat (D-H7-41). Fat LTO internalizes std's
+            // allocator state — `std::sys::alloc::wasm::DLMALLOC` becomes a
+            // LOCAL symbol — so every component gets its own dlmalloc over the
+            // one linear memory, and `--allow-multiple-definition` cannot
+            // unify what is no longer a global symbol. They then hand out the
+            // same memory twice. Thin keeps it global, so first-wins gives the
+            // whole module one allocator, which is D-H7-13's rule (one
+            // runtime, the driver's) applied to the heap.
             cmd.env("RUSTC_BOOTSTRAP", "1")
                 .env("CARGO_PROFILE_RELEASE_OPT_LEVEL", "z")
-                .env("CARGO_PROFILE_RELEASE_LTO", "true")
+                .env("CARGO_PROFILE_RELEASE_LTO", "thin")
                 .env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1")
                 .env("CARGO_PROFILE_RELEASE_STRIP", "true")
                 .env("RUSTFLAGS", "-Zunstable-options -Cpanic=immediate-abort");

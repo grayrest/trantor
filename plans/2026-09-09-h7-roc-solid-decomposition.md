@@ -25,7 +25,8 @@
 > driver's `dom_svc_*` externs, `trantor build --target wasm32` in place of
 > `dom-host`/`dom-app`, and the counter, notesviewer and the request fixture
 > running in a browser; the shim learned wasm32 (D-H7-32); the size-correct
-> knob exists but traps (D-H7-31). P8: the document
+> knob is ON — fat LTO gave every component its own heap; thin does not
+> (D-H7-41). P8: the document
 > engine left the host — `svc-doc`, `Doc`/`DocEvent` typed per verb, page draw
 > lists published through `HostCtx.register_group` (D-H7-11 as built: borrowed
 > for the call, D-H7-29); 0 hayro symbols in the driver; `im-doc` gates the
