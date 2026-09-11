@@ -1101,6 +1101,36 @@ event carries `{ x, y, w, h, em, text }`. Keeping the nesting would have meant
 rewrapping every block of every page — the per-page copy the typed union exists
 to remove — so the app flattened instead, nine call sites.
 
+## D-H7-42 — a world declares its own native targets (2026-09-11)
+
+Found by merging H7 into roc-solid's `host-eink` branch. That branch had added
+`arm64musl` and `arm64glibc` — the Nomad's ELF and its PIE variant — to the
+`targets:` block of the hand-written `platform-im/main.roc`. H7 generates that
+block, so after the merge those entries had nowhere to live and the device
+build could not be regenerated at all.
+
+`[world] targets` is the home: roc target names appended to the two every world
+gets. wasm32 stays out of it, declared by a driver having `wasm_exports`,
+because whether a driver can BE a wasm module is the driver's property and not
+the world's — a distinction worth keeping, since the two look alike in the
+generated file and are not alike at all.
+
+**The merge itself is the interesting record.** 504 files on main against 16 on
+the branch, overlapping in three, and the three divided cleanly: a rename git
+tried to content-merge (the retired platform header into the new driver.toml),
+two `main()` additions that both belonged (bionic's missing argv, and the
+service gate chain), and a feature rename the branch had made for a real reason
+— `desktop` split into `windowing` so Android could have the winit adapter
+without `arboard`, which has no android backend.
+
+One latent bug on main surfaced only under the merge: `#[cfg(feature =
+"desktop")]` on window.rs's `scroll` import is orphaned from a
+`use crate::worker::Worker` deleted when svc-spawn took the worker. Harmless on
+main — nothing outside a window paints — but the panel loop flings and paints
+through that same machinery, so `--features eink` did not compile until the
+gate widened to `any(windowing, eink)`. A cfg that outlives the item it was
+written for is invisible until someone compiles the other half.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

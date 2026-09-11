@@ -295,6 +295,10 @@ fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {
     s.push_str("\t\tinputs_dir: \"targets/\",\n");
     s.push_str(&format!("\t\tarm64mac: {{ inputs: {inputs} }},\n"));
     s.push_str(&format!("\t\tx64mac: {{ inputs: {inputs} }},\n"));
+    // Whatever else the world links for — a device target, typically.
+    for t in &world.world.targets {
+        s.push_str(&format!("\t\t{t}: {{ inputs: {inputs} }},\n"));
+    }
     if !driver.wasm_exports.is_empty() {
         // ONE merged host.wasm (D-H7-9 revised): roc links wasm inputs
         // --whole-archive, so per-component inputs collide; `build` merges.

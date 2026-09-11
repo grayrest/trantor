@@ -46,6 +46,17 @@ pub struct WorldMeta {
     /// `interfaces`). Several worlds of one repo share one directory.
     #[serde(default)]
     pub interfaces_dir: Option<String>,
+    /// Native targets the composed `main.roc` declares, beyond the two every
+    /// world gets (`arm64mac`, `x64mac`). roc emits one link per entry and
+    /// rejects a name it does not know, so these are roc target names —
+    /// `arm64musl` and `arm64glibc` for roc-solid's e-ink device, whose ELF
+    /// and PIE variants are what the Nomad links against.
+    ///
+    /// wasm32 is NOT here: a driver declares that by having `wasm_exports`,
+    /// because whether a driver can BE a wasm module is the driver's property
+    /// rather than the world's.
+    #[serde(default)]
+    pub targets: Vec<String>,
     /// wasm32 only (D-H7-31): build every component the SIZE-CORRECT way —
     /// `-Z build-std` with immediate-abort panics, opt-level z, fat LTO, one
     /// codegen unit, stripped — roc-solid's `dom-host` recipe, measured at a
