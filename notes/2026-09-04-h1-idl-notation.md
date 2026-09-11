@@ -1,19 +1,19 @@
 # H1 — IDL notation sketch (paper)
 
-Gate H1 of [`plans/2026-09-04-hematite-v1.md`](../plans/2026-09-04-hematite-v1.md).
+Gate H1 of [`plans/2026-09-04-trantor-v1.md`](../plans/2026-09-04-trantor-v1.md).
 Paper only: this proves the superset (D3) can carry both real boundary shapes
 and fixes the projectable-subset line. No code.
 
 The IDL is WIT-shaped in its core type system and syntax, with named Roc
 extensions. An interface using only the core **projects to a real `.wit` file**;
-one using an extension is Roc-only and hematite *reports* it (D3, never errors).
+one using an extension is Roc-only and trantor *reports* it (D3, never errors).
 
 ## 1. Core type system — the projectable subset
 
 Direct correspondence, both directions checked against seahaven's plain-data
 boundary (the WIT-friendly platform):
 
-| hematite IDL | WIT | Roc surface | glue (Rust) |
+| trantor IDL | WIT | Roc surface | glue (Rust) |
 | --- | --- | --- | --- |
 | `bool u8 u16 u32 u64 s8..s64 f32 f64` | same | `Bool U8 … I64 F32 F64` | scalars |
 | `char` | `char` | `U32` (scalar value) | `u32` |
@@ -110,14 +110,14 @@ reach) did not fire.
 G1 established that a funnel-crossing closure with **inferred open-row or unbound
 dep types** typechecks, builds, then *silently corrupts memory when fired*
 (mismatched monomorphization layouts under the erased downcast). So the `closure`
-extension has a well-formedness condition hematite checks at compose time:
+extension has a well-formedness condition trantor checks at compose time:
 
 > Every type parameter of a `closure`'s argument and return must be a **closed,
 > concrete** type at the interface definition — no open row (`[… , ..]`), no
 > unbound variable. A `closure<() => T>` is only well-formed once `T` is pinned
 > by the interface (e.g. `dep-thunk`'s `T` is the slot's declared payload type).
 
-An interface that leaves a closure's types open is **rejected by hematite**, not
+An interface that leaves a closure's types open is **rejected by trantor**, not
 passed to `roc build` — because the failure mode is silent corruption, the one
 thing that must never reach the compiler. This is the single place the IDL is
 *stricter* than Roc itself, and deliberately so.

@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/b8-basic-cli/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/b8-basic-cli/platform/main.roc" }
 import pf.OsStr
 import pf.Stdout
 import pf.Env

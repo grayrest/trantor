@@ -37,7 +37,7 @@ pub struct WorldMeta {
     #[serde(default)]
     pub shared_symbols: Vec<String>,
     /// A HOST cargo workspace that already owns this world's `path` components
-    /// (relative to the world dir; D-H7-14). When set, hematite emits no
+    /// (relative to the world dir; D-H7-14). When set, trantor emits no
     /// workspace `Cargo.toml` and builds each component inside that workspace
     /// with this world's abi patched in — see `cargo.rs`.
     #[serde(default)]
@@ -106,7 +106,7 @@ pub struct Component {
     pub test_only: bool,
     /// macOS system frameworks this component links (e.g. `CoreFoundation`,
     /// pulled in by turso via chrono/iana_time_zone). roc links a framework only
-    /// from a platform-bundled sysroot, so `hematite build` generates
+    /// from a platform-bundled sysroot, so `trantor build` generates
     /// `platform/targets/macos-sysroot` containing exactly the frameworks the
     /// world's components declare — and none, skipping the sysroot entirely,
     /// when no component declares any. Mirrors the crate's own
@@ -123,14 +123,14 @@ pub struct Component {
 
 /// The directory a component's sources live in: `path` if declared, else
 /// `components/<name>/` under the world dir.
-/// Where a composed world is written: `<base>/target/hematite/<name>`
+/// Where a composed world is written: `<base>/target/trantor/<name>`
 /// (D-H7-38). Generated files are separated from source by construction —
 /// `target/` is already ignored, so a world directory holds its `world.toml`
 /// and nothing else.
 ///
 /// `<base>` is the world's `cargo_root` when it declares one, so every world
 /// of a repo composes under the one `target/` its crates already build into;
-/// otherwise the world's own directory. Namespaced under `hematite/` rather
+/// otherwise the world's own directory. Namespaced under `trantor/` rather
 /// than sitting at the top of `target/`, where cargo owns the names and a
 /// world called `release` would land on `target/release`.
 ///
@@ -151,7 +151,7 @@ pub fn out_dir(world_dir: &Path, world: &World) -> PathBuf {
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_else(|| world.world.name.clone());
-    base.join("target").join("hematite").join(key)
+    base.join("target").join("trantor").join(key)
 }
 
 pub fn component_dir(world_dir: &Path, name: &str, c: &Component) -> PathBuf {
@@ -181,7 +181,7 @@ pub struct Interface {
     pub hosted: Vec<HostedLeaf>,
     /// Resource types this interface declares (P5). A resource is a refcounted
     /// opaque host handle spelled `Name :: Box(U64)` in the shipped binding
-    /// module; the host builds it with `hematite_abi::resource::new` and the
+    /// module; the host builds it with `trantor_abi::resource::new` and the
     /// driver's `roc_dealloc` runs its destructor on the last Roc drop.
     #[serde(default)]
     #[allow(dead_code)]
@@ -189,7 +189,7 @@ pub struct Interface {
     /// `kind = "service"` (D-H7-5): the interface is a service whose command
     /// union is `module`'s nominal, spliced into the driver's `Cmd` as the
     /// wrapper variant `<Module>(<Module>)`; the wired component implements the
-    /// D-H7-7 contract (`hematite__<c>__init/cmd/complete/gate`, `env`) instead
+    /// D-H7-7 contract (`trantor__<c>__init/cmd/complete/gate`, `env`) instead
     /// of hosted leaves. Absent: an ordinary hosted interface.
     #[serde(default)]
     pub kind: Option<String>,
@@ -218,7 +218,7 @@ pub struct ResourceDecl {
 #[derive(Debug, Deserialize, Clone)]
 pub struct HostedLeaf {
     pub leaf: String,        // e.g. "file_read!"
-    pub symbol_stem: String, // e.g. "file_read" -> hematite__<component>__file_read
+    pub symbol_stem: String, // e.g. "file_read" -> trantor__<component>__file_read
 }
 
 /// The driver's `driver.toml`: its spliced `requires`, provided adapter, and
@@ -252,8 +252,8 @@ pub struct Driver {
     #[serde(default)]
     pub contract_from: Option<String>,
     /// A reactor driver (multi-provides, host-calls-app) ships its own host
-    /// src/lib.rs; hematite generates only its Cargo.toml, not the CLI driver
-    /// body. A CLI driver leaves this false and hematite generates the body.
+    /// src/lib.rs; trantor generates only its Cargo.toml, not the CLI driver
+    /// body. A CLI driver leaves this false and trantor generates the body.
     #[serde(default)]
     pub authored_host: bool,
     /// Always emit the services shim, even in a world that wires no service
@@ -385,7 +385,7 @@ mod tests {
 
     /// A world dir with `components/drv/driver.toml` carrying `body`.
     fn fixture(tag: &str, body: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hematite-manifest-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("trantor-manifest-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("components/drv")).unwrap();
         std::fs::write(

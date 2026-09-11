@@ -1,5 +1,5 @@
 //! imview driver HOST (hand-authored — a reactor driver ships its own host;
-//! hematite generates only the runtime symbols for a CLI driver, so this slice
+//! trantor generates only the runtime symbols for a CLI driver, so this slice
 //! documents that a non-trivial driver provides driver_main itself). It calls
 //! the app's roc_im_init/roc_im_view across the boundary and renders the
 //! recursive Element tree to text (headless -- no wgpu). Every boundary is
@@ -7,7 +7,7 @@
 #![allow(dead_code)]
 use core::ffi::c_void;
 use core::ptr;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::{Env, Element, ElementTag, RocBox, AnonStruct74775b1f87f9c7ed as View};
 
 #[unsafe(no_mangle)] pub extern "C" fn roc_alloc(l: usize, a: usize) -> *mut c_void { abi::DefaultAllocators::roc_alloc(ptr::null_mut(), l, a) }
@@ -42,6 +42,6 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
         let view = unsafe { roc_im_view(model) };        // app renders -> { tree: Element }
         println!("{}", render(&view.tree));
     });
-    if outcome.is_err() { eprintln!("[hematite] driver caught a panic"); return 70; }
+    if outcome.is_err() { eprintln!("[trantor] driver caught a panic"); return 70; }
     0
 }

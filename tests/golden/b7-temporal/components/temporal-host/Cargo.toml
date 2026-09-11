@@ -6,5 +6,5 @@ publish = false
 [lib]
 crate-type = ["staticlib", "rlib"]
 [dependencies]
-hematite-abi = { path = "../../abi" }
+trantor-abi = { path = "../../abi" }
 temporal_rs = "=0.2.6"

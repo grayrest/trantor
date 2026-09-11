@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/b5-subprocess/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/b5-subprocess/platform/main.roc" }
 import pf.Stdout
 import pf.Cmd
 

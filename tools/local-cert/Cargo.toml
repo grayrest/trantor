@@ -3,9 +3,9 @@ name = "local-cert"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "Generate a self-signed localhost cert+key for hematite's HEMATITE_HTTP_EXTRA_CA."
+description = "Generate a self-signed localhost cert+key for trantor's TRANTOR_HTTP_EXTRA_CA."
 
-# Standalone: its own workspace so rcgen's crypto deps stay OUT of the hematite
+# Standalone: its own workspace so rcgen's crypto deps stay OUT of the trantor
 # tool's lock/build (every fixture verify runs `cargo build` on that workspace).
 [workspace]
 

@@ -7,7 +7,7 @@
 //! InternalHttp.to_host_method encoding (CONNECT=0 … TRACE=9), `Unknown` told
 //! apart by a non-empty method_ext (H15).
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::*;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -20,12 +20,12 @@ type Ok = AnonStructD04f4a420a7c0c28;
 
 /// The one shared Agent (H8): built once, reused for every send! so connections
 /// pool and (in HC4) TLS initializes once. Redirect policy from the env (H16):
-/// HEMATITE_HTTP_MAX_REDIRECTS (default 10), and hitting the ceiling returns the
+/// TRANTOR_HTTP_MAX_REDIRECTS (default 10), and hitting the ceiling returns the
 /// last response rather than erroring (browser-like). Non-2xx is success (H3).
 fn agent() -> &'static Agent {
     static A: OnceLock<Agent> = OnceLock::new();
     A.get_or_init(|| {
-        let max_redirects: u32 = std::env::var("HEMATITE_HTTP_MAX_REDIRECTS")
+        let max_redirects: u32 = std::env::var("TRANTOR_HTTP_MAX_REDIRECTS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
@@ -42,7 +42,7 @@ fn agent() -> &'static Agent {
 
 /// TLS trust (H13, `tls` feature only). ureq supplies the ring CryptoProvider
 /// itself, so this only chooses the root store: webpki-roots by default, and —
-/// when HEMATITE_HTTP_EXTRA_CA points at a PEM — webpki-roots **plus** those
+/// when TRANTOR_HTTP_EXTRA_CA points at a PEM — webpki-roots **plus** those
 /// certs (additive: public CAs stay trusted; the extra CA is the local-dev /
 /// corporate / test hook). One env var, one PEM file, no replace-the-store mode.
 #[cfg(feature = "tls")]
@@ -50,7 +50,7 @@ mod tls {
     use ureq::tls::{Certificate, RootCerts, TlsConfig};
 
     pub fn config() -> TlsConfig {
-        let root_certs = match std::env::var_os("HEMATITE_HTTP_EXTRA_CA") {
+        let root_certs = match std::env::var_os("TRANTOR_HTTP_EXTRA_CA") {
             None => RootCerts::WebPki,
             Some(path) => match std::fs::read(&path) {
                 Ok(pem) => {
@@ -102,7 +102,7 @@ fn send_err(e: &ureq::Error) -> HttpHostSendResult {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__http_host__send(a: HttpHostSendArgs) -> HttpHostSendResult {
+pub extern "C-unwind" fn trantor__http_host__send(a: HttpHostSendArgs) -> HttpHostSendResult {
     let uri = a.uri.as_str().to_string();
     let method_str = if !a.method_ext.is_empty() {
         a.method_ext.as_str().to_string()

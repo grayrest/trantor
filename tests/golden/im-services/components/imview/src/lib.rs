@@ -9,7 +9,7 @@ use abi::services;
 use abi::{Element, ElementTag, Env, Event, RocBox, RocList};
 use core::ffi::c_void;
 use core::ptr;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 
@@ -156,6 +156,6 @@ pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
     });
     match outcome {
         Ok(rc) => rc,
-        Err(_) => { eprintln!("[hematite] driver caught a panic"); 70 }
+        Err(_) => { eprintln!("[trantor] driver caught a panic"); 70 }
     }
 }

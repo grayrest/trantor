@@ -11,7 +11,7 @@ use std::path::Path;
 /// it binds to in the composed `main.roc` hosted{} block.
 #[derive(Debug, Clone)]
 pub struct HostedBinding {
-    pub symbol: String, // hematite__<head>__<stem>
+    pub symbol: String, // trantor__<head>__<stem>
     pub module: String, // e.g. "Fs"
     pub leaf: String,   // e.g. "file_read!"
 }
@@ -57,7 +57,7 @@ pub struct Service {
 impl Service {
     /// The mangled prefix of the component's contract symbols.
     pub fn symbol_prefix(&self) -> String {
-        format!("hematite__{}__", sanitize(&self.component))
+        format!("trantor__{}__", sanitize(&self.component))
     }
 }
 
@@ -128,7 +128,7 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
         } else {
             for HostedLeaf { leaf, symbol_stem } in &iface.hosted {
                 hosted.push(HostedBinding {
-                    symbol: format!("hematite__{}__{symbol_stem}", sanitize(head)),
+                    symbol: format!("trantor__{}__{symbol_stem}", sanitize(head)),
                     module: iface.module.clone(),
                     leaf: leaf.clone(),
                 });

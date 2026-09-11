@@ -14,8 +14,8 @@ changed=$(diff "$S/Cmd.roc" "$B/components/cmd-lib/Cmd.roc" | grep -cE '^<' || t
 [[ "$changed" == "2" ]] || { echo "FAIL: Cmd.roc has $changed removed/changed seahaven lines (expected exactly 2)"; diff "$S/Cmd.roc" "$B/components/cmd-lib/Cmd.roc" | grep -E '^<' | head; exit 1; }
 echo "ok: OsStr.roc verbatim; Cmd.roc = seahaven's + 2 bridged call sites + an appended helper"
 
-if ! _b=$(./target/release/hematite build "$B" --app app --out b5 2>&1); then echo "FAIL: build b5" >&2; echo "$_b" >&2; exit 1; fi
-set +e; out=$(cd "$B" && ./target/hematite/b5-subprocess/bin/b5 2>/dev/null); code=$?; set -e
+if ! _b=$(./target/release/trantor build "$B" --app app --out b5 2>&1); then echo "FAIL: build b5" >&2; echo "$_b" >&2; exit 1; fi
+set +e; out=$(cd "$B" && ./target/trantor/b5-subprocess/bin/b5 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code"; echo "$out"; exit 1; }
 want=$'output: hello from a child\nexit-code: 7\npath-search: ok'
 [[ "$out" == "$want" ]] || { echo "FAIL: output"; diff <(echo "$want") <(echo "$out") || true; exit 1; }

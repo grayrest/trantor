@@ -1,6 +1,6 @@
 //! `local-cert <cert-path>` — write a self-signed localhost cert to <cert-path>
-//! and its key to <cert-path>.key, then print the `export HEMATITE_HTTP_EXTRA_CA`
-//! line to wire it into hematite's HTTP client (H13/H14).
+//! and its key to <cert-path>.key, then print the `export TRANTOR_HTTP_EXTRA_CA`
+//! line to wire it into trantor's HTTP client (H13/H14).
 
 use std::process::ExitCode;
 
@@ -31,6 +31,6 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     eprintln!("local-cert: wrote {cert_path} (cert) and {key_path} (key), SANs localhost/127.0.0.1/::1");
-    println!("export HEMATITE_HTTP_EXTRA_CA={cert_path}");
+    println!("export TRANTOR_HTTP_EXTRA_CA={cert_path}");
     ExitCode::SUCCESS
 }

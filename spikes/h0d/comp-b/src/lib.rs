@@ -12,14 +12,14 @@ impl Drop for GuardB {
 
 #[cfg(not(cunwind))]
 #[unsafe(no_mangle)]
-pub extern "C" fn hematite__b__boom() -> i64 {
+pub extern "C" fn trantor__b__boom() -> i64 {
     let _g = GuardB;
     panic!("boom from component B");
 }
 
 #[cfg(cunwind)]
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__b__boom() -> i64 {
+pub extern "C-unwind" fn trantor__b__boom() -> i64 {
     let _g = GuardB;
     panic!("boom from component B");
 }

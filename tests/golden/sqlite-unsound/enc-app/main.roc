@@ -1,11 +1,11 @@
-app [main!] { pf: platform "../target/hematite/sqlite-unsound/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/sqlite-unsound/platform/main.roc" }
 import pf.Sql
 import pf.Report
 
 ## SQ3 encryption demo (turso, host-side key from env — no Roc leaf): writes a
 ## secret to a FILE db and reads it back correctly through the same interface,
 ## while the on-disk file is ciphertext (verify greps the plaintext out).
-db = "/tmp/hematite-sq3-enc.db"
+db = "/tmp/trantor-sq3-enc.db"
 
 main! : {} => Try({}, [Exit(I32), ..])
 main! = |{}| {

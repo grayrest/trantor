@@ -6,10 +6,10 @@ platform ""
 	packages {}
 	provides { "roc_main": main_for_host! }
 	hosted {
-		"hematite__cell__put": Cell.put!,
-		"hematite__cell__get": Cell.get!,
-		"hematite__env__path_arg": Env.path_arg!,
-		"hematite__stdio__stdout_line": Stdio.line!,
+		"trantor__cell__put": Cell.put!,
+		"trantor__cell__get": Cell.get!,
+		"trantor__env__path_arg": Env.path_arg!,
+		"trantor__stdio__stdout_line": Stdio.line!,
 	}
 	targets: {
 		inputs_dir: "targets/",

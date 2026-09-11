@@ -28,7 +28,7 @@ Grill-settled 2026-09-05 (see the plan for the full text):
 
 - **SQ0 — substrate (the go/no-go).** Ported tower's `borrow.rs` into the
   composer-emitted abi (`abi::borrow`, hand-written, never glue-clobbered). On
-  hematite's pinned compiler (84812227): a borrowed Str used TWICE (incref once,
+  trantor's pinned compiler (84812227): a borrowed Str used TWICE (incref once,
   decref twice) against a read-only rc==0 static backing survives — rc==0
   immortal works here (R-SQ1 cleared). And a host component invokes a boxed Roc
   closure through the erased-callable ABI (the fold/scalar path). `live=0`.
@@ -49,7 +49,7 @@ Grill-settled 2026-09-05 (see the plan for the full text):
   symlinked entries). build.sh stages only the archives `main.roc` links.
 - **SQ3 — turso extras, no Roc surface.** Vector = base SQL (turso orders by
   `vector_distance_cos`; rusqlite rejects `vector32`). Encryption = host-side,
-  env-gated (`HEMATITE_TURSO_ENCRYPTION_HEXKEY`, aes256gcm): correct reads,
+  env-gated (`TRANTOR_TURSO_ENCRYPTION_HEXKEY`, aes256gcm): correct reads,
   ciphertext at rest (the control shows plaintext leaks into the WAL without the
   key).
 - **SQ4 — `turso_register_scalar!`.** A Roc `List(SqlValue) -> SqlValue` closure

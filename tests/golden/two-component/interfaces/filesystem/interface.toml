@@ -2,4 +2,4 @@
 module = "Fs"
 [[hosted]]
 leaf = "file_read!"          # Fs.file_read!
-symbol_stem = "file_read"    # mangled: hematite__<component>__file_read
+symbol_stem = "file_read"    # mangled: trantor__<component>__file_read

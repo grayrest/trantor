@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/b6-net/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/b6-net/platform/main.roc" }
 import pf.Stdout
 import pf.Tcp
 import pf.Http

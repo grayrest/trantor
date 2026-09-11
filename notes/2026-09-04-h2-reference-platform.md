@@ -1,6 +1,6 @@
 # H2 — hand-composed reference platform
 
-Gate H2 of [`plans/2026-09-04-hematite-v1.md`](../plans/2026-09-04-hematite-v1.md).
+Gate H2 of [`plans/2026-09-04-trantor-v1.md`](../plans/2026-09-04-trantor-v1.md).
 Fixture: `tests/golden/two-component/`. The golden output H3 must regenerate
 byte-for-byte. Hand-written, no tool.
 
@@ -45,12 +45,12 @@ derived layer with no host symbols (D2) · binding modules per wiring point (D13
 ### 1. Inter-component host calls resolve at the final link, NOT via cargo deps
 
 First cut gave `audit` a cargo dependency on `capstdfs`. That **bundles
-capstdfs's object into `libaudit.a`**, so `hematite__capstdfs__file_read` is
+capstdfs's object into `libaudit.a`**, so `trantor__capstdfs__file_read` is
 then defined in *two* archives — the H0c duplicate-symbol footgun, reintroduced
-by a dependency edge. Fix: `audit` declares `hematite__capstdfs__file_read` as
+by a dependency edge. Fix: `audit` declares `trantor__capstdfs__file_read` as
 an `extern "C-unwind"` import and has **no** cargo dep; the symbol resolves when
 `roc` links the two archives. Verified by `nm`: the symbol is in `libcapstdfs.a`
-only. **Rule for hematite: never emit a cargo dependency between two component
+only. **Rule for trantor: never emit a cargo dependency between two component
 crates for a cross-component host call — emit an extern declaration and let the
 final roc link resolve it across archives.** Cargo deps are only for a
 component's *own* private crates.
@@ -70,7 +70,7 @@ reference*, the fixture passes the path through an `env` interface as a single
 Try({}, [Exit(I32), ..])`.
 
 This is a documented deviation from the plan's exact driver signature, forced by
-the toolchain, not by hematite. It does not touch H2's intent (multi-component +
+the toolchain, not by trantor. It does not touch H2's intent (multi-component +
 interposer + pure-Roc + driver, hand-composed and running) and it actually made
 the fixture richer (three host interfaces). **The `List(OsStr)` driver returns
 in H5/H7 once the glue redesign lands the list constructors** — tracked as an

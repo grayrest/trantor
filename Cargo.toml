@@ -1,11 +1,11 @@
 [package]
-name = "hematite"
+name = "trantor"
 version = "0.1.0"
 edition = "2021"
 description = "A build-time component composition system for Roc platforms."
 
 [[bin]]
-name = "hematite"
+name = "trantor"
 path = "src/main.rs"
 
 [dependencies]

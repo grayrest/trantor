@@ -1,7 +1,7 @@
 # wasm32 world (plan 2026-09-09 H7, D-H7-9 revised): roc-solid's wasm gate-zero
 # split into a driver `a` (runtime + the wasm export surface) and a host
 # component `b` (the hosted leaf, allocating through a's roc_alloc). Built by
-# `hematite build --target wasm32`, which merges the archives into ONE host.wasm.
+# `trantor build --target wasm32`, which merges the archives into ONE host.wasm.
 [world]
 name = "wasm-host"
 driver = "a"

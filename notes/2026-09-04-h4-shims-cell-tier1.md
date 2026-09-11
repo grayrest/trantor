@@ -1,6 +1,6 @@
 # H4 — Roc shims, cell, Tier 1
 
-Gate H4 of [`plans/2026-09-04-hematite-v1.md`](../plans/2026-09-04-hematite-v1.md).
+Gate H4 of [`plans/2026-09-04-trantor-v1.md`](../plans/2026-09-04-trantor-v1.md).
 Fixture: `tests/golden/roc-shim/` (+ a Tier-1 demo over the H2 platform).
 
 ## H4a/b — Roc shim fulfills fs, cell holds state ✅
@@ -40,10 +40,10 @@ app build by 23s) and printed `=== tier one ===`.
 Confirms D11: a component that adds no hosted symbols leaves glue output and the
 prebuilt `libhost` archives valid, so extension needs no Rust toolchain.
 
-**Finding for hematite's Tier-1 path:** a Tier-1 add requires **two `main.roc`
+**Finding for trantor's Tier-1 path:** a Tier-1 add requires **two `main.roc`
 edits** — add the module to `exposes` *and* add an `import <Module>` line. An
 exposed-but-unimported module is `exposed but not defined` under `roc check` and
-a **segfault** under `roc build` (same class as H1b). hematite must emit both
+a **segfault** under `roc build` (same class as H1b). trantor must emit both
 edits and must `roc check` before `roc build`.
 
 ## Notes carried forward

@@ -6,7 +6,7 @@
 //! different lifetime source. turso-host is the sole vendor of the turso engine
 //! (pure Rust — no libsqlite3). Blocking (`async_io=false`, P12).
 use core::mem::{ManuallyDrop, MaybeUninit};
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::{
     AnonStruct2aa6240abf9d9e42 as FoldArgsIn, BlobOrIntegerOrNullOrRealOrText as Cell,
     BlobOrIntegerOrNullOrRealOrTextPayload as CellPayload,
@@ -108,7 +108,7 @@ unsafe extern "C" fn roc_scalar_trampoline(
 
 /// `Turso.turso_register_scalar! : Str, Box((List(SqlValue) -> SqlValue)) => Try({}, Str)`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__turso_host__turso_register_scalar(name: RocStr, closure: RocErasedCallable) -> abi::TursoTursoRegisterScalarResult {
+pub extern "C-unwind" fn trantor__turso_host__turso_register_scalar(name: RocStr, closure: RocErasedCallable) -> abi::TursoTursoRegisterScalarResult {
     // Record the closure (kept alive for the process; the registry owns it, so
     // it is NOT decref'd here). The name is copied out then released.
     SCALARS.lock().unwrap().push((name.as_str().to_string(), closure as usize));
@@ -137,10 +137,10 @@ fn get_db(path: &str) -> Result<Arc<TursoDatabase>, String> {
         return Ok(db.clone());
     }
     // Encryption is HOST-SIDE and env-gated (S9): a deploy secret, never a Roc
-    // value. With HEMATITE_TURSO_ENCRYPTION_HEXKEY set, the db is opened
+    // value. With TRANTOR_TURSO_ENCRYPTION_HEXKEY set, the db is opened
     // encrypted (aes256gcm) and reads/writes are transparent to the app; the
     // on-disk file is ciphertext.
-    let (experimental, encryption) = match std::env::var("HEMATITE_TURSO_ENCRYPTION_HEXKEY") {
+    let (experimental, encryption) = match std::env::var("TRANTOR_TURSO_ENCRYPTION_HEXKEY") {
         Ok(hexkey) if !hexkey.is_empty() => (
             Some("encryption".to_string()),
             Some(EncryptionOpts { cipher: "aes256gcm".to_string(), hexkey }),
@@ -241,7 +241,7 @@ fn fold_err(msg: &str) -> SqlSqlFoldResult {
 
 /// `Sql.sql_exec! : { db, sql, params } => Try({}, Str)`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__turso_host__sql_exec(a: SqlSqlExecArgs) -> SqlSqlExecResult {
+pub extern "C-unwind" fn trantor__turso_host__sql_exec(a: SqlSqlExecArgs) -> SqlSqlExecResult {
     let db_s = a.db.as_str().to_string();
     let sql = a.sql.as_str().to_string();
     let values: Vec<Value> = unsafe { a.params.as_slice().iter().map(|c| to_turso(c)).collect() };
@@ -266,7 +266,7 @@ pub extern "C-unwind" fn hematite__turso_host__sql_exec(a: SqlSqlExecArgs) -> Sq
 
 /// `Sql.sql_fold! : { db, sql, params }, Box(state), Box((Box(state), List(SqlValue) -> Box(state))) => Try(Box(state), Str)`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__turso_host__sql_fold(a: FoldArgsIn, initial: RocBox, reducer: RocErasedCallable) -> SqlSqlFoldResult {
+pub extern "C-unwind" fn trantor__turso_host__sql_fold(a: FoldArgsIn, initial: RocBox, reducer: RocErasedCallable) -> SqlSqlFoldResult {
     let host = abi::host();
     let db_s = a.db.as_str().to_string();
     let sql = a.sql.as_str().to_string();

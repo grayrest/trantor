@@ -49,7 +49,7 @@ console.log("roc_alloc calls:", allocs);
 
 // The Rust host's roc_host_seed returns 21; the app builds "...seed=21" and
 // n = 21 * 2 = 42. i64 returns to JS as a BigInt.
-const expectedMsg = "hematite wasm host seed=21";
+const expectedMsg = "trantor wasm host seed=21";
 const expectedN = 42n;
 let ok = true;
 if (message !== expectedMsg) {

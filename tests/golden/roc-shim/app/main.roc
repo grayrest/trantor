@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/roc-shim/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/roc-shim/platform/main.roc" }
 
 import pf.Path
 import pf.Stdio

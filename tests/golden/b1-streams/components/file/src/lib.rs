@@ -1,7 +1,7 @@
 //! Test backing: an InputStream over a real file (stand-in for B3's
 //! descriptor.read-via-stream), minted through sync-io-core.
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::{RocStr, FileIoOpenResult as OpenR, FileIoOpenResultPayload as OpenP, FileIoOpenResultTag as OpenT,
     FileIoIOErr, FileIoIOErrPayload, FileIoIOErrTag};
 
@@ -21,7 +21,7 @@ fn open_err(e: &std::io::Error) -> OpenR {
 
 /// `FileIo.open! : Str => Try(Streams.InputStream, [FileErr(IOErr)])`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__file__open(path: RocStr) -> OpenR {
+pub extern "C-unwind" fn trantor__file__open(path: RocStr) -> OpenR {
     let opened = std::fs::File::open(path.as_str());
     // Owned str arg: release it (B0 rule; no Drop on RocStr).
     unsafe { path.decref(abi::host()) };

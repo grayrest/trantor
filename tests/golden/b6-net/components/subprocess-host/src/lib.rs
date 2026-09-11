@@ -4,7 +4,7 @@
 //! Args struct is owned and released via its own decref (recurses into
 //! args/envs element strings), not field-by-field.
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::*;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
@@ -16,7 +16,7 @@ type Native = UnixBytesOrUtf8OrWindowsU16s;
 // The userland cwd lives in the `cell` component (FsOps.set_cwd! writes it);
 // read it to run subprocesses in that directory (Option A cwd model).
 unsafe extern "C-unwind" {
-    fn hematite__cell__get() -> RocStr;
+    fn trantor__cell__get() -> RocStr;
 }
 
 fn to_os(n: &Native) -> OsString {
@@ -40,7 +40,7 @@ fn command(a: SubprocessHostExecOutputArgs) -> Command {
     // Honor the userland cwd so a child runs where file ops resolve (basic-cli's
     // observable single-cwd behavior), without mutating this process's real cwd.
     // Empty cell = no set_cwd! yet = inherit the process cwd.
-    let cwd = unsafe { hematite__cell__get() };
+    let cwd = unsafe { trantor__cell__get() };
     if !cwd.is_empty() { c.current_dir(cwd.as_str()); }
     unsafe { cwd.decref(abi::host()); }
     c
@@ -90,18 +90,18 @@ fn output_result(mut c: Command, inherit_stdin: bool) -> SubprocessHostExecOutpu
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__subprocess_host__exec_exit_code(a: SubprocessHostExecExitCodeArgs) -> SubprocessHostExecExitCodeResult {
+pub extern "C-unwind" fn trantor__subprocess_host__exec_exit_code(a: SubprocessHostExecExitCodeArgs) -> SubprocessHostExecExitCodeResult {
     exit_result(command(as_output_args(a)).status(), false)
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__subprocess_host__exec_status(a: SubprocessHostExecStatusArgs) -> SubprocessHostExecExitCodeResult {
+pub extern "C-unwind" fn trantor__subprocess_host__exec_status(a: SubprocessHostExecStatusArgs) -> SubprocessHostExecExitCodeResult {
     exit_result(command(as_output_args(a)).status(), true)
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__subprocess_host__exec_output(a: SubprocessHostExecOutputArgs) -> SubprocessHostExecOutputResult {
+pub extern "C-unwind" fn trantor__subprocess_host__exec_output(a: SubprocessHostExecOutputArgs) -> SubprocessHostExecOutputResult {
     output_result(command(a), false)
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__subprocess_host__exec_output_inherit_stdin(a: SubprocessHostExecOutputInheritStdinArgs) -> SubprocessHostExecOutputResult {
+pub extern "C-unwind" fn trantor__subprocess_host__exec_output_inherit_stdin(a: SubprocessHostExecOutputInheritStdinArgs) -> SubprocessHostExecOutputResult {
     output_result(command(as_output_args(a)), true)
 }

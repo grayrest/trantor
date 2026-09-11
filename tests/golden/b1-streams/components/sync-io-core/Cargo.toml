@@ -6,4 +6,4 @@ publish = false
 [lib]
 crate-type = ["rlib"]
 [dependencies]
-hematite-abi = { path = "../../abi" }
+trantor-abi = { path = "../../abi" }

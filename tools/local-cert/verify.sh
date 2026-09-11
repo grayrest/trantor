@@ -20,7 +20,7 @@ CERT="$TMP/dev-cert.pem"
 out=$(just make-local-cert "$CERT" 2>/dev/null)
 [[ -f "$CERT" ]] || { echo "FAIL: cert not written to $CERT"; exit 1; }
 [[ -f "$CERT.key" ]] || { echo "FAIL: key not written to $CERT.key"; exit 1; }
-[[ "$out" == "export HEMATITE_HTTP_EXTRA_CA=$CERT" ]] || { echo "FAIL: wrong export line: $out"; exit 1; }
+[[ "$out" == "export TRANTOR_HTTP_EXTRA_CA=$CERT" ]] || { echo "FAIL: wrong export line: $out"; exit 1; }
 
 # openssl parses the cert and it carries the localhost SAN.
 openssl x509 -in "$CERT" -noout -text >/dev/null 2>&1 || { echo "FAIL: openssl cannot parse the cert"; exit 1; }

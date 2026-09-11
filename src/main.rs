@@ -1,21 +1,21 @@
-//! hematite — a build-time component composition system for Roc platforms.
+//! trantor — a build-time component composition system for Roc platforms.
 //!
 //! Subcommands:
-//!   hematite compose <world-dir> [--out <dir>] [--world <w>]
+//!   trantor compose <world-dir> [--out <dir>] [--world <w>]
 //!     Read <world-dir>/world.toml + interfaces + components, generate the
 //!     composed platform's files into <out> (default: <world-dir>). Only the
 //!     composition-specific files are generated (main.roc, the workspace, the
 //!     driver crate, the abi wrapper); interface binding modules and pure-Roc
 //!     components are copied verbatim (D13) — compose emits sources only.
-//!   hematite build <world-dir> [--app <dir>] [--out <name>] [--world <w>] [--target <t>]
+//!   trantor build <world-dir> [--app <dir>] [--out <name>] [--world <w>] [--target <t>]
 //!     The full pipeline: compose + roc glue + cargo + stage + framework
 //!     sysroot + the H0c symbol scan + roc check + roc build. This is the tool
 //!     driving the toolchain (superseding the fixtures' build.sh); the scan
 //!     runs between cargo and the link (see build.rs). `--target wasm32`
 //!     builds every component for wasm32 and merges them into one host.wasm
 //!     (see wasm.rs).
-//!   hematite scan <world-dir>   — the H0c archive symbol-collision scan alone.
-//!   hematite publish / tier     — baseline packaging + tier classification.
+//!   trantor scan <world-dir>   — the H0c archive symbol-collision scan alone.
+//!   trantor publish / tier     — baseline packaging + tier classification.
 //!
 //! Service components (plan 2026-09-09 H7): an interface with `kind =
 //! "service"` ships its command union (and event/env modules); compose splices
@@ -43,7 +43,7 @@ fn main() -> ExitCode {
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("hematite: {e}");
+            eprintln!("trantor: {e}");
             ExitCode::FAILURE
         }
     }
@@ -53,7 +53,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut it = args.iter().skip(1);
     let cmd = it
         .next()
-        .ok_or("usage: hematite <compose|build|publish|tier|scan> <world-dir> [flags]")?;
+        .ok_or("usage: trantor <compose|build|publish|tier|scan> <world-dir> [flags]")?;
     let dir = PathBuf::from(it.next().ok_or("missing <world-dir>")?);
 
     match cmd.as_str() {
@@ -133,7 +133,7 @@ fn run(args: &[String]) -> Result<(), String> {
     }
 
     let world = manifest::load_world(&dir, &world_file)?;
-    // Generated output goes under `target/hematite/<world>` unless `--out`
+    // Generated output goes under `target/trantor/<world>` unless `--out`
     // names somewhere else (D-H7-38).
     let out = out.unwrap_or_else(|| manifest::out_dir(&dir, &world));
     let driver = manifest::load_driver(&dir, &world)?;
@@ -141,7 +141,7 @@ fn run(args: &[String]) -> Result<(), String> {
     codegen::emit(&dir, &out, &world, &driver, &resolved)?;
 
     eprintln!(
-        "hematite: composed `{}` -> {} ({} hosted symbols, {} archives, driver `{}`)",
+        "trantor: composed `{}` -> {} ({} hosted symbols, {} archives, driver `{}`)",
         world.world.name,
         out.display(),
         resolved.hosted.len(),

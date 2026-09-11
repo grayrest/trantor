@@ -1,7 +1,7 @@
 //! Generate a self-signed certificate for local TLS testing/development
 //! (HC1/H14). SANs cover `localhost`/`127.0.0.1`/`::1`; validity is long so a
 //! committed dev cert (if anyone keeps one) does not silently expire. Both the
-//! `just make-local-cert` recipe and hematite's HTTP test suite mint certs
+//! `just make-local-cert` recipe and trantor's HTTP test suite mint certs
 //! through `generate()` — the suite makes an ephemeral one per run, so no
 //! private key is ever committed.
 
@@ -23,10 +23,10 @@ pub fn generate() -> Result<Pem, rcgen::Error> {
         "::1".to_string(),
     ])?;
     // Long validity: an ephemeral test cert never expires mid-suite, and a dev
-    // cert someone parks under HEMATITE_HTTP_EXTRA_CA keeps working for years.
+    // cert someone parks under TRANTOR_HTTP_EXTRA_CA keeps working for years.
     params.not_before = date_time_ymd(2020, 1, 1);
     params.not_after = date_time_ymd(2100, 1, 1);
-    params.distinguished_name.push(DnType::CommonName, "hematite local-cert");
+    params.distinguished_name.push(DnType::CommonName, "trantor local-cert");
     params.key_usages = vec![
         KeyUsagePurpose::DigitalSignature,
         KeyUsagePurpose::KeyEncipherment,

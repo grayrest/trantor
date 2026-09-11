@@ -2,7 +2,7 @@
 //! host-internally by `audit`, so its symbol is a plain no_mangle Rust fn, not
 //! a Roc hosted symbol.
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::{FsFileReadResult, FsFileReadResultPayload, FsFileReadResultTag, FsIOErr, FsIOErrPayload, FsIOErrTag, RocStr};
 
 fn ok(s: &str) -> FsFileReadResult {
@@ -22,7 +22,7 @@ fn other(m: &str) -> FsIOErr {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__capstdfs__file_read(path: RocStr) -> FsFileReadResult {
+pub extern "C-unwind" fn trantor__capstdfs__file_read(path: RocStr) -> FsFileReadResult {
     // `audit` transfers ownership of `path` here (it moves, doesn't decref), so
     // this callee releases it — owned-argument rule (B0).
     let result = std::fs::read_to_string(path.as_str());

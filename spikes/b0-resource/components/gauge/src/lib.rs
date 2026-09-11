@@ -1,7 +1,7 @@
 //! B0: a Counter resource with an open/close gauge. `open!` builds the resource
 //! via `resource::new`; the Rust value's Drop is the destructor, which runs
 //! when Roc drops the LAST reference (via the driver's roc_dealloc hook).
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::RocBox;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
@@ -17,14 +17,14 @@ impl Drop for CounterState {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__gauge__open() -> RocBox {
+pub extern "C-unwind" fn trantor__gauge__open() -> RocBox {
     let id = OPENS.fetch_add(1, Relaxed) + 1;
     eprintln!("[gauge] open counter#{id}");
     abi::resource::new(CounterState { id, n: 0 })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__gauge__bump(c: RocBox) -> u64 {
+pub extern "C-unwind" fn trantor__gauge__bump(c: RocBox) -> u64 {
     let st: &mut CounterState = unsafe { abi::resource::get(c) };
     st.n += 1;
     let n = st.n;
@@ -35,7 +35,7 @@ pub extern "C-unwind" fn hematite__gauge__bump(c: RocBox) -> u64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__gauge__report() -> i32 {
+pub extern "C-unwind" fn trantor__gauge__report() -> i32 {
     let o = OPENS.load(Relaxed); let c = CLOSES.load(Relaxed);
     eprintln!("[gauge] report: opens={o} closes={c} live={}", abi::resource::live());
     c as i32

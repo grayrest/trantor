@@ -4,7 +4,7 @@ platform ""
 	packages {}
 	provides { "roc_main": main_for_host! }
 	hosted {
-		"hematite__a__ping": Host.ping!,
+		"trantor__a__ping": Host.ping!,
 	}
 	targets: {
 		inputs_dir: "targets/",

@@ -5,7 +5,7 @@ Closes the PARTIAL left by [`2026-09-04-h7-platform-im-slice.md`](2026-09-04-h7-
 
 Decisions are numbered in resolution order; each depends on those above it.
 Everything here was settled against the tree as of roc-solid `7f301ffc`
-(2026-09-03) and hematite `142c981`.
+(2026-09-03) and trantor `142c981`.
 
 ## What the tree said before any question was asked
 
@@ -84,16 +84,16 @@ gate apps bind to), `platform/dom/` (the DOM driver), per-app
 `platform/notesviewer/`, and the signals platform moved unchanged to
 `platform/signals/`. `platform-im/` is retired: its 55 modules move to
 `crates/host-im/roc/` because they are the *driver's contract*, shipped by the
-driver component. hematite gains `[components.x] path = "../../crates/…"`
+driver component. trantor gains `[components.x] path = "../../crates/…"`
 (default stays `components/<name>/`) so a crate has one home. Rejected:
-symlinked `components/`; hematite fixtures vendoring roc-solid (two copies,
+symlinked `components/`; trantor fixtures vendoring roc-solid (two copies,
 no real app migrates); per-app worlds under `apps/<app>/` (worlds in two
 places).
 
 **D-H7-5 — Per-component union + generated wrapper.** A service ships one Roc
 interface module — `Notes.roc` with `Cmd := [List(U64, Str), Read(U64, Str,
 Str)]` and `Event := [Listing(…), Text(…)]` (and `Env := {…}` for audio).
-hematite generates the world's `Cmd := [<core…>, Notes(Notes.Cmd), Dbx(Dbx.Cmd)]`,
+trantor generates the world's `Cmd := [<core…>, Notes(Notes.Cmd), Dbx(Dbx.Cmd)]`,
 `Event` likewise, and the app writes `Cmd.Notes(Notes.Cmd.List(0, "k"))`.
 Why this over a flat merged union: glue emits each component's union as its
 own Rust type, so a component's `extern "C-unwind"` handler signature is
@@ -108,22 +108,22 @@ nothing checks); Roc fragment files (no schema at all).
 **D-H7-6 — Splice markers in driver-owned modules.** `Cmd.roc`, `Event.roc`
 and `Env.roc` stay authored by the driver (their ~300 lines of boundary
 documentation and the core variants stay put) and each carries one marked
-block — `## @hematite(cmd)` / `(event)` / `(env)` — that hematite fills with
+block — `## @trantor(cmd)` / `(event)` / `(env)` — that trantor fills with
 the components' wrappers. One mechanism covers the two unions *and* the `Env`
 record (which has methods and could not be generated whole). This extends
 D18-C ("the driver's contract text is spliced") and does not breach D13: the
 marker is the driver *declaring* a splice point in its own contract, not
-hematite rewriting a component's source.
+trantor rewriting a component's source.
 
 **D-H7-7 — Contract: sync return + `HostCtx` wake (D8/D9 built).** Per
 component, generated into the world's abi crate and called by the driver:
-`hematite__<c>__init(*const HostCtx)`;
-`hematite__<c>__cmd(request, route_key, <C>::Cmd) -> RocList<(route_key, <C>::Event)>`
+`trantor__<c>__init(*const HostCtx)`;
+`trantor__<c>__cmd(request, route_key, <C>::Cmd) -> RocList<(route_key, <C>::Event)>`
 for sync answers; async work calls `ctx.wake(component_id, token)` from any
 thread and the driver, on its runtime thread, calls
-`hematite__<c>__complete(token) -> Completion { request, route_key, event }`;
-`hematite__<c>__env() -> <C>::Env` once per frame for a component with an env
-block; `hematite__<c>__gate(name) -> i32` (D-H7-8). The component never names
+`trantor__<c>__complete(token) -> Completion { request, route_key, event }`;
+`trantor__<c>__env() -> <C>::Env` once per frame for a component with an env
+block; `trantor__<c>__gate(name) -> i32` (D-H7-8). The component never names
 the driver. Rejected: the component calling a driver-exported route symbol —
 bakes the driver's name into every component and the archive-order direction
 of that reference is unmeasured here.
@@ -131,7 +131,7 @@ of that reference is unmeasured here.
 **D-H7-8 — Gates move with the service they test; the driver asks components
 first.** `gdbx.rs` → `svc-dbx`, `gnet.rs`/`gtext.rs` → `svc-net`, `gnotes.rs`
 → `svc-notes`. The driver's 149-arm argv dispatch tries
-`hematite__<c>__gate(name)` on every component (−1 = not mine) before its own
+`trantor__<c>__gate(name)` on every component (−1 = not mine) before its own
 arms, so `im-check`'s gate list and every recipe's invocation are unchanged.
 Rejected: cargo-tests only (loses the end-to-end Roc-app gates); the driver
 depending on service crates in the baseline (re-creates the union host inside
@@ -141,7 +141,7 @@ depending on service crates in the baseline (re-creates the union host inside
 component's `.wasm` is listed in `inputs`.** host-dom becomes the second
 driver world with its own components (`svc-notes-dom`, `svc-net-dom` — the
 same interfaces, JS transport: the H5 substitution thesis on a second
-target). `hematite build --target wasm32` generalises `just dom-host` per
+target). `trantor build --target wasm32` generalises `just dom-host` per
 component (nightly `build-std`, `-Cpanic=immediate-abort`, `llvm-ar x`,
 `wasm-ld -r` per archive) and lists every relocatable in
 `wasm32: { inputs: [...] }` rather than pre-merging into one `host.wasm`.
@@ -150,8 +150,8 @@ multiple inputs, that is raised as a decision (merge with `wasm-ld -r
 --whole-archive` is the fallback), never switched to silently. The H0c scan
 reads wasm archives through `llvm-nm`.
 
-**D-H7-10 — The abi crate is `hematite_abi` everywhere.** roc-solid's ~8
-import sites (`host-im` ×5, `host-dom`, `ir`) become `use hematite_abi as
+**D-H7-10 — The abi crate is `trantor_abi` everywhere.** roc-solid's ~8
+import sites (`host-im` ×5, `host-dom`, `ir`) become `use trantor_abi as
 abi`; `crates/abi` is deleted (glue output is per-world now) and its
 hand-written `http.rs` moves into `svc-net`, whose `net.rs` is its only
 reader. Rejected: a `[world] abi_crate` knob — two names for one thing.
@@ -265,10 +265,10 @@ still loses to whichever component is scanned first).
 **D-H7-9 (revised) — wasm32 staging is ONE merged `host.wasm`.** (Decided
 2026-09-09 after P0.) The measured negative overturns "list each component's
 .wasm in inputs": roc links wasm inputs `--whole-archive`, so per-component
-inputs collide on std / compiler-builtins in either form. hematite merges with
+inputs collide on std / compiler-builtins in either form. trantor merges with
 `wasm-ld -r --whole-archive <driver>.a --no-whole-archive <contract members…>
 <component>.a`, rooting each component by the members that define the symbols
-hematite itself mangled — deterministic, and std stays single-copy. Taking the
+trantor itself mangled — deterministic, and std stays single-copy. Taking the
 laziness upstream was rejected as a blocker on `platform/dom`.
 
 ## P1 notes (built 2026-09-09)
@@ -295,9 +295,9 @@ approved approach and each flagged here rather than silently:
   is shared between worlds. roc-solid's feature-flagged host loses those flags
   as its services move out (P3–P8), so nothing needs it; a `--features`
   CLI form is the fix if something does.
-- **wasm rooting uses the `hematite__<c>__` prefix, not an enumerated
+- **wasm rooting uses the `trantor__<c>__` prefix, not an enumerated
   contract list.** Every symbol a component owns — hosted leaves and the
-  service contract — carries it, so "members defining any `hematite__<c>__*`"
+  service contract — carries it, so "members defining any `trantor__<c>__*`"
   is complete by construction and needs no second list to keep in step.
 - **The wasm scan reads `llvm-readobj` flags**, not `llvm-nm` letters —
   see the nm-scan note's 2026-09-09 amendment; and `rust_eh_personality`
@@ -308,12 +308,12 @@ approved approach and each flagged here rather than silently:
 **D-H7-14 — `path` components build inside their HOST workspace, with the
 world's abi patched in per build.** A crate belongs to exactly one cargo
 workspace; roc-solid's root already owns `crates/host-im`, and several
-worlds (clay, dom, colorhunt…) name the same crates, so hematite's per-world
+worlds (clay, dom, colorhunt…) name the same crates, so trantor's per-world
 workspace cannot list them ("member of the wrong workspace"). With `[world]
-cargo_root = "../.."` hematite emits no workspace and runs `cargo --config
-'patch.crates-io.hematite-abi.path="<world>/abi"' build --release -p
+cargo_root = "../.."` trantor emits no workspace and runs `cargo --config
+'patch.crates-io.trantor-abi.path="<world>/abi"' build --release -p
 <package>` per component in the host workspace, staging from its `target/`.
-Components declare `hematite-abi = "0.0.0"` (a crates-io name that does not
+Components declare `trantor-abi = "0.0.0"` (a crates-io name that does not
 exist); the host's root `Cargo.toml` carries a default `[patch.crates-io]` to
 its baseline world's abi so its own `cargo clippy/test --workspace` keep
 resolving, and one target dir is shared by every world. Measured in a probe
@@ -324,8 +324,8 @@ world, and two worlds still cannot share a crate); symlinks under
 `components/` (the target still sits under the host workspace — the same
 conflict).
 
-**D-H7-15 — roc-solid finds hematite at `~/.bin/hematite`**, overridable by
-`HEMATITE=…` — the pinned-tool discipline roc-solid already applies to `roc`
+**D-H7-15 — roc-solid finds trantor at `~/.bin/trantor`**, overridable by
+`TRANTOR=…` — the pinned-tool discipline roc-solid already applies to `roc`
 and `RustGlue.roc`. Rejected: the sibling checkout's `target/release` (couples
 the build to another working tree's state, the hazard the pinned-roc note
 records).
@@ -335,12 +335,12 @@ records).
 - **The migration is behaviour-identical.** With every service still inside
   host-im, `just im-check` against the composed `platform/clay` passed
   133/134 gates on roc-solid's previous compiler (the one miss was a probe
-  script under `notes/` still spelling `platform-im/`). `im-host` = `hematite
+  script under `notes/` still spelling `platform-im/`). `im-host` = `trantor
   build platform/clay --platform-only`: compose, glue, cargo inside the root
   workspace with the clay abi patched in, stage `libhost_im.a`, sysroot, scan.
 - **D-H7-16 — one compiler: `~/.bin/roc`, whatever a repo's comment says it
   pins.** roc-solid's Justfile called `~/.bin/roc` its pinned copy (a7d4d3);
-  `~/.bin/roc` had since become b07d7e (hematite's plan pin), on which
+  `~/.bin/roc` had since become b07d7e (trantor's plan pin), on which
   roc-solid no longer compiled: `List.sort_with`'s comparator is `[Before,
   After, Same]` now, not `[EQ, GT, LT]` (Grid.roc's ordering helpers, three
   colorhunt files, `im-map/Route.roc`). Decided: everything builds with
@@ -350,7 +350,7 @@ records).
   hazard).
 - **A framework sysroot needs `Versions/` too.** `.tbd` stubs re-export
   siblings by install name (`…/Versions/A/CoreImage`), resolved under the
-  sysroot; hematite's generator linked only the `.tbd` and 23 frameworks
+  sysroot; trantor's generator linked only the `.tbd` and 23 frameworks
   failed to link. turso's lone CoreFoundation never re-exported anything, so
   the fixture could not have caught it. Fixed in `build.rs` (plus
   `PrivateFrameworks`, as roc-solid's recipe had).
@@ -361,7 +361,7 @@ records).
   splits `platform/dom`). `just dom-app` was already failing on `~/.bin/roc`
   before P2 — the compiler now requires `exports:` — so the clay world's
   target line is a strict improvement.
-- **cargo touches the crates.io index once** for `hematite-abi = "0.0.0"`
+- **cargo touches the crates.io index once** for `trantor-abi = "0.0.0"`
   when the lock first records the patched path; later builds do not.
 
 ## P3 decisions (2026-09-09) — the first service out
@@ -383,7 +383,7 @@ oracle, the service's listing logic as a LIBRARY: `svc-notes` is
 `staticlib + rlib` with its contract symbols behind a default `contract`
 feature; host-im depends on it `default-features = false`, so the driver's
 archive carries the (Rust-mangled, scan-exempt) logic and none of the
-`hematite__svc_notes__*` symbols — measured: 0 in `libhost_im.a`, all in
+`trantor__svc_notes__*` symbols — measured: 0 in `libhost_im.a`, all in
 `libsvc_notes.a`, scan clean over 2 archives. The one shared-state hazard —
 each archive's `OnceLock` staging the fixture — is closed by making staging
 existence-idempotent per process. Amends D-H7-8's "every g*.rs moves".
@@ -534,18 +534,18 @@ does not accept the P2 sources (`[Before, After, Same]`).
 
 ## P7 decisions (2026-09-09) — audio leaves the host, the first env block
 
-**D-H7-27 — hematite tells a driver's build what the world wires:
-`HEMATITE_SERVICES` (sorted wiring keys) and `HEMATITE_WORLD`, exported to
+**D-H7-27 — trantor tells a driver's build what the world wires:
+`TRANTOR_SERVICES` (sorted wiring keys) and `TRANTOR_WORLD`, exported to
 every cargo invocation.** The first env block exposed a gap: `Env.audio`
 exists only in a world that wires `svc-audio`, and the driver's `Env` struct
 literal must name exactly the fields the generated abi has — so one driver
 serving two worlds needs world-conditional code. A `build.rs` in the driver
-turns the list into `cfg(hematite_service = "<key>")` (with
+turns the list into `cfg(trantor_service = "<key>")` (with
 `rustc-check-cfg`), and the code that fills `audio` or reads `playing`
 compiles only where it can. Rejected: a per-world driver Cargo feature (a
 second wiring table to keep in sync); `--cfg` through rustflags (fingerprints
 every crate in the graph per world); a generated `env!` constructor macro
-(does not cover reads). Cost: outside hematite nothing is wired, so
+(does not cover reads). Cost: outside trantor nothing is wired, so
 `cargo clippy`/`cargo test` see the un-cfg'd driver against whichever abi is
 on disk — `lint` and `test-host` compose the default world first.
 
@@ -608,7 +608,7 @@ recorded as open.
 component ships the driver's modules, spliced; a driver.toml borrows another's
 contract.** The plan had `platform/dom` reuse host-im's 55 modules through a
 `kind = "roc"` component; making that true needed two tool changes. A Roc
-component's copies were verbatim (D13), so its `## @hematite` blocks would
+component's copies were verbatim (D13), so its `## @trantor` blocks would
 have stayed empty and the shim's `CmdTag::Notes` would have had no variant —
 now every copied module is spliced, and a module without markers is copied
 as before. And the other half of the contract, `driver.toml`'s
@@ -622,7 +622,7 @@ modules (a driver's modules are its contract; the DOM driver has none).
 **D-H7-31 — `[world] wasm_size_correct`: D25's recipe as a tool knob — and
 OFF, because it traps.** `dom-host` built the DOM host with `-Z build-std`,
 immediate-abort panics, opt-level z, fat LTO, one codegen unit, stripped: 12x
-smaller than a plain staticlib (D25). `hematite build --target wasm32`
+smaller than a plain staticlib (D25). `trantor build --target wasm32`
 generalises `dom-host`, so the recipe is a world-level knob (env overrides
 plus `cargo rustc --crate-type staticlib -Z build-std`, `--strip-debug` on
 the merge). Measured: host.wasm 4.7 MB plain, 508 KB size-correct — and the
@@ -681,12 +681,12 @@ goldens compare that file). host-im is written against the shim — `init`
 before its gate chain, `dispatch` in the drain, `on_wake` on every wake,
 `gate` in the chain — so the driver, not the world, says it wants one, and a
 world with nothing wired gets a shim whose every entry point is a no-op
-(`let _ = …; None`). Rejected: `#[cfg(hematite_service…)]` around every shim
+(`let _ = …; None`). Rejected: `#[cfg(trantor_service…)]` around every shim
 call in the driver (a dozen sites, and the empty world is the only one that
 would differ); emitting the shim unconditionally (breaks the goldens for
 drivers that never asked).
 
-**D-H7-34 — Build-and-stage is serialized across hematite processes by a
+**D-H7-34 — Build-and-stage is serialized across trantor processes by a
 lock on the host workspace.** With five native worlds sharing one host
 workspace, the gate suite composes several of them at once, and every
 `cargo build -p roc-solid-host-im` uplifts to the same
@@ -696,8 +696,8 @@ for a world without `notes` (its gate hit the stub's message), the audio
 world ran a driver with another world's `Env` layout (a segfault in the
 first frame). The per-variant file cargo keeps under `deps/` is not
 addressable — its `compiler-artifact` message names only the uplifted path
-(tried first, and it staged the same wrong file) — so hematite holds an
-exclusive advisory lock (`File::lock` on `target/hematite-build.lock`) from
+(tried first, and it staged the same wrong file) — so trantor holds an
+exclusive advisory lock (`File::lock` on `target/trantor-build.lock`) from
 its first `cargo build` through the stage copy, native and wasm alike;
 cargo's own lock covers a build, not the copy after it. Rejected: a target
 dir per world (every world rebuilds wgpu); a rule that the suite must not
@@ -731,7 +731,7 @@ part costs ~1 MB per world and buys the property the whole pass is about.
 
 The 800 MB beside it is the staged archives, and those are the opposite of
 copies: one `libhost_im.a` per world, each compiled under its own
-`cfg(hematite_service = …)` set. Nothing can share them — that they DIFFER is
+`cfg(trantor_service = …)` set. Nothing can share them — that they DIFFER is
 what `just world-nm` measures. `just world-clean` drops every world's
 generated directories (asserting each is untracked first, rather than
 trusting `.gitignore`); recomposing costs a cargo build for the first world
@@ -854,7 +854,7 @@ against something it must match, and the count of what was examined is
 printed.
 
 **D-H7-37 — the build lock covers the framework sysroot too.** Six gate
-recipes share `gate-dbx`, so six hematite processes composed the same world at
+recipes share `gate-dbx`, so six trantor processes composed the same world at
 once. `sync_framework_sysroot` rebuilds from scratch — `remove_dir_all`, then
 re-symlink — so one process deleted the tree while another's linker was
 reading it: `framework not found for -framework CoreText` on frameworks the
@@ -871,7 +871,7 @@ Also: a service crate compiles against the abi of a world that wires it, so
 svc-audio already was. The workspace default abi is clay's, and clay no longer
 has a service type in it.
 
-## D-H7-38 — everything generated goes under `target/hematite/<world>` (2026-09-10)
+## D-H7-38 — everything generated goes under `target/trantor/<world>` (2026-09-10)
 
 A world used to compose in place: `platform/clay/` held its `world.toml` next
 to the composed `platform/`, the `abi` crate, `glue-out/`, `bin/` and the
@@ -880,7 +880,7 @@ the golden fixtures it was worse — 114 generated files were COMMITTED, and
 several fixtures were passing off stale composed output rather than what the
 current tool produced.
 
-Now `<base>/target/hematite/<world>/`, where `<base>` is the world's
+Now `<base>/target/trantor/<world>/`, where `<base>` is the world's
 `cargo_root` if it declares one and the world directory otherwise. `/target`
 is already ignored, so the 48 lines became three of comment, and a world
 directory holds its `world*.toml` and nothing else.
@@ -892,7 +892,7 @@ lets an app name a platform path that holds whichever variant was last built.
 Keying on `name` would have split b3-fs's three variants across three
 directories while its one `app/` can only name one.
 
-Namespaced under `hematite/` rather than sitting at the top of `target/`:
+Namespaced under `trantor/` rather than sitting at the top of `target/`:
 cargo owns that level and adds names over time, and a world called `release`
 would otherwise land on `target/release`.
 
@@ -910,11 +910,11 @@ The HC0 feature rewrite stopped editing an authored `Cargo.toml` in the source
 tree as a side effect — it rewrites the materialized copy instead.
 
 `cargo` also has to RUN in the generated workspace now: with no `Cargo.toml`
-beside the world file it walked up and adopted hematite's own workspace,
+beside the world file it walked up and adopted trantor's own workspace,
 building the tool for wasm32.
 
 Cost: 195 app headers in roc-solid and 31 in the fixtures name a longer
-platform path (`../../target/hematite/clay/platform/main.roc`). That is the
+platform path (`../../target/trantor/clay/platform/main.roc`). That is the
 price of the separation and it is paid once.
 
 ## The two silent-check findings, and a third
@@ -955,7 +955,7 @@ which is why the world file carries that warning), and the gates run on every
 change. A guard in `world-deps` was considered and rejected as a second
 mechanism for something the compiler already reports.
 
-`just world-nm` now reads one line per service, and target/hematite went from
+`just world-nm` now reads one line per service, and target/trantor went from
 996 MB to 727 MB. im-check 133/133 in 82s.
 
 **Process note.** Three separate edits in this session silently deleted

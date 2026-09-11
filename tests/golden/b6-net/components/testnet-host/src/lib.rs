@@ -7,36 +7,36 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__testnet_host__start_tcp_echo() -> u16 {
+pub extern "C-unwind" fn trantor__testnet_host__start_tcp_echo() -> u16 {
     let l = TcpListener::bind("127.0.0.1:0").expect("bind"); let port = l.local_addr().unwrap().port();
     std::thread::spawn(move || { for c in l.incoming().flatten() { std::thread::spawn(move || { let mut c = c; let mut b = [0u8; 1024]; while let Ok(n) = c.read(&mut b) { if n == 0 || c.write_all(&b[..n]).is_err() { break; } } }); } });
     port
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__testnet_host__start_udp_echo() -> u16 {
+pub extern "C-unwind" fn trantor__testnet_host__start_udp_echo() -> u16 {
     let u = UdpSocket::bind("127.0.0.1:0").expect("bind"); let port = u.local_addr().unwrap().port();
     std::thread::spawn(move || { let mut b = [0u8; 1024]; while let Ok((n, from)) = u.recv_from(&mut b) { let _ = u.send_to(&b[..n], from); } });
     port
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__testnet_host__start_httpd() -> u16 {
+pub extern "C-unwind" fn trantor__testnet_host__start_httpd() -> u16 {
     let l = TcpListener::bind("127.0.0.1:0").expect("bind"); let port = l.local_addr().unwrap().port();
     std::thread::spawn(move || { for c in l.incoming().flatten() { std::thread::spawn(move || serve(c)); } });
     port
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__testnet_host__connect_and_send_later(port: u16, ms: u64) {
+pub extern "C-unwind" fn trantor__testnet_host__connect_and_send_later(port: u16, ms: u64) {
     std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(ms)); if let Ok(mut c) = TcpStream::connect(("127.0.0.1", port)) { let _ = c.write_all(b"ping\n"); } });
 }
 
 /// HC4: start a rustls HTTPS server presenting the ephemeral test cert at
-/// $HEMATITE_TEST_CERT (key at $HEMATITE_TEST_CERT.key, as `local-cert` writes).
+/// $TRANTOR_TEST_CERT (key at $TRANTOR_TEST_CERT.key, as `local-cert` writes).
 /// Serves "https-hello" to any request over TLS. Returns the bound port (0 if
 /// the cert is missing/unloadable, so the test fails loudly rather than hangs).
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__testnet_host__start_https_server() -> u16 {
+pub extern "C-unwind" fn trantor__testnet_host__start_https_server() -> u16 {
     use std::sync::Arc;
-    let cert_path = match std::env::var("HEMATITE_TEST_CERT") {
+    let cert_path = match std::env::var("TRANTOR_TEST_CERT") {
         Ok(p) => p,
         Err(_) => return 0,
     };

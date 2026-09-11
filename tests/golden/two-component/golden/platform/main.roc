@@ -6,9 +6,9 @@ platform ""
 	packages {}
 	provides { "roc_main": main_for_host! }
 	hosted {
-		"hematite__env__path_arg": Env.path_arg!,
-		"hematite__audit__file_read": Fs.file_read!,
-		"hematite__stdio__stdout_line": Stdio.line!,
+		"trantor__env__path_arg": Env.path_arg!,
+		"trantor__audit__file_read": Fs.file_read!,
+		"trantor__stdio__stdout_line": Stdio.line!,
 	}
 	targets: {
 		inputs_dir: "targets/",

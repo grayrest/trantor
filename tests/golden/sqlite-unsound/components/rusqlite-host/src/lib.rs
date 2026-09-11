@@ -6,7 +6,7 @@
 //! rusqlite-host is the sole vendor of libsqlite3 (H0c). Single-threaded model
 //! (P12): the connection lock is held across the fold, reducer calls included.
 use core::mem::{ManuallyDrop, MaybeUninit};
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::{
     AnonStruct2aa6240abf9d9e42 as FoldArgsIn, BlobOrIntegerOrNullOrRealOrText as Cell,
     BlobOrIntegerOrNullOrRealOrTextPayload as CellPayload,
@@ -110,7 +110,7 @@ fn fold_err(msg: &str) -> SqlSqlFoldResult {
 
 /// `Sql.sql_exec! : { db, sql, params } => Try({}, Str)`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__rusqlite_host__sql_exec(a: SqlSqlExecArgs) -> SqlSqlExecResult {
+pub extern "C-unwind" fn trantor__rusqlite_host__sql_exec(a: SqlSqlExecArgs) -> SqlSqlExecResult {
     let db = a.db.as_str().to_string();
     let sql = a.sql.as_str().to_string();
     let values = unsafe { params_to_values(&a.params) };
@@ -133,7 +133,7 @@ pub extern "C-unwind" fn hematite__rusqlite_host__sql_exec(a: SqlSqlExecArgs) ->
 
 /// `Sql.sql_fold! : { db, sql, params }, Box(state), Box((Box(state), List(SqlValue) -> Box(state))) => Try(Box(state), Str)`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__rusqlite_host__sql_fold(a: FoldArgsIn, initial: RocBox, reducer: RocErasedCallable) -> SqlSqlFoldResult {
+pub extern "C-unwind" fn trantor__rusqlite_host__sql_fold(a: FoldArgsIn, initial: RocBox, reducer: RocErasedCallable) -> SqlSqlFoldResult {
     let host = abi::host();
     let db = a.db.as_str().to_string();
     let sql = a.sql.as_str().to_string();

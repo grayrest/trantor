@@ -20,9 +20,9 @@ design log), D10/D11 (publish + tier), P8 (confinement as a swappable impl).
   Interactive (`tty`, snake) and network (`tcp-client`, `http-*`) examples
   check but aren't run; `check-command` (PATH search) postdates the tag and
   ran by hand from HEAD.
-- **Publish:** `hematite publish` → `dist/platform/*.roc` + `targets/arm64mac/
+- **Publish:** `trantor publish` → `dist/platform/*.roc` + `targets/arm64mac/
   *.a` + `baseline.lock` (`abi_fingerprint`); the test-only `testnet` archive
-  is not in it. `hematite tier extension/` → **Tier 1** for a pure-Roc module.
+  is not in it. `trantor tier extension/` → **Tier 1** for a pure-Roc module.
 - **Confinement swap:** `world-confined.toml` differs from `world.toml` in one
   wiring line (`fs = "fs-confined"`). The same escaping app prints
   `escape: allowed` on the baseline and `escape: denied` on the confined
@@ -62,7 +62,7 @@ archives; the shim is ~300 lines of pure Roc.
 - **`Env.set_cwd!` propagates to subprocesses** (added post-review, cwd-model
   Option A). The port keeps a single userland cwd in the `cell` (what
   `FsOps.set_cwd!` writes and file ops resolve against); the subprocess host
-  now reads that cell (`hematite__cell__get`) and sets `Command.current_dir`
+  now reads that cell (`trantor__cell__get`) and sets `Command.current_dir`
   before spawning, so a child runs in the same directory files resolve
   against — basic-cli's observable single-cwd behavior — without mutating this
   process's real cwd (stays capability-clean and projects to WASI). Empty cell

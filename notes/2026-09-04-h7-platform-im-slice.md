@@ -1,6 +1,6 @@
 # H7 — roc-solid platform-im: contract-shape slice
 
-Gate H7 of [`plans/2026-09-04-hematite-v1.md`](../plans/2026-09-04-hematite-v1.md).
+Gate H7 of [`plans/2026-09-04-trantor-v1.md`](../plans/2026-09-04-trantor-v1.md).
 Fixture: `tests/golden/imview-slice/`.
 
 **Scope, stated plainly.** The plan's full H7 is "at least two of colorhunt/
@@ -9,7 +9,7 @@ sqlite." That is a migration of the entire immediate-mode platform — wgpu,
 winit, clay layout, solid-signals, `crates/host-im`'s ~dozen subsystems — and is
 the multi-week execution I flagged. This gate instead proves H7's **research
 question** — the one the adversarial review called the likeliest killer (R7):
-does hematite's `requires`-splice handle roc-solid's *hardest contract shape*?
+does trantor's `requires`-splice handle roc-solid's *hardest contract shape*?
 It is **PARTIAL**, and the plan says so.
 
 ## What is proven, at platform-im's real contract shape
@@ -24,7 +24,7 @@ hosted symbols; the host calls the app), with **multiple** provided entrypoints
 The slice reproduces exactly that shape and **composes, typechecks, and runs**:
 
 - Driver `imview` requires `[Model : model] for main : { init : Env -> model,
-  view : model -> { tree : Element } }`, spliced verbatim by hematite (D18-C).
+  view : model -> { tree : Element } }`, spliced verbatim by trantor (D18-C).
   `roc check` on the composed platform + app is **clean** — R7's segfault-prone
   surface, answered green.
 - Two provided entrypoints (`roc_im_init`, `roc_im_view`) — the tool grew
@@ -33,7 +33,7 @@ The slice reproduces exactly that shape and **composes, typechecks, and runs**:
   `Env`; `view` returns `{ tree: Element }`; the host walks the recursive
   `Element` tree and prints `[hi | width-derived]`. So the `Box(Model)` +
   recursive-nominal crossing — roc-solid's characteristic ABI — works through a
-  hematite composition.
+  trantor composition.
 
 Respecting a real glue hazard `platform-im` documents: the view returns an
 **anonymous** record (`{ tree: Element }`), not a named nominal wrapping a
@@ -45,13 +45,13 @@ slice uses the anonymous form.
 - **Multi-`provides` drivers.** `driver.toml` gained a `[[provides]]` array;
   `main.roc`'s `provides { … }` emits all entries. (A CLI driver keeps the
   single `provides_symbol`/`provided_fn` pair.)
-- **Reactor drivers author their own host.** hematite's generated driver body is
+- **Reactor drivers author their own host.** trantor's generated driver body is
   CLI-specific (it calls `roc_main`). A reactor driver (host-calls-app, custom
   render/event loop — here the `Element` renderer; in the real platform, the
   winit+wgpu+clay loop) ships its **own** `src/lib.rs`. `driver.toml`
-  `authored_host = true` tells hematite to generate only the driver's
+  `authored_host = true` tells trantor to generate only the driver's
   `Cargo.toml` and never clobber the authored host. This is the honest shape of
-  D5: hematite owns the *contract splice* and the runtime-provider assignment;
+  D5: trantor owns the *contract splice* and the runtime-provider assignment;
   the driver owns its loop.
 
 ## What a full platform-im migration still needs (the remaining ~weeks)

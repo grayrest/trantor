@@ -1,5 +1,5 @@
 //! Archive symbol-collision scan (H0c). After `cargo` builds the component
-//! archives, `hematite scan <world-dir>` runs `nm` on each and rejects any
+//! archives, `trantor scan <world-dir>` runs `nm` on each and rejects any
 //! symbol that two components both DEFINE at global scope.
 //!
 //! Why: the roc link pulls component archives in order; a symbol defined in more
@@ -7,7 +7,7 @@
 //! never loaded) — no diagnostic. That is benign when the copies are identical
 //! and memory-unsafe when they are not (two vendored sqlites with different
 //! struct layouts sharing one implementation). The linker will not catch it, so
-//! hematite must. See `notes/2026-09-04-h0-link-shape.md` (R2 / H0c).
+//! trantor must. See `notes/2026-09-04-h0-link-shape.md` (R2 / H0c).
 //!
 //! The exemptions are measured against the real archives, not guessed:
 //!   - **Rust-mangled names** (`__R…` v0, `__Z…` legacy): ODR monomorphizations.
@@ -32,7 +32,7 @@
 //! with one shared name, so the link first-wins them — the whole binary uses
 //! whichever archive's shim is scanned first, and that decides whether a
 //! `#[global_allocator]` takes effect. They are not ODR-identical when one
-//! archive sets an allocator. hematite owns this by construction rather than
+//! archive sets an allocator. trantor owns this by construction rather than
 //! by report: `resolve` links the driver archive first (its allocator is the
 //! binary's), and this scan refuses a `#[global_allocator]` in any other
 //! component.
@@ -103,7 +103,7 @@ pub fn scan(
 ) -> Result<(), String> {
     let arch_dir = match targets_dir {
         Some(d) => d,
-        // Generated, so under `target/hematite/<world>` (D-H7-38).
+        // Generated, so under `target/trantor/<world>` (D-H7-38).
         None => crate::manifest::out_dir(dir, &crate::manifest::load_world(dir, world_file)?)
             .join("platform")
             .join("targets"),
@@ -178,7 +178,7 @@ pub fn scan_archives(dir: &Path, world_file: &str, arch_dir: &Path, format: Form
     if components.len() < 2 {
         // Nothing can collide with fewer than two archives.
         eprintln!(
-            "hematite: scan `{}` — {} archive(s), no collision possible",
+            "trantor: scan `{}` — {} archive(s), no collision possible",
             world.world.name,
             components.len()
         );
@@ -216,7 +216,7 @@ pub fn scan_archives(dir: &Path, world_file: &str, arch_dir: &Path, format: Form
 
     if collisions.is_empty() {
         eprintln!(
-            "hematite: scan `{}` clean — {} archives, no global symbol collisions",
+            "trantor: scan `{}` clean — {} archives, no global symbol collisions",
             world.world.name,
             components.len()
         );
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn global_allocator_outside_the_driver_is_refused() {
-        let dir = std::env::temp_dir().join(format!("hematite-scan-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("trantor-scan-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("components/svc/src")).unwrap();
         std::fs::create_dir_all(dir.join("components/drv/src")).unwrap();

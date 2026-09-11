@@ -5,12 +5,12 @@
 //! ```roc
 //! Cmd := [
 //!     Log(Str),
-//!     ## @hematite(cmd)
+//!     ## @trantor(cmd)
 //!     ## @end
 //! ]
 //! ```
 //!
-//! hematite replaces the lines between the markers with one wrapper per
+//! trantor replaces the lines between the markers with one wrapper per
 //! service component (`Notes(Notes),` / `Notes(NotesEvent),` /
 //! `notes : NotesEnv,`) and adds the `import`s those wrappers need. A module
 //! without markers is copied verbatim. This extends D18-C ("the driver's
@@ -24,7 +24,7 @@
 
 use crate::resolve::Service;
 
-const MARKER_PREFIX: &str = "## @hematite(";
+const MARKER_PREFIX: &str = "## @trantor(";
 const MARKER_END: &str = "## @end";
 
 /// Which block a marker names.
@@ -247,22 +247,22 @@ mod tests {
 
     #[test]
     fn splices_cmd_block_and_imports() {
-        let text = "## docs\n\nCmd := [\n\tLog(Str),\n\t## @hematite(cmd)\n\tStale(U64),\n\t## @end\n]\n";
+        let text = "## docs\n\nCmd := [\n\tLog(Str),\n\t## @trantor(cmd)\n\tStale(U64),\n\t## @end\n]\n";
         let out = splice(text, &[svc("Notes", Some("NotesEvent"), None), svc("Dbx", None, None)]).unwrap();
         assert_eq!(
             out,
-            "## docs\n\nimport Notes\nimport Dbx\nCmd := [\n\tLog(Str),\n\t## @hematite(cmd)\n\tNotes(Notes),\n\tDbx(Dbx),\n\t## @end\n]\n"
+            "## docs\n\nimport Notes\nimport Dbx\nCmd := [\n\tLog(Str),\n\t## @trantor(cmd)\n\tNotes(Notes),\n\tDbx(Dbx),\n\t## @end\n]\n"
         );
     }
 
     #[test]
     fn splices_event_and_env_blocks_only_for_services_that_have_them() {
-        let text = "import Id\n\nEvent := [\n    Click,\n    ## @hematite(event)\n    ## @end\n]\n";
+        let text = "import Id\n\nEvent := [\n    Click,\n    ## @trantor(event)\n    ## @end\n]\n";
         let out = splice(text, &[svc("Notes", Some("NotesEvent"), None), svc("Audio", None, Some("AudioEnv"))]).unwrap();
         assert!(out.contains("    Notes(NotesEvent),\n    ## @end"));
         assert!(!out.contains("Audio("));
         assert!(out.starts_with("import NotesEvent\nimport Id\n"));
-        let env = "Env := {\n\twidth : U64,\n\t## @hematite(env)\n\t## @end\n}\n";
+        let env = "Env := {\n\twidth : U64,\n\t## @trantor(env)\n\t## @end\n}\n";
         let out = splice(env, &[svc("Audio", None, Some("AudioEnv"))]).unwrap();
         assert!(out.contains("\taudio : AudioEnv,\n\t## @end"));
         assert!(out.starts_with("import AudioEnv\nEnv := {"));
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn unterminated_marker_is_an_error() {
-        assert!(splice("Cmd := [\n\t## @hematite(cmd)\n]\n", &[]).is_err());
+        assert!(splice("Cmd := [\n\t## @trantor(cmd)\n]\n", &[]).is_err());
     }
 
     #[test]

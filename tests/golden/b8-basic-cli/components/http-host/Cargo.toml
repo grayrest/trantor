@@ -7,13 +7,13 @@ publish = false
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-hematite-abi = { path = "../../abi" }
+trantor-abi = { path = "../../abi" }
 sync-io-core = { path = "../sync-io-core" }
 # The blocking HTTP client (H1/H2). Chunked decode is built in; gzip/brotli
 # decompress transparently. TLS rides the default-on `tls` feature (H12).
 ureq = { version = "=3.4.0", default-features = false, features = ["gzip", "brotli"] }
 # Only pulled with `tls`: full Mozilla root certs (as DERs, so they combine
-# additively with HEMATITE_HTTP_EXTRA_CA, H13) and PEM parsing for the extra CA.
+# additively with TRANTOR_HTTP_EXTRA_CA, H13) and PEM parsing for the extra CA.
 webpki-root-certs = { version = "1", optional = true }
 rustls-pemfile = { version = "2", optional = true }
 

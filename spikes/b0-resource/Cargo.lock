@@ -6,16 +6,16 @@ version = 4
 name = "cli"
 version = "0.0.0"
 dependencies = [
- "hematite-abi",
+ "trantor-abi",
 ]
 
 [[package]]
 name = "gauge"
 version = "0.0.0"
 dependencies = [
- "hematite-abi",
+ "trantor-abi",
 ]
 
 [[package]]
-name = "hematite-abi"
+name = "trantor-abi"
 version = "0.0.0"

@@ -1,6 +1,6 @@
-# hematite — design log (D1–D23)
+# trantor — design log (D1–D23)
 
-**Plan:** [`plans/2026-09-04-hematite-v1.md`](../plans/2026-09-04-hematite-v1.md).
+**Plan:** [`plans/2026-09-04-trantor-v1.md`](../plans/2026-09-04-trantor-v1.md).
 **Rendered:** https://claude.ai/code/artifact/3cf075ab-dfb4-4ed8-a7cb-e6ad542e94fd
 
 Decisions are numbered in resolution order; each depends on those above it. The
@@ -85,7 +85,7 @@ contract" is really "one driver plus its declared type imports."
 **D6 — DAG wiring internally, flat app-visible surface.** The internal graph may
 contain an interface many times (`fs = audit-log(cap-std-fs)`); exactly one
 implementation reaches the app. Internal symbols mangled **readably**:
-`hematite__seahaven_fs__file_read_bytes`. Numeric mangling was considered and
+`trantor__seahaven_fs__file_read_bytes`. Numeric mangling was considered and
 rejected — link errors are where the reader has least context, and H0c is
 specifically a duplicate-symbol spike.
 
@@ -127,7 +127,7 @@ output is unchanged and the prebuilt `libhost.a` stays valid — **no Rust
 toolchain**. Tier 2 brings host code and triggers full source composition.
 Justified by a hard fact: Roc packages are `package [...] {}` with no `hosted`
 and no `requires`, so a package structurally *cannot* source effects. That is
-why `Path.roc` lives in `platform/`, and it is the gap only hematite can fill.
+why `Path.roc` lives in `platform/`, and it is the gap only trantor can fill.
 
 **D12 — Roc code may shim interfaces; state via a `cell` component.** Typed and
 handle-based (`Cell.new!`/`get!`/`set!`), living in the baseline as userland
@@ -136,7 +136,7 @@ a general cell has no excuse for "slot ids must uniquely identify the payload
 type" being a comment rather than a check.
 
 **D13 — Symbolic imports, generated binding modules.** Source says `import fs`;
-hematite emits one internal binding module per wiring point — bodiless
+trantor emits one internal binding module per wiring point — bodiless
 declarations bound in `hosted {}` for a host implementation, forwarding
 functions for a Roc shim. **Component source is never rewritten.** Needs no Roc
 AST rewriter, and makes implementation language invisible at the call site by
@@ -152,7 +152,7 @@ Collisions are a hard compose error; the newly added component pays the rename.
 Seahaven already keeps 3 of 16 modules internal — this makes that list
 first-class.
 
-**D15 — Hematite does not generate host-side stubs.** Consume upstream glue;
+**D15 — Trantor does not generate host-side stubs.** Consume upstream glue;
 `RustGlue`, `ZigGlue` and `CGlue` already exist with an ABI risk register and a
 glue runtime matrix. Forking a spec would duplicate work upstream and carry a
 standing ABI-churn tax. **Accepted gap:** nothing checks a hand-written
@@ -173,7 +173,7 @@ interfaces and abstract worlds; TOML for compositions. Cramming source
 locations, frameworks and wiring into `.wit` with custom attributes would break
 the projection it was chosen for. The driver's `requires` — 60+ lines with an
 app-typed `[Model : model]` parameter — is spliced through as literal text;
-hematite does not parse the Roc.
+trantor does not parse the Roc.
 
 **D18-C — resolving the splice-vs-rename contradiction.** Splicing `requires`
 verbatim contradicts D14 (rename on collision — `Cmd` collides concretely:
@@ -182,16 +182,16 @@ seahaven's `Cmd :: { … }` structural process command vs `platform-im`'s
 compiler *segfaults with no diagnostic* on a type alias imported across type
 modules, and on an import missing from `exposes`). Resolution: the driver
 declares the cross-component types its `requires` names in a `[requires.uses]`
-TOML block — a WIT-style `use` list. Hematite still splices the `requires` text
+TOML block — a WIT-style `use` list. Trantor still splices the `requires` text
 verbatim (never parses Roc), but resolves those declared identifiers to their
 post-rename canonical modules, guarantees each is in `exposes`, and requires
 D13 binding modules to **re-export the original nominal rather than alias it**
-for any type a driver `requires` names. Rejected alternatives: (A) hematite
+for any type a driver `requires` names. Rejected alternatives: (A) trantor
 parses the `requires` block — reintroduces the Roc parser D13 exists to avoid;
 (B) forbid renames touching a `requires` type — guts D14's "new component pays"
 rule. Spiked at H1b before any of it is built (`notes/2026-09-04-h1b-requires-splice.md`):
 the base cross-module-nominal case **works**, and two hard rules came out — (1)
-hematite runs `roc check` on the composed platform *before* `roc build`, because
+trantor runs `roc check` on the composed platform *before* `roc build`, because
 a `requires` type whose module is missing from `exposes` **segfaults `roc build`**
 (fault 0x138c) while `roc check` reports it cleanly; (2) binding modules re-export
 the original nominal, never an alias, because an alias in `requires` crashes.
@@ -223,8 +223,8 @@ deploy-time substitution that source composition already provides at build time,
 at the cost of a copying adapter per call.
 
 **D23 — Provenance in generated output; nothing generated in git.** File headers
-carry world, hematite version and ABI fingerprint; declarations carry origin
-comments; output is deterministic. Ephemeral in `target/hematite/` for apps,
+carry world, trantor version and ABI fingerprint; declarations carry origin
+comments; output is deterministic. Ephemeral in `target/trantor/` for apps,
 published tarballs for worlds. Diagnostic rewriting rejected: roc's output
 format moves, and a tool that lies about locations is worse than one that points
 at generated code honestly.
@@ -252,7 +252,7 @@ at generated code honestly.
 - **Cross-component host calls resolve at the final roc link, never via a cargo
   dependency.** A cargo dep between two component crates bundles one into the
   other's archive, duplicating its symbols across archives (the H0c footgun).
-  Hematite emits an `extern "C-unwind"` declaration for a cross-component call
+  Trantor emits an `extern "C-unwind"` declaration for a cross-component call
   and lets `roc` resolve it across the staged archives; cargo deps are only for
   a component's own private crates.
 - **`List(OsStr)` driver deferred to post-glue-redesign.** The pinned glue

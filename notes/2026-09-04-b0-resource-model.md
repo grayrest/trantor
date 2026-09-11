@@ -18,7 +18,7 @@ The glue's `RocBoxPayloadDecref` destructor fires **only** on host-side
 `decref_box_with`/`free_box_with`. A Roc-side last-drop calls plain
 `roc_dealloc` — no hook. Since the driver owns `roc_dealloc` (one of the six
 runtime symbols), the mechanism is a **dealloc registry** in the generated
-`hematite_abi::resource` module:
+`trantor_abi::resource` module:
 
 - `resource::new(value) -> RocBox` — `allocate_box(8, 8, false)` (a
   `Box(U64)`), payload = raw pointer to a boxed Rust value, registers
@@ -52,6 +52,6 @@ R-B1 itself (base-vs-data) is **resolved**: Roc passes the allocation base.
 ## Exit ✅
 
 `spikes/b0-resource/verify.sh`: composes, builds, runs, asserts exit code 3 and
-"closes=3 live=0" on stderr. hematite emits the `[[resources]]`-declared
+"closes=3 live=0" on stderr. trantor emits the `[[resources]]`-declared
 `Box(U64)` aliases (author-written in the binding module, D13 verbatim) and the
 generated driver's `roc_dealloc` consults the registry. B1 may build streams.

@@ -1,10 +1,10 @@
-# Plan: H7 — decompose roc-solid's platform-im into hematite components
+# Plan: H7 — decompose roc-solid's platform-im into trantor components
 
 > **Status: COMPLETE 2026-09-09 (P0–P10).** Follow-up 2026-09-10: eight
 > worlds, one per distinct wiring and each named for what it wires —
 > `clay` (nothing), `dbx`, `net`, `notes`, `doc`, `spawn`, `audio`, `dom`
 > (D-H7-39). A world
-> composes into `target/hematite/<world>/` — generated files are separated
+> composes into `target/trantor/<world>/` — generated files are separated
 > from source by construction, and a world directory holds only its
 > `world*.toml` (D-H7-38). clay is
 > now THE BASE and wires nothing (D-H7-36) — 178 of its 184 app entries
@@ -22,7 +22,7 @@
 > driver is the world `platform/dom` — host-im's contract shipped by a
 > `kind = "roc"` component and its driver.toml by `contract_from` (D-H7-30),
 > `svc-notes-dom`/`svc-net-dom` over the browser's `fetch` through the
-> driver's `dom_svc_*` externs, `hematite build --target wasm32` in place of
+> driver's `dom_svc_*` externs, `trantor build --target wasm32` in place of
 > `dom-host`/`dom-app`, and the counter, notesviewer and the request fixture
 > running in a browser; the shim learned wasm32 (D-H7-32); the size-correct
 > knob exists but traps (D-H7-31). P8: the document
@@ -32,7 +32,7 @@
 > crossing in-repo, the nomadic reader re-points in its own repo. P7: audio left the host —
 > `svc-audio` with the first env block (`Env.audio`), wired only in its own
 > world `platform/audio` (D-H7-28); one driver serves worlds whose contracts
-> differ through `HEMATITE_SERVICES` → `cfg(hematite_service = "…")`
+> differ through `TRANTOR_SERVICES` → `cfg(trantor_service = "…")`
 > (D-H7-27); 0 cpal/symphonia/flac symbols in clay's driver. P6: the network left
 > the host — `svc-net` (`Net := [Send, Replace]`, `NetEvent := [Response,
 > Failed]`), the behaviour-script format as `crates/spec` shared by the
@@ -48,7 +48,7 @@
 > first service out (`crates/svc-notes`, `platform/interfaces/notes`), typed
 > end to end through the generated shim on the real host; D-H7-17/18/19 in
 > the log. P2: roc-solid's
-> platform is the hematite world `platform/clay` (driver `crates/host-im`,
+> platform is the trantor world `platform/clay` (driver `crates/host-im`,
 > zero services extracted); `im-check` 132/132 on `~/.bin/roc` (b07d7e) with
 > two gates quarantined for compiler segfaults that predate nothing here
 > (`known_red`, roc-solid's UPSTREAM-ISSUE note); clippy + cargo test green;
@@ -64,14 +64,14 @@
 > proofs. Design log:
 > [`notes/2026-09-09-h7-roc-solid-decomposition-design-log.md`](../notes/2026-09-09-h7-roc-solid-decomposition-design-log.md)
 > (D-H7-1…12). Closes the PARTIAL H7 gate of
-> [`2026-09-04-hematite-v1.md`](2026-09-04-hematite-v1.md). Toolchain pinned at
+> [`2026-09-04-trantor-v1.md`](2026-09-04-trantor-v1.md). Toolchain pinned at
 > `~/.bin/roc` = `roc-b07d7e-rebased-main`, `RustGlue-b07d7e-rebased-main.roc`.
 
-Two repos change: **hematite** (the tool: `path`, splice markers, the service
+Two repos change: **trantor** (the tool: `path`, splice markers, the service
 contract + generated shim, `HostCtx`, wasm32 build) and **roc-solid** (the
 consumer: `platform/<world>/`, six service crates, two driver worlds, per-app
 worlds). Phases alternate so that every roc-solid step lands on a tool feature
-already green in hematite's own suite.
+already green in trantor's own suite.
 
 ## Exit (the whole plan)
 
@@ -83,12 +83,12 @@ already green in hematite's own suite.
    `platform/conduit` (net), `platform/notesviewer` (notes). **`nm` on
    colorhunt's binary shows 0 `_sqlite3_*` and 0 `rustls` symbols**, by
    composition — host-im has no `sqlite`/`net`/`audio`/`pdf` features left.
-4. `platform/dom` builds `apps/notesviewer` for wasm32 through `hematite build`
+4. `platform/dom` builds `apps/notesviewer` for wasm32 through `trantor build`
    and runs in the browser (`just dom-app`); `dom-recon` green.
-5. hematite's golden suite green (existing 16 + `im-services` + the wasm spike
+5. trantor's golden suite green (existing 16 + `im-services` + the wasm spike
    fixture); zero-warning builds in both repos; `just check` green.
 
-## Manifest additions (hematite)
+## Manifest additions (trantor)
 
 ```toml
 # world.toml
@@ -128,18 +128,18 @@ Driver modules carry the splice markers; the block is replaced whole:
 Cmd := [
     Log(Str),
     …core variants…
-    ## @hematite(cmd)
+    ## @trantor(cmd)
     ## @end
 ]
 ```
 
-`Env := { …, ## @hematite(env) … ## @end }` splices `audio : Audio.Env,` and
-the driver's `hematite__host_im` frame assembly calls each env component.
+`Env := { …, ## @trantor(env) … ## @end }` splices `audio : Audio.Env,` and
+the driver's `trantor__host_im` frame assembly calls each env component.
 
 ## The service contract (generated into `abi/src/services.rs`)
 
 Every host component with a `cmd` interface exports, `extern "C-unwind"`,
-mangled `hematite__<sanitize(component)>__<fn>`:
+mangled `trantor__<sanitize(component)>__<fn>`:
 
 | symbol | signature | when |
 | --- | --- | --- |
@@ -167,7 +167,7 @@ Rules: no Rust-heap value crosses (D-H7-11); every boundary `C-unwind`
 
 ## Phases
 
-### P0 — spikes (hematite; measure first) ✅ 2026-09-09
+### P0 — spikes (trantor; measure first) ✅ 2026-09-09
 
 `tests/golden/im-services/` — imview-slice + two services (`svc-echo` sync,
 `svc-tick` async from a thread) + an env block — green: wrapper unions cross
@@ -187,7 +187,7 @@ component's Roc modules live in `<dir>/roc/` or `<dir>/`; `Interface.kind =
 spliced; nothing written into a `path` driver; `features` refused with
 `path`), `scan.rs` (`#[global_allocator]` guard; wasm via `llvm-readobj`
 flags; `rust_eh_personality` singleton), `wasm.rs` (the merge; roots = members
-defining `hematite__<c>__*`). A service with events must export `complete`
+defining `trantor__<c>__*`). A service with events must export `complete`
 even when synchronous (the contract is uniform). Exit met: 16 prior fixtures
 + `im-services` + `wasm-host` green, zero warnings, 13 unit tests.
 
@@ -197,28 +197,28 @@ Original plan text follows.
 `services: Vec<Service { component, module, cmd, event, env }>`.
 `codegen`: driver modules copied from `<path>/roc/` with splice blocks filled;
 never write `Cargo.toml`/`src` into an authored driver (`authored_host` +
-`path` ⇒ hematite emits only the abi crate and the workspace); `abi/src/
+`path` ⇒ trantor emits only the abi crate and the workspace); `abi/src/
 services.rs` + `HostCtx`; workspace members by path.
 `build`: `--target wasm32` pipeline (per-component `cargo rustc --target
 wasm32-unknown-unknown` with the `dom-host` env overrides, `llvm-ar x` wasm
 members per component, then ONE `wasm-ld -r --whole-archive <driver>
 --no-whole-archive <each component's contract members> <component archives>`
 → `targets/wasm32/host.wasm` — the P0-measured merge; contract members found
-with `llvm-nm` from the symbols hematite itself mangled; `exports:` emitted
+with `llvm-nm` from the symbols trantor itself mangled; `exports:` emitted
 from the driver's declared wasm exports); `scan` via `llvm-nm` for wasm
 archives. `resolve`: driver FIRST in `archive_order` (D-H7-13); `scan`: the
 three `___rustc*` shim symbols leave the Rust-mangled exemption and a
 `#[global_allocator]` outside the driver is refused.
-Exit: 16 fixtures + `im-services` green; `hematite build` on the wasm spike.
+Exit: 16 fixtures + `im-services` green; `trantor build` on the wasm spike.
 
 ### P2 — roc-solid baseline, zero services extracted (behaviour-identical)
 
 Tool prerequisite landed first (D-H7-14, `src/cargo.rs`, fixture
 `tests/golden/cargo-root`): `[world] cargo_root = "../.."` builds `path`
 components inside roc-solid's own workspace with the world's abi patched in
-(`hematite-abi = "0.0.0"` in each crate; root `[patch.crates-io]` default to
-`platform/clay/abi`). The Justfile finds the tool at `~/.bin/hematite`
-(`HEMATITE` override; D-H7-15).
+(`trantor-abi = "0.0.0"` in each crate; root `[patch.crates-io]` default to
+`platform/clay/abi`). The Justfile finds the tool at `~/.bin/trantor`
+(`TRANTOR` override; D-H7-15).
 
 - `git mv platform-im/*.roc crates/host-im/roc/`; `git mv platform/ platform/signals/`
   (its 8 recipes + `examples/counter`, `examples/todo` re-pointed).
@@ -226,11 +226,11 @@ components inside roc-solid's own workspace with the world's abi patched in
   `im-sysroot`'s list (AppKit… Security), no services yet; `Cmd.roc`/`Event.roc`/
   `Env.roc` get empty splice blocks.
 - abi rename (D-H7-10): `crates/abi` deleted, `http.rs` → parked in host-im's
-  `net.rs` until P6; `hematite_abi` at every import.
+  `net.rs` until P6; `trantor_abi` at every import.
 - 191 apps: `platform "../../platform-im/main.roc"` → `"../../platform/clay/platform/main.roc"`
   (sed; depth varies per dir).
 - Justfile: `im-host`/`im-glue`/`im-sysroot` → one `im-host` that runs
-  `hematite build platform/clay` (the `IM_HOST_READY` short-circuit and the
+  `trantor build platform/clay` (the `IM_HOST_READY` short-circuit and the
   atomic install kept); `dom-host` untouched until P9 (it breaks at P3's first
   union change — accepted only *between* P3 and P9, recorded in the plan).
 Exit: `just im-check` all gates pass; `just check` green; colorhunt binary
@@ -239,7 +239,7 @@ byte-for-byte irrelevant but `nm` unchanged (still 280 sqlite — the flag).
 **Outcome ✅ 2026-09-09.** As built, beyond the list above: the compiler port
 to `~/.bin/roc` (D-H7-16: `List.sort_with`'s `[Before, After, Same]`,
 `U64.order_relative_to`, two F64 annotations in `grid-finance`); `just
-im-host` = `hematite build platform/clay --world <w> --platform-only` with one
+im-host` = `trantor build platform/clay --world <w> --platform-only` with one
 world file per former feature set; probe scripts under `notes/probes` follow
 the platform; `known_red` quarantines `im-underline` and `im-id-apps`
 (b07d7e segfaults, note in roc-solid). `just check` also fails at
@@ -260,7 +260,7 @@ for the DOM until P9. Exit: `im-notesviewer`, `notesviewer-probe` green.
 `platform/interfaces/notes/{Notes,NotesEvent}.roc` (`interfaces_dir`),
 `gnotes.rs` stays in host-im (D-H7-18), the engine's wrapper arm + answer
 routing + wake courier, `main()`'s gate chain, host-dom's interim catch-all,
-notesviewer typed. `hematite__svc_notes__*` only in `libsvc_notes.a`; scan
+notesviewer typed. `trantor__svc_notes__*` only in `libsvc_notes.a`; scan
 clean over 2 archives; `im-notesviewer` + `notesviewer-probe` green.
 
 ### P4 — `svc-spawn` (streaming)
@@ -338,7 +338,7 @@ moves.
 
 `Audio.Cmd := [Play(Str), Pause, Seek(F64), Record(Str), StopRecording]`,
 `Audio.Env := { playhead : F64, mic_level : F32 }` spliced into `Env`;
-`sync_playhead` becomes `hematite__svc_audio__env`. `im-audio/audio.roc`
+`sync_playhead` becomes `trantor__svc_audio__env`. `im-audio/audio.roc`
 reads `env.audio.playhead`. The `audio` feature leaves host-im. Exit: `im-audio`.
 
 **Outcome ✅ 2026-09-09.** As built: `crates/svc-audio` (`audio.rs` whole,
@@ -350,8 +350,8 @@ mic_level : F32, playing : Bool }` (`playing` added: the driver's live-redraw
 reads it, D-H7-28). Wired ONLY in `platform/audio/world.toml`, a world
 directory of its own (D-H7-28; `world-audio.toml` deleted); the fixture
 targets it and `im-audio` composes it inside the suite. The driver reads the
-block under `cfg(hematite_service = "audio")`, which hematite's build now
-makes possible (D-H7-27: `HEMATITE_SERVICES`/`HEMATITE_WORLD` exported to
+block under `cfg(trantor_service = "audio")`, which trantor's build now
+makes possible (D-H7-27: `TRANTOR_SERVICES`/`TRANTOR_WORLD` exported to
 cargo, host-im's `build.rs` turns them into cfgs). Gone from the driver:
 `Transport`, `perform_transport`, `sync_playhead`, `player`/`recorder`,
 `Boundary.{playhead,mic_level}`, the `audio` feature and its three deps,
@@ -379,7 +379,7 @@ page groups; `contract.rs`), `platform/interfaces/doc/{Doc,DocEvent}.roc` —
 Group, Drop]` each `(request_id, route_key, …)`, `DocEvent := [Listing,
 Opened, Closed, Dropped, Sized, Blocks, Crop, Chars, Outline, Chapter, Group,
 Failed]` carrying the records the app used to parse out of text (the wire's
-`\n`/`\t` escaping is gone with the wire). hematite's `HostCtx` gained
+`\n`/`\t` escaping is gone with the wire). trantor's `HostCtx` gained
 `register_group(*const Scene, generation) -> handle` / `release_group(handle)`
 and `services::init(…, Option<Groups>)`; the driver's callbacks mint the
 handle from `imgref`'s counter and COPY the borrowed scene into `hostres`
@@ -403,7 +403,7 @@ modules? **No** — the modules are host-im's; `platform/dom` reuses them by
 declaring host-im's Roc dir as a `kind = "roc"` component `im-contract`
 exporting the 55 modules, so both drivers share one contract text). Components
 `svc-notes-dom`, `svc-net-dom` (JS `fetch` transport, wasm32). `dom-host`/
-`dom-app` → `hematite build platform/dom --target wasm32`. Exit: exit item 4.
+`dom-app` → `trantor build platform/dom --target wasm32`. Exit: exit item 4.
 
 **Outcome ✅ 2026-09-09.** As built: `platform/dom/world.toml` — driver
 `host-dom` (`crates/host-dom/driver.toml`: `authored_host`, `wasm_exports`,
@@ -427,7 +427,7 @@ pairs identical below the header, `dom-exports` keeps the applier's calls in
 the export list (which is how two latent applier bugs surfaced: a
 `pushInput` call C2 had removed, and `dom_dispatch` missing from the export
 list — every click had trapped since the plain export-everything build went
-away). hematite: `contract_from`, roc-component splicing, `--app <file.roc>`,
+away). trantor: `contract_from`, roc-component splicing, `--app <file.roc>`,
 `[world] wasm_size_correct` (D-H7-31), `tagged::build` in every service
 world's abi, plain-`C` contract declarations on wasm32, first-wins on the
 merge (D-H7-32). `lint`/`test-host`/`dom-recon` check the DOM crates against
@@ -441,7 +441,7 @@ completion and is off (D-H7-31); `just dom-notesviewer` is the demo.
 ### P10 — per-app worlds + the `nm` exit; docs
 
 Four worlds; four apps re-pointed; `Cmd.Service`/`Event.Service` deleted;
-`hematite-v1.md` H7 → COMPLETE with the measured `nm` counts; this plan's
+`trantor-v1.md` H7 → COMPLETE with the measured `nm` counts; this plan's
 status flipped; design-log "Still open" updated.
 
 **Outcome ✅ 2026-09-09.** As built: `platform/{colorhunt,dbx,conduit,
@@ -458,8 +458,8 @@ dom's arm, `Answer`, `inflight`/`completions`, `complete_service`,
 the dev server, and `service_name_ok` now guards it in `dom_svc_call`), and
 the T1 rig's claim 4 (`gt1::gate_service`). **Measured (`just world-nm`):
 colorhunt = `libhost_im.a` alone; dbx = + `libsvc_dbx.a`; conduit = + `libsvc_net.a`; notesviewer = + `libsvc_notes.a`; clay = all five services — and every world's `libhost_im.a` has 0 `_sqlite3_*`, 0 rustls, 0 hayro, 0 cpal symbols.** `im-check` 133/133, the four per-app worlds composing inside the parallel suite under the workspace build lock (D-H7-34). The roadmap note
-in hematite's design log records H7 as complete with these numbers; there is
-no `hematite-v1.md`.
+in trantor's design log records H7 as complete with these numbers; there is
+no `trantor-v1.md`.
 
 ## Risks
 

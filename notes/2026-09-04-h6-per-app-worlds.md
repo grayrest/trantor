@@ -1,6 +1,6 @@
 # H6 — per-app worlds
 
-Gate H6 of [`plans/2026-09-04-hematite-v1.md`](../plans/2026-09-04-hematite-v1.md).
+Gate H6 of [`plans/2026-09-04-trantor-v1.md`](../plans/2026-09-04-trantor-v1.md).
 Acceptance: `tests/golden/two-component/verify-tier.sh`.
 
 ## The product promise, mechanized
@@ -8,10 +8,10 @@ Acceptance: `tests/golden/two-component/verify-tier.sh`.
 "Baseline consumed by URL; a straightforward path to extend." H6 turns that into
 three tool operations over the H2 baseline:
 
-- **`hematite publish <dir>`** → `dist/`: the platform's `.roc` sources, the
+- **`trantor publish <dir>`** → `dist/`: the platform's `.roc` sources, the
   prebuilt per-target archives, and `baseline.lock` carrying an **ABI
   fingerprint** (D11/H11). This is the shippable tarball an app depends on.
-- **`hematite tier <dir> --world <ext>`** → classifies an extension:
+- **`trantor tier <dir> --world <ext>`** → classifies an extension:
   - pure-Roc additions → **Tier 1**: "reuses the baseline's prebuilt archives,
     no Rust toolchain."
   - any host component → **Tier 2**: "new hosted symbols, so full source
@@ -44,7 +44,7 @@ id flips it — the gate that stops a stale-glue mismatch from becoming a runtim
 segfault (H11).
 
 This mirrors the split in the upstream glue redesign: the real `roc_abi_assert!`
-fingerprint enforces the same thing at *link* time; hematite's lock is the
+fingerprint enforces the same thing at *link* time; trantor's lock is the
 *distribution*-time check the tarball carries so a Tier-1 consumer can decide
 whether reuse is safe **without running glue**.
 

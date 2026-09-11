@@ -3,7 +3,7 @@
 //! Stdout/Stderr derived layer wraps (H5 substitution proof). Every boundary
 //! extern "C-unwind" (H0d).
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::{RocStr, RocListWith,
     StdioStdoutLineResult as OutR, StdioStdoutLineResultPayload as OutP, StdioStdoutLineResultTag as OutT,
     StdioStderrLineResult as ErrR, StdioStderrLineResultPayload as ErrP, StdioStderrLineResultTag as ErrT,
@@ -50,32 +50,32 @@ fn err_err(e: &std::io::Error) -> ErrR { ErrR { payload: ErrP { err: ManuallyDro
 // Owned-argument rule (B0): each fn releases its RocStr / byte-list arg after
 // writing. These are RocStr / RocListWith<u8,false>, so a plain decref is the
 // full release (no refcounted elements).
-#[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__capture_stdio__stdout_line(s: RocStr) -> OutR {
+#[unsafe(no_mangle)] pub extern "C-unwind" fn trantor__capture_stdio__stdout_line(s: RocStr) -> OutR {
     let r = writeln!(std::io::stdout(), "[cap] {}", s.as_str());
     unsafe { s.decref(abi::host()); }
     match r { Ok(()) => out_ok(), Err(e) => out_err(&e) }
 }
-#[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__capture_stdio__stdout_write(s: RocStr) -> OutR {
+#[unsafe(no_mangle)] pub extern "C-unwind" fn trantor__capture_stdio__stdout_write(s: RocStr) -> OutR {
     let r = write!(std::io::stdout(), "[cap] {}", s.as_str());
     unsafe { s.decref(abi::host()); }
     match r { Ok(()) => out_ok(), Err(e) => out_err(&e) }
 }
-#[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__capture_stdio__stdout_write_bytes(b: RocListWith<u8, false>) -> OutR {
+#[unsafe(no_mangle)] pub extern "C-unwind" fn trantor__capture_stdio__stdout_write_bytes(b: RocListWith<u8, false>) -> OutR {
     let r = std::io::stdout().write_all(b.as_slice());
     unsafe { b.decref(abi::host()); }
     match r { Ok(()) => out_ok(), Err(e) => out_err(&e) }
 }
-#[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__capture_stdio__stderr_line(s: RocStr) -> ErrR {
+#[unsafe(no_mangle)] pub extern "C-unwind" fn trantor__capture_stdio__stderr_line(s: RocStr) -> ErrR {
     let r = writeln!(std::io::stderr(), "[cap] {}", s.as_str());
     unsafe { s.decref(abi::host()); }
     match r { Ok(()) => err_ok(), Err(e) => err_err(&e) }
 }
-#[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__capture_stdio__stderr_write(s: RocStr) -> ErrR {
+#[unsafe(no_mangle)] pub extern "C-unwind" fn trantor__capture_stdio__stderr_write(s: RocStr) -> ErrR {
     let r = write!(std::io::stderr(), "[cap] {}", s.as_str());
     unsafe { s.decref(abi::host()); }
     match r { Ok(()) => err_ok(), Err(e) => err_err(&e) }
 }
-#[unsafe(no_mangle)] pub extern "C-unwind" fn hematite__capture_stdio__stderr_write_bytes(b: RocListWith<u8, false>) -> ErrR {
+#[unsafe(no_mangle)] pub extern "C-unwind" fn trantor__capture_stdio__stderr_write_bytes(b: RocListWith<u8, false>) -> ErrR {
     let r = std::io::stderr().write_all(b.as_slice());
     unsafe { b.decref(abi::host()); }
     match r { Ok(()) => err_ok(), Err(e) => err_err(&e) }

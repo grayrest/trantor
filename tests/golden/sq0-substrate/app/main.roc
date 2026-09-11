@@ -1,8 +1,8 @@
-app [main!] { pf: platform "../target/hematite/sq0-substrate/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/sq0-substrate/platform/main.roc" }
 
 import pf.Probe
 
-## SQ0 go/no-go: prove the two roc:sqlite-unsound mechanisms on hematite's stack.
+## SQ0 go/no-go: prove the two roc:sqlite-unsound mechanisms on trantor's stack.
 main! : {} => Try({}, [Exit(I32), ..])
 main! = |{}| {
 	# (A) Borrowed slice: use the borrow TWICE, which makes Roc incref it once and

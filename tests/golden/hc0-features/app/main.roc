@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/hc0-features/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/hc0-features/platform/main.roc" }
 
 import pf.Mark
 

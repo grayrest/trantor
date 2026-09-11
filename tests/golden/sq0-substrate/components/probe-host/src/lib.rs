@@ -5,7 +5,7 @@
 //!     proves a HOST component can call back into Roc per-value (the fold reducer
 //!     and turso scalar ride this).
 use core::mem::MaybeUninit;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::{RocErasedCallable, RocHost, RocStr};
 
 /// A static host-owned buffer to borrow from — outlives every Roc reference.
@@ -13,7 +13,7 @@ static BORROWED: &[u8] = b"borrowed-hello";
 
 /// `Probe.borrow_str! : {} => Str`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__probe_host__borrow_str() -> RocStr {
+pub extern "C-unwind" fn trantor__probe_host__borrow_str() -> RocStr {
     // Zero-copy: the returned Str's bytes aim at BORROWED, its alloc-ptr at the
     // shared rc==0 static block. Roc reads it natively and never frees it.
     unsafe { abi::borrow::borrowed_str(BORROWED.as_ptr(), BORROWED.len()) }
@@ -27,7 +27,7 @@ struct ApplyArgs {
 
 /// `Probe.apply_i64! : I64, Box((I64 -> I64)) => I64`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__probe_host__apply_i64(arg0: i64, f: RocErasedCallable) -> i64 {
+pub extern "C-unwind" fn trantor__probe_host__apply_i64(arg0: i64, f: RocErasedCallable) -> i64 {
     let host = abi::host();
     let args = ApplyArgs { arg0 };
     let mut ret = MaybeUninit::<i64>::uninit();
@@ -55,7 +55,7 @@ pub extern "C-unwind" fn hematite__probe_host__apply_i64(arg0: i64, f: RocErased
 
 /// `Probe.print! : Str => {}`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__probe_host__print(s: RocStr) {
+pub extern "C-unwind" fn trantor__probe_host__print(s: RocStr) {
     println!("{}", s.as_str());
     unsafe { s.decref(abi::host()); } // owned arg; a borrowed str would decref-noop
 }

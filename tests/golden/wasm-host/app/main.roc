@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/wasm-host/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/wasm-host/platform/main.roc" }
 
 import pf.Host
 
@@ -6,6 +6,6 @@ import pf.Host
 ## hosted-call direction), a string built from it (proving roc_alloc runs on
 ## wasm32), and a scalar beside it.
 main! = |{}| {
-	message: "hematite wasm host seed=${Host.seed!({}).to_str()}",
+	message: "trantor wasm host seed=${Host.seed!({}).to_str()}",
 	n: Host.seed!({}) * 2,
 }

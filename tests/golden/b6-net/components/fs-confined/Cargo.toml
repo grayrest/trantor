@@ -6,6 +6,6 @@ publish = false
 [lib]
 crate-type = ["staticlib", "rlib"]
 [dependencies]
-hematite-abi = { path = "../../abi" }
+trantor-abi = { path = "../../abi" }
 sync-io-core = { path = "../sync-io-core" }
 fs-core = { path = "../fs-core" }

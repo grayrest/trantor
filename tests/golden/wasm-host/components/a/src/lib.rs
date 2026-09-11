@@ -5,7 +5,7 @@
 use core::ffi::c_void;
 use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use hematite_abi as abi;
+use trantor_abi as abi;
 
 type App = abi::AnonStruct5f5555ad42ba4a42;
 

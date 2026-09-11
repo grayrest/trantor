@@ -12,7 +12,7 @@ const ROOT_JSON: &str = "{\"foo\":\"json-root\"}";
 const HTML: &str = "<html><body>hi</body></html>";
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__testnet_host__start_test_server() {
+pub extern "C-unwind" fn trantor__testnet_host__start_test_server() {
     // Bind before returning so the example's first request has a listener.
     let l = match TcpListener::bind("127.0.0.1:9000") {
         Ok(l) => l,

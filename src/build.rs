@@ -1,11 +1,11 @@
-//! `hematite build <world-dir>` — the composed-platform build pipeline, driven
+//! `trantor build <world-dir>` — the composed-platform build pipeline, driven
 //! by the tool instead of each fixture's `build.sh`. It folds the H0c symbol
 //! scan into its proper place: between `cargo` (which produces the archives) and
 //! `roc build` (which links them), so a collision is rejected before the
 //! memory-unsafe link, not after.
 //!
 //! Order (the canonical pipeline every fixture's build.sh open-coded), all of
-//! it writing under `target/hematite/<world>` (D-H7-38):
+//! it writing under `target/trantor/<world>` (D-H7-38):
 //!
 //! 1. compose — main.roc, the abi wrapper, the workspace and its component
 //!    crates, the spliced contract + interface + pure-Roc modules (in-process;
@@ -65,7 +65,7 @@ fn run(program: &str, args: &[&str], dir: &Path, what: &str) -> Result<(), Strin
 }
 
 /// A path as an absolute string, for a tool whose working directory is the
-/// SOURCE tree while its output belongs under `target/hematite` (D-H7-38).
+/// SOURCE tree while its output belongs under `target/trantor` (D-H7-38).
 fn abs(p: &Path) -> Result<String, String> {
     let p = if p.exists() {
         p.canonicalize().map_err(|e| format!("canonicalize {}: {e}", p.display()))?
@@ -110,11 +110,11 @@ pub fn build(
     let world = crate::manifest::load_world(dir, world_file)?;
     let driver = crate::manifest::load_driver(dir, &world)?;
     let resolved = crate::resolve::resolve(dir, &world, &driver)?;
-    // Everything generated lands under `target/hematite/<world>` (D-H7-38);
+    // Everything generated lands under `target/trantor/<world>` (D-H7-38);
     // `dir` from here on is SOURCE only.
     let gen = crate::manifest::out_dir(dir, &world);
     crate::codegen::emit(dir, &gen, &world, &driver, &resolved)?;
-    eprintln!("hematite build: composed `{}` -> {}", world.world.name, gen.display());
+    eprintln!("trantor build: composed `{}` -> {}", world.world.name, gen.display());
 
     // 2. roc glue -> abi/src/generated.rs. Absolute paths: roc runs in `dir`
     //    (so `--app` stays source-relative) while writing under `gen`.
@@ -163,7 +163,7 @@ pub fn build(
 
     // 7. roc check, then 8. roc build — unless only the platform was asked for.
     let Some(app) = app else {
-        eprintln!("hematite build: platform `{}` staged and scanned (no app)", world.world.name);
+        eprintln!("trantor build: platform `{}` staged and scanned (no app)", world.world.name);
         return Ok(());
     };
     // `--app` names a directory holding main.roc, or a .roc file directly — an
@@ -175,7 +175,7 @@ pub fn build(
     let bin = abs(&gen.join("bin"))?;
     let out_flag = format!("--output={bin}/{out}");
     roc_capped(&["build", &out_flag, &app_main], dir, "roc build")?;
-    eprintln!("hematite build: linked {bin}/{out}");
+    eprintln!("trantor build: linked {bin}/{out}");
     Ok(())
 }
 
@@ -218,7 +218,7 @@ fn sync_framework_sysroot(dir: &Path, world: &World) -> Result<(), String> {
     };
     if sdk.is_empty() {
         // No SDK to symlink from; leave it to the link to fail loudly if needed.
-        eprintln!("hematite build: no macOS SDK found (xcrun); skipping framework sysroot");
+        eprintln!("trantor build: no macOS SDK found (xcrun); skipping framework sysroot");
         return Ok(());
     }
     let sdk = Path::new(&sdk);

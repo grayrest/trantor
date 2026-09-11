@@ -1,4 +1,4 @@
-//! Authored CLI driver (the body hematite generates for a components/ driver,
+//! Authored CLI driver (the body trantor generates for a components/ driver,
 //! kept by hand here because a `path` driver is an authored crate end to end).
 #![allow(dead_code)]
 // The runtime shims are called by compiled Roc, not by Rust; their contract
@@ -6,7 +6,7 @@
 #![allow(clippy::missing_safety_doc)]
 use core::ffi::c_void;
 use core::ptr;
-use hematite_abi as abi;
+use trantor_abi as abi;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> *mut c_void {
@@ -50,7 +50,7 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
     let code = match outcome {
         Ok(code) => code,
         Err(_) => {
-            eprintln!("[hematite] a component panicked; driver caught it at the boundary");
+            eprintln!("[trantor] a component panicked; driver caught it at the boundary");
             70
         }
     };

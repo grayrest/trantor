@@ -1,5 +1,5 @@
 # Composition manifest for the two-component golden fixture (D18).
-# hematite consumes this + the component sources and regenerates the platform/,
+# trantor consumes this + the component sources and regenerates the platform/,
 # abi/, workspace Cargo.toml, and cli main() -- byte-for-byte (H3's test).
 
 [world]

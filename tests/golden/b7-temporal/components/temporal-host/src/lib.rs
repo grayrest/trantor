@@ -4,7 +4,7 @@
 //! pure computation. Owned-argument rule: RocStr args are decref'd; handles
 //! are touched only through resource::with.
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::*;
 use temporal_rs::options::{DifferenceSettings, DisplayCalendar, DisplayOffset, DisplayTimeZone, Overflow, ToStringRoundingOptions};
 use temporal_rs::{Calendar, Duration, PlainDate, TemporalError, TimeZone, ZonedDateTime};
@@ -45,60 +45,60 @@ macro_rules! try_result { ($R:ident, $P:ident, $T:ident, $r:expr) => {
 }}
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__calendar_from_id(id: RocStr) -> TemporalCalendarFromIdResult {
+pub extern "C-unwind" fn trantor__temporal_host__calendar_from_id(id: RocStr) -> TemporalCalendarFromIdResult {
     let id = take_str(id);
     try_result!(TemporalCalendarFromIdResult, TemporalCalendarFromIdResultPayload, TemporalCalendarFromIdResultTag, Calendar::try_from_utf8(id.as_bytes()).map(handle))
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__calendar_id(c: *mut u64) -> RocStr { RocStr::from_str(cal(c).identifier(), abi::host()) }
+pub extern "C-unwind" fn trantor__temporal_host__calendar_id(c: *mut u64) -> RocStr { RocStr::from_str(cal(c).identifier(), abi::host()) }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__time_zone_from_id(id: RocStr) -> TemporalTimeZoneFromIdResult {
+pub extern "C-unwind" fn trantor__temporal_host__time_zone_from_id(id: RocStr) -> TemporalTimeZoneFromIdResult {
     let id = take_str(id);
     try_result!(TemporalTimeZoneFromIdResult, TemporalTimeZoneFromIdResultPayload, TemporalTimeZoneFromIdResultTag, TimeZone::try_from_str(&id).map(handle))
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__time_zone_id(t: *mut u64) -> RocStr {
+pub extern "C-unwind" fn trantor__temporal_host__time_zone_id(t: *mut u64) -> RocStr {
     RocStr::from_str(&tz(t).identifier().unwrap_or_default(), abi::host())
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__date_add(d: PlainDateRec, dur: DurationRec, c: *mut u64) -> TemporalDateAddResult {
+pub extern "C-unwind" fn trantor__temporal_host__date_add(d: PlainDateRec, dur: DurationRec, c: *mut u64) -> TemporalDateAddResult {
     let r = date_of(d, cal(c)).and_then(|d| duration_of(dur).and_then(|dur| d.add(&dur, Some(Overflow::Constrain)))).map(|d| rec_of(&d));
     try_result!(TemporalDateAddResult, TemporalDateAddResultPayload, TemporalDateAddResultTag, r)
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__date_until(a: PlainDateRec, b: PlainDateRec, c: *mut u64) -> TemporalDateUntilResult {
+pub extern "C-unwind" fn trantor__temporal_host__date_until(a: PlainDateRec, b: PlainDateRec, c: *mut u64) -> TemporalDateUntilResult {
     let calendar = cal(c);
     let r = date_of(a, calendar.clone()).and_then(|a| date_of(b, calendar).and_then(|b| a.until(&b, DifferenceSettings::default()))).map(|d| duration_rec(&d));
     try_result!(TemporalDateUntilResult, TemporalDateUntilResultPayload, TemporalDateUntilResultTag, r)
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__date_day_of_week(d: PlainDateRec, c: *mut u64) -> TemporalDateDayOfWeekResult {
+pub extern "C-unwind" fn trantor__temporal_host__date_day_of_week(d: PlainDateRec, c: *mut u64) -> TemporalDateDayOfWeekResult {
     let r = date_of(d, cal(c)).map(|d| d.day_of_week() as u8);
     try_result!(TemporalDateDayOfWeekResult, TemporalDateDayOfWeekResultPayload, TemporalDateDayOfWeekResultTag, r)
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__zdt_from_epoch_ns(ns: i128, t: *mut u64) -> TemporalZdtFromEpochNsResult {
+pub extern "C-unwind" fn trantor__temporal_host__zdt_from_epoch_ns(ns: i128, t: *mut u64) -> TemporalZdtFromEpochNsResult {
     try_result!(TemporalZdtFromEpochNsResult, TemporalZdtFromEpochNsResultPayload, TemporalZdtFromEpochNsResultTag, ZonedDateTime::try_new(ns, tz(t), Calendar::ISO).map(handle))
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__zdt_epoch_ns(z: *mut u64) -> i128 { with_zdt(z, |z| z.epoch_nanoseconds().as_i128()) }
+pub extern "C-unwind" fn trantor__temporal_host__zdt_epoch_ns(z: *mut u64) -> i128 { with_zdt(z, |z| z.epoch_nanoseconds().as_i128()) }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__zdt_with_time_zone(z: *mut u64, t: *mut u64) -> TemporalZdtFromEpochNsResult {
+pub extern "C-unwind" fn trantor__temporal_host__zdt_with_time_zone(z: *mut u64, t: *mut u64) -> TemporalZdtFromEpochNsResult {
     let target = tz(t);
     try_result!(TemporalZdtFromEpochNsResult, TemporalZdtFromEpochNsResultPayload, TemporalZdtFromEpochNsResultTag, with_zdt(z, |z| z.with_timezone(target)).map(handle))
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__zdt_plain_date(z: *mut u64) -> PlainDateRec { with_zdt(z, |z| rec_of(&z.to_plain_date())) }
+pub extern "C-unwind" fn trantor__temporal_host__zdt_plain_date(z: *mut u64) -> PlainDateRec { with_zdt(z, |z| rec_of(&z.to_plain_date())) }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__zdt_plain_time(z: *mut u64) -> PlainTimeRec {
+pub extern "C-unwind" fn trantor__temporal_host__zdt_plain_time(z: *mut u64) -> PlainTimeRec {
     with_zdt(z, |z| { let t = z.to_plain_time(); PlainTimeRec { hour: t.hour(), minute: t.minute(), second: t.second(), millisecond: t.millisecond(), microsecond: t.microsecond(), nanosecond: t.nanosecond() } })
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__zdt_offset_seconds(z: *mut u64) -> i64 { with_zdt(z, |z| z.offset_nanoseconds() / NANOS_PER_SECOND) }
+pub extern "C-unwind" fn trantor__temporal_host__zdt_offset_seconds(z: *mut u64) -> i64 { with_zdt(z, |z| z.offset_nanoseconds() / NANOS_PER_SECOND) }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__zdt_to_str(z: *mut u64) -> RocStr {
+pub extern "C-unwind" fn trantor__temporal_host__zdt_to_str(z: *mut u64) -> RocStr {
     let s = with_zdt(z, |z| z.to_ixdtf_string(DisplayOffset::Auto, DisplayTimeZone::Auto, DisplayCalendar::Auto, ToStringRoundingOptions::default()).unwrap_or_default());
     RocStr::from_str(&s, abi::host())
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__temporal_host__live() -> i32 { abi::resource::live() as i32 }
+pub extern "C-unwind" fn trantor__temporal_host__live() -> i32 { abi::resource::live() as i32 }

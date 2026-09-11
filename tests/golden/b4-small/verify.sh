@@ -10,8 +10,8 @@ for m in Utc Sleep Random Locale Url InternalDateTime; do
   cmp -s "$C/$m.roc" "$B/components/basic-lib/$m.roc" || { echo "FAIL: $m.roc differs from basic-cli 0.21 (must be verbatim)"; exit 1; }
 done
 echo "ok: Utc/Sleep/Random/Locale/Url/InternalDateTime byte-identical to basic-cli 0.21"
-if ! _b=$(./target/release/hematite build "$B" --app app --out b4 2>&1); then echo "FAIL: build b4" >&2; echo "$_b" >&2; exit 1; fi
-set +e; out=$(cd "$B" && LANG=en_US.UTF-8 B4_TAG=zh-Hant-TW ./target/hematite/b4-small/bin/b4 2>/dev/null); code=$?; set -e
+if ! _b=$(./target/release/trantor build "$B" --app app --out b4 2>&1); then echo "FAIL: build b4" >&2; echo "$_b" >&2; exit 1; fi
+set +e; out=$(cd "$B" && LANG=en_US.UTF-8 B4_TAG=zh-Hant-TW ./target/trantor/b4-small/bin/b4 2>/dev/null); code=$?; set -e
 [[ $code -eq 0 ]] || { echo "FAIL: exit $code"; echo "$out"; exit 1; }
 want=$'utc-year-prefix: ok\nslept: ok\nrandom: ok\nlocale: ok\nlocales-listed: some\nlocale-parse: zh-Hant-TW\nurl-host: example.com'
 [[ "$out" == "$want" ]] || { echo "FAIL: output"; diff <(echo "$want") <(echo "$out") || true; exit 1; }

@@ -11,8 +11,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 H=tests/golden/hc0-features
-MARK="$H/target/hematite/hc0-features/components/marker/Cargo.toml"
-ARCH="$H/target/hematite/hc0-features/platform/targets/arm64mac/libmarker.a"
+MARK="$H/target/trantor/hc0-features/components/marker/Cargo.toml"
+ARCH="$H/target/trantor/hc0-features/platform/targets/arm64mac/libmarker.a"
 cargo build --release -q
 
 feat_line() { grep -E '^default = ' "$MARK"; }
@@ -24,23 +24,23 @@ feat_line() { grep -E '^default = ' "$MARK"; }
 has_sym() { { nm "$ARCH" 2>/dev/null || true; } | grep extra_marker >/dev/null; }
 
 # ---- 1. feature ON (default world) ----
-./target/release/hematite compose "$H" >/dev/null
+./target/release/trantor compose "$H" >/dev/null
 # Idempotent: the composed marker Cargo.toml matches the committed source.
 git diff --quiet -- "$MARK" || { echo "FAIL: composing the default world changed the committed marker Cargo.toml (not idempotent):"; git --no-pager diff -- "$MARK"; exit 1; }
 [[ "$(feat_line)" == 'default = ["extra"]' ]] || { echo "FAIL: default world should map features=[extra] to 'default = [\"extra\"]', got: $(feat_line)"; exit 1; }
-if ! _b=$(./target/release/hematite build "$H" --app app --out hc0 2>&1); then echo "FAIL: build hc0 (feature on)" >&2; echo "$_b" >&2; exit 1; fi
+if ! _b=$(./target/release/trantor build "$H" --app app --out hc0 2>&1); then echo "FAIL: build hc0 (feature on)" >&2; echo "$_b" >&2; exit 1; fi
 has_sym || { echo "FAIL: extra-gated symbol missing with the feature ON"; exit 1; }
-[[ "$(cd "$H" && ./target/hematite/hc0-features/bin/hc0)" == "ping: hc0" ]] || { echo "FAIL: app did not run"; exit 1; }
+[[ "$(cd "$H" && ./target/trantor/hc0-features/bin/hc0)" == "ping: hc0" ]] || { echo "FAIL: app did not run"; exit 1; }
 echo "ok: features=[\"extra\"] -> default=[\"extra\"], gated symbol present, app runs"
 
 # ---- 2. feature OFF ----
-./target/release/hematite compose "$H" --world world-noextra.toml >/dev/null
+./target/release/trantor compose "$H" --world world-noextra.toml >/dev/null
 [[ "$(feat_line)" == 'default = []' ]] || { echo "FAIL: default_features=false should map to 'default = []', got: $(feat_line)"; exit 1; }
-if ! _b=$(./target/release/hematite build "$H" --world world-noextra.toml --app app --out hc0 2>&1); then echo "FAIL: build hc0 (feature off)" >&2; echo "$_b" >&2; exit 1; fi
+if ! _b=$(./target/release/trantor build "$H" --world world-noextra.toml --app app --out hc0 2>&1); then echo "FAIL: build hc0 (feature off)" >&2; echo "$_b" >&2; exit 1; fi
 ! has_sym || { echo "FAIL: extra-gated symbol still present with the feature OFF (knob did not take effect)"; exit 1; }
 echo "ok: default_features=false -> default=[], gated symbol absent (same source, one manifest field flipped)"
 
 # ---- leave the committed default world composed + built ----
-if ! _b=$(./target/release/hematite build "$H" --app app --out hc0 2>&1); then echo "FAIL: build hc0 (default)" >&2; echo "$_b" >&2; exit 1; fi
+if ! _b=$(./target/release/trantor build "$H" --app app --out hc0 2>&1); then echo "FAIL: build hc0 (default)" >&2; echo "$_b" >&2; exit 1; fi
 git diff --quiet -- "$MARK" || { echo "FAIL: did not restore the committed marker Cargo.toml"; exit 1; }
 echo "HC0 PASS"

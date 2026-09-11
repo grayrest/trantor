@@ -4,14 +4,14 @@
 //!
 //! A crate belongs to exactly one cargo workspace. A `path` component such as
 //! roc-solid's `crates/host-im` is a member of that repo's root workspace, so
-//! hematite cannot also list it in a per-world workspace, and several worlds
+//! trantor cannot also list it in a per-world workspace, and several worlds
 //! (clay, dom, colorhunt…) name the same crates. With `cargo_root` set,
-//! hematite emits no workspace of its own and instead runs, per component,
+//! trantor emits no workspace of its own and instead runs, per component,
 //!
-//!   cargo --config 'patch.crates-io.hematite-abi.path="<world>/abi"' \
+//!   cargo --config 'patch.crates-io.trantor-abi.path="<world>/abi"' \
 //!         build --release -p <package>
 //!
-//! in the host workspace. Components declare `hematite-abi = "0.0.0"` (a
+//! in the host workspace. Components declare `trantor-abi = "0.0.0"` (a
 //! crates-io name that does not exist) and the host's root `Cargo.toml`
 //! carries a default `[patch.crates-io]` to its baseline world's abi so its
 //! own `cargo clippy/test --workspace` keep resolving; the per-build patch
@@ -25,8 +25,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The abi package name every component depends on (`[dependencies]
-/// hematite-abi = "0.0.0"` under `cargo_root`; a path dep otherwise).
-const ABI_PACKAGE: &str = "hematite-abi";
+/// trantor-abi = "0.0.0"` under `cargo_root`; a path dep otherwise).
+const ABI_PACKAGE: &str = "trantor-abi";
 
 #[derive(Deserialize)]
 struct CargoManifest {
@@ -65,7 +65,7 @@ pub fn build(
         }
     };
     // What this world wires, for a driver that serves several worlds (D-H7-27):
-    // a `build.rs` turns `HEMATITE_SERVICES` into `cfg(hematite_service = "…")`
+    // a `build.rs` turns `TRANTOR_SERVICES` into `cfg(trantor_service = "…")`
     // so world-conditional driver code — an `Env` block only an audio world
     // has — compiles in every world. Sorted, so the value is stable.
     let mut wired: Vec<&str> = world.wiring.keys().map(String::as_str).collect();
@@ -75,8 +75,8 @@ pub fn build(
     let run = |args: &[String], cwd: &Path| -> Result<(), String> {
         let mut cmd = Command::new("cargo");
         cmd.args(args).current_dir(cwd);
-        cmd.env("HEMATITE_WORLD", &world.world.name);
-        cmd.env("HEMATITE_SERVICES", &services_env);
+        cmd.env("TRANTOR_WORLD", &world.world.name);
+        cmd.env("TRANTOR_SERVICES", &services_env);
         if wasm_triple.is_some() {
             cmd.env("CARGO_PROFILE_RELEASE_PANIC", "abort");
         }
@@ -168,13 +168,13 @@ pub fn build(
 /// (D-H7-34). Two worlds composing in parallel in one workspace — roc-solid's
 /// gate suite — build the same driver package to the same uplifted path, and
 /// whichever finished last was what both staged: a driver with another
-/// world's `cfg(hematite_service…)` and `Env` layout. cargo's own lock covers
+/// world's `cfg(trantor_service…)` and `Env` layout. cargo's own lock covers
 /// a build, not the copy after it. Released on drop.
 pub fn build_lock(dir: &Path, world: &World) -> Result<Option<std::fs::File>, String> {
     let Some(cargo_root) = &world.world.cargo_root else { return Ok(None) };
     let target = dir.join(cargo_root).join("target");
     std::fs::create_dir_all(&target).map_err(|e| format!("mkdir {}: {e}", target.display()))?;
-    let path = target.join("hematite-build.lock");
+    let path = target.join("trantor-build.lock");
     let f = std::fs::File::create(&path).map_err(|e| format!("create {}: {e}", path.display()))?;
     f.lock().map_err(|e| format!("lock {}: {e}", path.display()))?;
     Ok(Some(f))

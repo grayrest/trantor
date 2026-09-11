@@ -1,4 +1,4 @@
-## hematite-generated: vendored from interface roc:io/error@0.1.0.
+## trantor-generated: vendored from interface roc:io/error@0.1.0.
 ## One nominal definition site shared by every interface that `use`s it.
 IOErr := [
 	NotFound,

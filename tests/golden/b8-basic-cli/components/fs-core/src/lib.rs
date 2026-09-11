@@ -7,7 +7,7 @@
 //! Owned-argument rule (B0): every hosted fn releases its Descriptor via
 //! `resource::with` and `.decref`s every list arg.
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::*;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
@@ -223,30 +223,30 @@ pub mod ops {
 }
 
 /// Emit the 16 hosted symbols for a root policy under `$prefix`
-/// (`hematite__<prefix>__<op>`). Invoked once per thin staticlib.
+/// (`trantor__<prefix>__<op>`). Invoked once per thin staticlib.
 #[macro_export]
 macro_rules! exports {
     ($prefix:ident, $root:expr) => {
         $crate::paste::paste! {
             static ROOT: std::sync::OnceLock<$crate::Root> = std::sync::OnceLock::new();
             fn root() -> &'static $crate::Root { ROOT.get_or_init(|| $root) }
-            use hematite_abi::*;
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __preopen_count>]() -> u64 { $crate::ops::preopen_count(root()) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __preopen_at>](i: u64) -> *mut u64 { $crate::ops::preopen_at(root(), i) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __open_at>](d: *mut u64, p: RocListWith<u8, false>, f: u8) -> FsOpenAtResult { $crate::ops::open_at(root(), d, p, f) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __read_via_stream>](d: *mut u64) -> *mut u64 { $crate::ops::read_via_stream(root(), d) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __read_file_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsReadFileAtResult { $crate::ops::read_file_at(root(), d, p) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __write_file_at>](d: *mut u64, p: RocListWith<u8, false>, b: RocListWith<u8, false>) -> FsWriteFileAtResult { $crate::ops::write_file_at(root(), d, p, b) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __stat_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsStatAtResult { $crate::ops::stat_at(root(), d, p) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __read_dir_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsReadDirAtResult { $crate::ops::read_dir_at(root(), d, p) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __create_dir_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsCreateDirAtResult { $crate::ops::create_dir_at(root(), d, p) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __create_dir_all_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsCreateDirAtResult { $crate::ops::create_dir_all_at(root(), d, p) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __remove_dir_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsCreateDirAtResult { $crate::ops::remove_dir_at(root(), d, p) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __remove_dir_all_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsCreateDirAtResult { $crate::ops::remove_dir_all_at(root(), d, p) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __unlink_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsWriteFileAtResult { $crate::ops::unlink_at(root(), d, p) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __rename_at>](d: *mut u64, a: RocListWith<u8, false>, b: RocListWith<u8, false>) -> FsWriteFileAtResult { $crate::ops::rename_at(root(), d, a, b) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __link_at>](d: *mut u64, a: RocListWith<u8, false>, b: RocListWith<u8, false>) -> FsWriteFileAtResult { $crate::ops::link_at(root(), d, a, b) }
-            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<hematite__ $prefix __live>]() -> i32 { $crate::ops::live(root()) }
+            use trantor_abi::*;
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __preopen_count>]() -> u64 { $crate::ops::preopen_count(root()) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __preopen_at>](i: u64) -> *mut u64 { $crate::ops::preopen_at(root(), i) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __open_at>](d: *mut u64, p: RocListWith<u8, false>, f: u8) -> FsOpenAtResult { $crate::ops::open_at(root(), d, p, f) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __read_via_stream>](d: *mut u64) -> *mut u64 { $crate::ops::read_via_stream(root(), d) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __read_file_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsReadFileAtResult { $crate::ops::read_file_at(root(), d, p) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __write_file_at>](d: *mut u64, p: RocListWith<u8, false>, b: RocListWith<u8, false>) -> FsWriteFileAtResult { $crate::ops::write_file_at(root(), d, p, b) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __stat_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsStatAtResult { $crate::ops::stat_at(root(), d, p) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __read_dir_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsReadDirAtResult { $crate::ops::read_dir_at(root(), d, p) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __create_dir_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsCreateDirAtResult { $crate::ops::create_dir_at(root(), d, p) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __create_dir_all_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsCreateDirAtResult { $crate::ops::create_dir_all_at(root(), d, p) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __remove_dir_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsCreateDirAtResult { $crate::ops::remove_dir_at(root(), d, p) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __remove_dir_all_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsCreateDirAtResult { $crate::ops::remove_dir_all_at(root(), d, p) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __unlink_at>](d: *mut u64, p: RocListWith<u8, false>) -> FsWriteFileAtResult { $crate::ops::unlink_at(root(), d, p) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __rename_at>](d: *mut u64, a: RocListWith<u8, false>, b: RocListWith<u8, false>) -> FsWriteFileAtResult { $crate::ops::rename_at(root(), d, a, b) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __link_at>](d: *mut u64, a: RocListWith<u8, false>, b: RocListWith<u8, false>) -> FsWriteFileAtResult { $crate::ops::link_at(root(), d, a, b) }
+            #[unsafe(no_mangle)] pub extern "C-unwind" fn [<trantor__ $prefix __live>]() -> i32 { $crate::ops::live(root()) }
         }
     };
 }

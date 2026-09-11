@@ -5,7 +5,7 @@
 use core::ffi::c_void;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicPtr, Ordering};
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::services::{self, HostCtx};
 use abi::{Echo, EchoEvent, EchoEventPayload, EchoEventTag, EchoTag, RocList, RocStr};
 
@@ -15,7 +15,7 @@ type Answer = services::Answer<EchoEvent>;
 static CTX: AtomicPtr<HostCtx> = AtomicPtr::new(core::ptr::null_mut());
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_echo__init(ctx: *const HostCtx) {
+pub extern "C-unwind" fn trantor__svc_echo__init(ctx: *const HostCtx) {
     CTX.store(ctx as *mut HostCtx, Ordering::Release);
 }
 
@@ -24,7 +24,7 @@ pub extern "C-unwind" fn hematite__svc_echo__init(ctx: *const HostCtx) {
 /// service's own field (`Ping(request_id, route_key, text)`), returned in the
 /// answer (D-H7-17); the app's request id is ignored — `request` is host-minted.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_echo__cmd(_request: u64, cmd: Echo) -> RocList<Answer> {
+pub extern "C-unwind" fn trantor__svc_echo__cmd(_request: u64, cmd: Echo) -> RocList<Answer> {
     let host = abi::host();
     let (route_key, event) = match cmd.tag {
         EchoTag::Ping => {
@@ -50,13 +50,13 @@ pub extern "C-unwind" fn hematite__svc_echo__cmd(_request: u64, cmd: Echo) -> Ro
 /// driver: the contract is uniform, so the shim can be generated without
 /// knowing which services are asynchronous.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_echo__complete(_token: *mut c_void) -> RocList<services::Completion<EchoEvent>> {
+pub extern "C-unwind" fn trantor__svc_echo__complete(_token: *mut c_void) -> RocList<services::Completion<EchoEvent>> {
     unreachable!("svc-echo answers synchronously and never wakes the driver")
 }
 
 /// Gate hook (D-H7-8): −1 = not mine.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_echo__gate(name: RocStr, argv: RocList<RocStr>, _out: *mut RocStr) -> i32 {
+pub extern "C-unwind" fn trantor__svc_echo__gate(name: RocStr, argv: RocList<RocStr>, _out: *mut RocStr) -> i32 {
     let host = abi::host();
     let rc = if name.as_str() == "echo-gate" { 7 } else { -1 };
     unsafe {

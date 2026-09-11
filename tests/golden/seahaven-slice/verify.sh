@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # H5 substitution proof: seahaven's REAL Stdout/Stderr derived layer runs over a
-# hematite-composed stdio interface, and two interchangeable host impls (std vs
+# trantor-composed stdio interface, and two interchangeable host impls (std vs
 # capture) produce different output from the SAME unmodified derived layer.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -16,15 +16,15 @@ fi
 echo "ok: derived layer == seahaven upstream Stdout.roc"
 
 run_world() { # $1 world file -> stdout
-  if ! _b=$(./target/release/hematite build "$FIX" --world "$1" --app app --out reader 2>&1); then echo "FAIL: build reader [$1]" >&2; echo "$_b" >&2; exit 1; fi
-  "$FIX/target/hematite/seahaven-slice/bin/reader" 2>/dev/null
+  if ! _b=$(./target/release/trantor build "$FIX" --world "$1" --app app --out reader 2>&1); then echo "FAIL: build reader [$1]" >&2; echo "$_b" >&2; exit 1; fi
+  "$FIX/target/trantor/seahaven-slice/bin/reader" 2>/dev/null
 }
 std=$(run_world world.toml | head -1)
 cap=$(run_world world-capture.toml | head -1)
 [[ "$std" == "out: hello from a composed seahaven slice" ]] || { echo "FAIL std: '$std'"; exit 1; }
 [[ "$cap" == "[cap] out: hello from a composed seahaven slice" ]] || { echo "FAIL cap: '$cap'"; exit 1; }
 # restore std world as the committed default
-./target/release/hematite compose "$FIX" >/dev/null
+./target/release/trantor compose "$FIX" >/dev/null
 echo "ok: same derived layer, std impl -> '$std'"
 echo "ok: same derived layer, capture impl -> '$cap'"
 echo "H5 (substitution slice) PASS"

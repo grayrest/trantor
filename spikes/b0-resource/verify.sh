@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 S=spikes/b0-resource
 cargo build --release -q
-./target/release/hematite compose "$S" >/dev/null
+./target/release/trantor compose "$S" >/dev/null
 ( cd "$S" && ./build.sh >/dev/null 2>&1 )
 set +e
 err=$("$S/bin/b0" 2>&1 >/dev/null); code=$?

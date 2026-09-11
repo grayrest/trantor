@@ -6,7 +6,7 @@ publish = false
 [lib]
 crate-type = ["staticlib", "rlib"]
 [dependencies]
-hematite-abi = { path = "../../abi" }
+trantor-abi = { path = "../../abi" }
 [features]
 default = ["extra"]
 # `extra` gates one extra `#[no_mangle]` symbol so the composed feature set is

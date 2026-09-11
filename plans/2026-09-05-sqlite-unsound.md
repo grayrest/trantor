@@ -10,7 +10,7 @@
 > intentionally left unsound — retaining a borrowed cell into `state` — is the
 > documented clone-on-incref target (`record-app`, type-checks, not run).
 
-A new SQLite namespace for hematite, built on tower-platform's **H3 spike**
+A new SQLite namespace for trantor, built on tower-platform's **H3 spike**
 (`spike(host): internal-iteration cursor fold with borrowed-slice rows`), not
 basic-cli's `Sqlite.roc`. Two interchangeable host backends — **rusqlite** and
 **turso** — provide one identical interface; turso adds a single Roc-visible
@@ -66,11 +66,11 @@ says so in its name.
   erased-callable mechanism as the fold reducer. turso has no update/commit/WAL
   hooks, so classic change-triggers aren't available; aggregates and virtual
   tables are deferred.
-- **S11 — Feasibility de-risked before writing this plan.** hematite's pinned
+- **S11 — Feasibility de-risked before writing this plan.** trantor's pinned
   compiler (84812227) has `immortal_locals.zig` (rc==0 immortal slices); its glue
   already generates the erased-callable ABI (`RocErasedCallableFn` in
   imview-slice); tower borrows straight from turso cells. SQ0 proves both on
-  hematite's own stack.
+  trantor's own stack.
 
 ## Interfaces
 
@@ -103,7 +103,7 @@ The two load-bearing mechanisms, proven in isolation before any DB.
 
 - Port tower's hand-written `borrow.rs` (`borrowed_str`/`borrowed_bytes`: a
   seamless slice whose `bytes` aims at a caller buffer and whose alloc-ptr aims at
-  a shared static rc==0 block) into the hematite abi crate as a **hand-written
+  a shared static rc==0 block) into the trantor abi crate as a **hand-written
   module the glue never regenerates** (R-SQ5).
 - Micro-fixture A: a host leaf returns a `borrowed_str` over a host-owned buffer;
   Roc reads it, concatenates it (forcing a copy-out), and the borrow is never
@@ -176,7 +176,7 @@ The two load-bearing mechanisms, proven in isolation before any DB.
 - Ship `fold -> List({ … : Str })` as a **documented, not-asserted** example: it
   is garbage today and becomes correct under clone-on-incref, with the one-line
   change (drop the copy) and the assertion to enable, noted in place.
-- `hematite publish` the rusqlite and turso worlds; `tier` them; a design-log note
+- `trantor publish` the rusqlite and turso worlds; `tier` them; a design-log note
   records S1–S11, the clone-on-incref dependency, and how to flip the record-decode
   assertion green when upstream merges.
 - **Exit:** the documented example is present and clearly marked; both worlds
@@ -192,7 +192,7 @@ The two load-bearing mechanisms, proven in isolation before any DB.
   **Settle at SQ0** — this is the go/no-go.
 - **R-SQ2 — turso engine surface.** `turso_core` (blocking) is an internal crate;
   the public `turso` crate is async and tower used `turso_sdk_kit`. Confirm a
-  blocking, borrow-exposing turso API is usable from a hematite host without a
+  blocking, borrow-exposing turso API is usable from a trantor host without a
   runtime. **Settle at SQ2.**
 - **R-SQ3 — turso SQLite-compat gaps.** turso is a rewrite in progress; the
   substitution app's SQL must sit in turso's supported subset. Measure; keep the

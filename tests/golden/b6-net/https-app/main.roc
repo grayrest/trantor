@@ -1,10 +1,10 @@
-app [main!] { pf: platform "../target/hematite/b6-net/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/b6-net/platform/main.roc" }
 import pf.Stdout
 import pf.Streams
 import pf.TempTest
 
 ## HC4: an https:// GET against the local rustls testnet, trusting its cert via
-## HEMATITE_HTTP_EXTRA_CA. With the tls feature ON the handshake succeeds and the
+## TRANTOR_HTTP_EXTRA_CA. With the tls feature ON the handshake succeeds and the
 ## body streams over TLS ("https: 200 https-hello"); with tls OFF the primitive
 ## rejects https:// up front ("https: other").
 main! : List(Str) => Try({}, [Exit(I32), ..])

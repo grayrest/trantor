@@ -11,7 +11,7 @@ platform ""
         "roc_app": app_for_host!,
     }
     hosted {
-        "hematite__b__seed": Host.seed!,
+        "trantor__b__seed": Host.seed!,
     }
     targets: {
         inputs_dir: "targets/",

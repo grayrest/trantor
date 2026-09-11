@@ -1,7 +1,7 @@
-//! `hematite build --target wasm32` — the wasm32 half of the pipeline
+//! `trantor build --target wasm32` — the wasm32 half of the pipeline
 //! (D-H7-9 revised, measured in `spikes/h7-wasm-inputs`). roc links its wasm
 //! inputs `--whole-archive`, so per-component inputs collide on std and the
-//! compiler builtins; hematite therefore merges every component into ONE
+//! compiler builtins; trantor therefore merges every component into ONE
 //! `platform/targets/wasm32/host.wasm`:
 //!
 //!   1. `cargo build --release --target wasm32-unknown-unknown` (panic=abort);
@@ -9,7 +9,7 @@
 //!      wasm members (rustc bundles host-arch ELF compiler_builtins objects
 //!      that wasm-ld chokes on) and re-archive them;
 //!   3. find each non-driver component's ROOT members — those defining a
-//!      symbol it owns (`hematite__<c>__*`: its hosted leaves and service
+//!      symbol it owns (`trantor__<c>__*`: its hosted leaves and service
 //!      contract), via `llvm-nm`;
 //!   4. `wasm-ld -r --whole-archive <driver>.a --no-whole-archive <roots…>
 //!      <component>.a…` — the driver whole, each component pulled in from its
@@ -30,7 +30,7 @@ const WASM_TRIPLE: &str = "wasm32-unknown-unknown";
 /// `\0asm`: the magic that separates a wasm member from a host-arch ELF blob.
 const WASM_MAGIC: &[u8] = b"\0asm";
 /// Scratch dir (under the world's cargo target dir) for extracted members.
-const WORK_DIR: &str = "target/hematite-wasm";
+const WORK_DIR: &str = "target/trantor-wasm";
 
 fn wasm_ld() -> PathBuf {
     let in_llvm = llvm_tool("wasm-ld");
@@ -58,7 +58,7 @@ fn run(program: &Path, args: &[&str], dir: &Path, what: &str) -> Result<(), Stri
 pub fn stage_host_wasm(dir: &Path, gen: &Path, world: &World, r: &Resolved) -> Result<PathBuf, String> {
     // Every path below is handed to a tool running in `dir`, so make them
     // absolute once rather than relative-to-relative. `dir` is the SOURCE
-    // tree; `gen` is `target/hematite/<world>`, where everything is written.
+    // tree; `gen` is `target/trantor/<world>`, where everything is written.
     let dir = &dir.canonicalize().map_err(|e| format!("canonicalize {}: {e}", dir.display()))?;
     std::fs::create_dir_all(gen).map_err(|e| format!("mkdir {}: {e}", gen.display()))?;
     let gen = &gen.canonicalize().map_err(|e| format!("canonicalize {}: {e}", gen.display()))?;
@@ -122,7 +122,7 @@ pub fn stage_host_wasm(dir: &Path, gen: &Path, world: &World, r: &Resolved) -> R
     args.push(driver_archive.display().to_string());
     args.push("--no-whole-archive".into());
     for (comp, archive, members) in archives.iter().skip(1) {
-        let prefix = format!("hematite__{}__", sanitize(comp));
+        let prefix = format!("trantor__{}__", sanitize(comp));
         let roots = root_members(members, &prefix)?;
         if roots.is_empty() {
             return Err(format!(
@@ -137,7 +137,7 @@ pub fn stage_host_wasm(dir: &Path, gen: &Path, world: &World, r: &Resolved) -> R
     args.push(out.join("host.wasm").display().to_string());
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     run(&wasm_ld(), &refs, dir, "wasm-ld merge")?;
-    eprintln!("hematite build: merged {} archives into platform/targets/wasm32/host.wasm", archives.len());
+    eprintln!("trantor build: merged {} archives into platform/targets/wasm32/host.wasm", archives.len());
     Ok(work)
 }
 
@@ -161,7 +161,7 @@ fn wasm_members(dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(out)
 }
 
-/// Members defining a symbol with the component's `hematite__<c>__` prefix.
+/// Members defining a symbol with the component's `trantor__<c>__` prefix.
 fn root_members(members: &[PathBuf], prefix: &str) -> Result<Vec<PathBuf>, String> {
     let mut roots = Vec::new();
     for m in members {
@@ -193,7 +193,7 @@ pub fn link_app(
 ) -> Result<(), String> {
     crate::scan::scan_archives(dir, world_file, work, Format::Wasm)?;
     let Some(app) = app else {
-        eprintln!("hematite build: wasm32 platform staged and scanned (no app)");
+        eprintln!("trantor build: wasm32 platform staged and scanned (no app)");
         return Ok(());
     };
     // `--app` names a directory holding main.roc, or a .roc file directly — an
@@ -206,6 +206,6 @@ pub fn link_app(
     let bin = bin.canonicalize().map_err(|e| format!("canonicalize {}: {e}", bin.display()))?;
     let out_flag = format!("--output={}/{out}.wasm", bin.display());
     roc_capped(&["build", "--target=wasm32", &out_flag, &app_main], dir, "roc build (wasm32)")?;
-    eprintln!("hematite build: linked {}/{out}.wasm", bin.display());
+    eprintln!("trantor build: linked {}/{out}.wasm", bin.display());
     Ok(())
 }

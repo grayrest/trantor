@@ -6,9 +6,9 @@ platform ""
 	packages {}
 	provides { "roc_main": main_for_host! }
 	hosted {
-		"hematite__gauge__open": Gauge.open!,
-		"hematite__gauge__bump": Gauge.bump!,
-		"hematite__gauge__report": Gauge.report!,
+		"trantor__gauge__open": Gauge.open!,
+		"trantor__gauge__bump": Gauge.bump!,
+		"trantor__gauge__report": Gauge.report!,
 	}
 	targets: {
 		inputs_dir: "targets/",

@@ -1,5 +1,5 @@
 ## Write a UTF-8 file, read it back, and delete it.
-app [main!] { pf: platform "../target/hematite/b8-basic-cli/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/b8-basic-cli/platform/main.roc" }
 
 import pf.OsStr
 import pf.Stdout

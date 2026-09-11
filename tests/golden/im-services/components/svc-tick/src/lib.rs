@@ -8,7 +8,7 @@
 //! this crate frees inside `complete`. Nothing Rust-allocated crosses.
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::services::{self, HostCtx};
 use abi::{RocList, RocStr, Tick, TickEnv, TickEvent, TickEventPayload, TickEventTag, TickTag};
 
@@ -23,12 +23,12 @@ static CTX: AtomicPtr<HostCtx> = AtomicPtr::new(core::ptr::null_mut());
 static TICKS: AtomicU64 = AtomicU64::new(0);
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_tick__init(ctx: *const HostCtx) {
+pub extern "C-unwind" fn trantor__svc_tick__init(ctx: *const HostCtx) {
     CTX.store(ctx as *mut HostCtx, Ordering::Release);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> RocList<Answer> {
+pub extern "C-unwind" fn trantor__svc_tick__cmd(request: u64, cmd: Tick) -> RocList<Answer> {
     let host = abi::host();
     if let TickTag::Start = cmd.tag {
         let start = unsafe { cmd.borrow_payload_start_unchecked() };
@@ -54,7 +54,7 @@ pub extern "C-unwind" fn hematite__svc_tick__cmd(request: u64, cmd: Tick) -> Roc
 /// One wake, one tick here; a wake may carry several (or none) in general
 /// (D-H7-20), hence the list.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_tick__complete(token: *mut c_void) -> RocList<Completion> {
+pub extern "C-unwind" fn trantor__svc_tick__complete(token: *mut c_void) -> RocList<Completion> {
     // SAFETY: `token` came from `Box::into_raw` in this crate and is handed
     // back exactly once.
     let p = unsafe { Box::from_raw(token as *mut Pending) };
@@ -70,12 +70,12 @@ pub extern "C-unwind" fn hematite__svc_tick__complete(token: *mut c_void) -> Roc
 
 /// The env block: read once per frame by the driver's env assembly.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_tick__env() -> TickEnv {
+pub extern "C-unwind" fn trantor__svc_tick__env() -> TickEnv {
     TickEnv { ticks: TICKS.load(Ordering::Relaxed) }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__svc_tick__gate(name: RocStr, argv: RocList<RocStr>, _out: *mut RocStr) -> i32 {
+pub extern "C-unwind" fn trantor__svc_tick__gate(name: RocStr, argv: RocList<RocStr>, _out: *mut RocStr) -> i32 {
     let host = abi::host();
     unsafe {
         name.decref(host);

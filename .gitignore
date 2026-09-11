@@ -4,7 +4,7 @@ target/
 *.o
 bin/
 # Generated composition artifacts (D23: never committed)
-target/hematite/
+target/trantor/
 # Generated glue
 **/targets/*/libhost.a
 **/targets/*/lib*.a

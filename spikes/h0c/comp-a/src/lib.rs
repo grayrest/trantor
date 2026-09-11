@@ -1,8 +1,8 @@
 //! H0 component A + runtime + driver.
 //!
 //! This archive (liba.a) carries the six Roc runtime symbols, the process
-//! `main` that calls into the app, and the hosted symbol `hematite__a__ping`.
-//! Component B (libb.a) carries only `hematite__b__pong`. The spike's whole
+//! `main` that calls into the app, and the hosted symbol `trantor__a__ping`.
+//! Component B (libb.a) carries only `trantor__b__pong`. The spike's whole
 //! question is whether `roc build` links BOTH archives into one binary with
 //! hosted symbols resolved across the archive boundary (H0a + H0e).
 #![allow(dead_code)]
@@ -63,7 +63,7 @@ pub unsafe extern "C" fn roc_crashed(bytes: *const u8, len: usize) {
 unsafe extern "C" { fn vendored_answer() -> i32; }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn hematite__a__ping() -> i64 {
+pub extern "C" fn trantor__a__ping() -> i64 {
     (unsafe { vendored_answer() }) as i64
 }
 

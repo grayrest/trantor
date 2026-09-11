@@ -1,7 +1,7 @@
-# Plan: basic-cli → hematite port
+# Plan: basic-cli → trantor port
 
 **Design log:** [`notes/2026-09-04-basic-cli-port-design-log.md`](../notes/2026-09-04-basic-cli-port-design-log.md) (P1–P14, all resolved).
-**hematite design log:** [`notes/2026-09-04-hematite-design-log.md`](../notes/2026-09-04-hematite-design-log.md) (D1–D23) — `Dn` references below.
+**trantor design log:** [`notes/2026-09-04-trantor-design-log.md`](../notes/2026-09-04-trantor-design-log.md) (D1–D23) — `Dn` references below.
 
 **Definition of done:** basic-cli's 0.21 surface (20 modules, ~55 hosted
 symbols, minus sqlite) decomposed into `roc:*` interfaces grouped à la WASI
@@ -13,7 +13,7 @@ are refcounted opaque handles (P5); I/O is synchronous blocking (P12).
 seahaven's confinement becomes a swappable `roc:filesystem` implementation, not
 a fork (P14).
 
-**Prime directive:** B0 is a hematite *feature* (the resource model) and is the
+**Prime directive:** B0 is a trantor *feature* (the resource model) and is the
 load-bearing prerequisite — nothing that returns a handle can be built until
 its drop-balance is proven. Gates after B0 each port one WASI package and each
 ends with basic-cli app code running **unchanged** over it; that is the only
@@ -56,7 +56,7 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
 `roc_dealloc` (one of the six driver runtime symbols), so it can consult a
 **dealloc registry** before freeing.
 
-- **Mechanism** (`hematite_abi::resource`, in the generated `abi` wrapper):
+- **Mechanism** (`trantor_abi::resource`, in the generated `abi` wrapper):
   `resource_new(value, destructor) -> RocBox` allocates via `allocate_box`
   (8-byte payload, align 8, non-refcounted → `header_bytes = 8`), boxes the
   Rust value behind a raw pointer in the payload, and registers
@@ -78,7 +78,7 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
   data pointer and reconcile with `header_bytes`; if Roc frees boxes through a
   path that bypasses `roc_dealloc` entirely, P5 needs an explicit `close!` and
   the design log gets a dated amendment before B1.
-- **Exit:** the gauge balances; `hematite compose` emits `Box(U64)` resource
+- **Exit:** the gauge balances; `trantor compose` emits `Box(U64)` resource
   aliases from `[[resources]]`; the driver's generated `roc_dealloc` consults
   the registry.
 
@@ -275,7 +275,7 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
 ### B8 — `roc:basic-cli` world + the migration proof + the confinement swap
 
 - The all-in-one world: every package above + the `main!`-compat driver +
-  unconfined fs, published via `hematite publish` (P14).
+  unconfined fs, published via `trantor publish` (P14).
 - **Migration proof:** a real basic-cli example app builds and runs by changing
   **only** its platform URL.
 - **Amended 2026-09-04 (P15, user-approved "full fidelity"):** measured first —
@@ -300,8 +300,8 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
 > **28/28 basic-cli 0.21.0 examples `roc check` with only the platform URL
 > changed** (from 1/29 before P15); **21 run** with basic-cli's output — argv
 > incl. argv[0], stdin, env, file read/write/replace/size/permissions, buffered
-> line reader, dirs, subprocess, url, random, time, locale. `hematite publish`
-> → `dist/` + `baseline.lock`; `hematite tier` → Tier 1 for a pure-Roc
+> line reader, dirs, subprocess, url, random, time, locale. `trantor publish`
+> → `dist/` + `baseline.lock`; `trantor tier` → Tier 1 for a pure-Roc
 > extension. Confinement swap = one wiring line: the same escaping app is
 > `allowed` on the baseline, `denied` on `world-confined.toml`. 18 modules
 > byte-verbatim; `Cmd.roc` a 4-line bridge; 78 hosted symbols, 12 archives.
@@ -312,7 +312,7 @@ runtime calls plain `roc_dealloc` — **no destructor hook.** So P5's
 - **Confinement swap:** the same app world with the confined `roc:filesystem`
   impl wired instead — seahaven-as-a-component.
 - **Exit:** the example app runs unchanged on the baseline; the confined
-  variant refuses an out-of-preopen path; `hematite tier` reports a
+  variant refuses an out-of-preopen path; `trantor tier` reports a
   pure-Roc extension as Tier 1 over the published baseline.
 
 ---

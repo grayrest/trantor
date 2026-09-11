@@ -6,13 +6,13 @@ cd "$(dirname "$0")/../../.."
 FIX=tests/golden/two-component
 cargo build --release -q
 
-if ! _b=$(./target/release/hematite build "$FIX" --app app --out reader 2>&1); then echo "FAIL: build reader (baseline archives)" >&2; echo "$_b" >&2; exit 1; fi      # baseline archives
-./target/release/hematite publish "$FIX" >/dev/null 2>&1
-grep -q abi_fingerprint "$FIX/target/hematite/two-component/dist/baseline.lock" || { echo "FAIL: no fingerprint"; exit 1; }
+if ! _b=$(./target/release/trantor build "$FIX" --app app --out reader 2>&1); then echo "FAIL: build reader (baseline archives)" >&2; echo "$_b" >&2; exit 1; fi      # baseline archives
+./target/release/trantor publish "$FIX" >/dev/null 2>&1
+grep -q abi_fingerprint "$FIX/target/trantor/two-component/dist/baseline.lock" || { echo "FAIL: no fingerprint"; exit 1; }
 echo "ok: baseline published with ABI fingerprint"
 
-t1=$(./target/release/hematite tier "$FIX" --world extensions/tier1.toml)
-t2=$(./target/release/hematite tier "$FIX" --world extensions/tier2.toml)
+t1=$(./target/release/trantor tier "$FIX" --world extensions/tier1.toml)
+t2=$(./target/release/trantor tier "$FIX" --world extensions/tier2.toml)
 [[ "$t1" == Tier\ 1:* ]] || { echo "FAIL: pure-Roc ext not Tier 1: $t1"; exit 1; }
 [[ "$t2" == Tier\ 2:* ]] || { echo "FAIL: host ext not Tier 2: $t2"; exit 1; }
 echo "ok: pure-Roc extension -> Tier 1; host extension -> Tier 2"
@@ -36,8 +36,8 @@ main! : {} => Try({}, [Exit(I32), ..])
 main! = |{}| { Stdio.line!(Greet.banner("per-app world")) ?? {} 
 	Ok({}) }
 ROC
-perl -e 'alarm shift; exec @ARGV' 120 "$HOME/.bin/roc" build --output="$T/target/hematite/two-component/bin/app" "$T/app/main.roc" >/dev/null 2>&1
-out=$("$T/target/hematite/two-component/bin/app")
+perl -e 'alarm shift; exec @ARGV' 120 "$HOME/.bin/roc" build --output="$T/target/trantor/two-component/bin/app" "$T/app/main.roc" >/dev/null 2>&1
+out=$("$T/target/trantor/two-component/bin/app")
 [[ "$out" == "~ per-app world ~" ]] || { echo "FAIL: tier-1 build output '$out'"; exit 1; }
 echo "ok: Tier-1 extension built from published baseline with only roc build — '$out'"
 rm -rf "$T"

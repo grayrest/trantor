@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/sqlite-unsound/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/sqlite-unsound/platform/main.roc" }
 
 import pf.Sql
 import pf.Report
@@ -8,7 +8,7 @@ import pf.Report
 ## (sum, concat-copy, predicate-count) and retains nothing, so it is correct on
 ## today's compiler. `fold -> List(record-with-Str)` is the clone-on-incref
 ## target and is NOT run here.
-db = "/tmp/hematite-sq1.db"
+db = "/tmp/trantor-sq1.db"
 
 main! : {} => Try({}, [Exit(I32), ..])
 main! = |{}| {

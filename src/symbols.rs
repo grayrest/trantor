@@ -151,12 +151,12 @@ mod tests {
 0000000000009004 (__TEXT,__text) external _sqlite3_open\n\
 0000000000000000 (__TEXT,__text) private external __aarch64_cas8_acq\n\
 ---------------- (LTO,CODE) weak private external ___multi3\n\
-0000000000000600 (__TEXT,__text) external __RNvMs_NtCsuFXAkltCeT_12hematite_abi9RocStr8from_str\n\
+0000000000000600 (__TEXT,__text) external __RNvMs_NtCsuFXAkltCeT_12trantor_abi9RocStr8from_str\n\
 0000000000000800 (__TEXT,__text_cold) external [cold func] __RINvNtCsX_4core9panicking13assert_failed_rustls\n\
 0000000000000010 (__TEXT,__text) non-external _local_helper\n";
         let defs = plain_external_defs(sample);
         assert!(defs.contains("_sqlite3_open")); // plain external, defined
-        assert!(defs.contains("__RNvMs_NtCsuFXAkltCeT_12hematite_abi9RocStr8from_str"));
+        assert!(defs.contains("__RNvMs_NtCsuFXAkltCeT_12trantor_abi9RocStr8from_str"));
         // annotation before the name: the mangled name, not "[cold func]", is captured
         assert!(defs.contains("__RINvNtCsX_4core9panicking13assert_failed_rustls"));
         assert!(!defs.contains("_sqlite3_step")); // undefined reference
@@ -167,12 +167,12 @@ mod tests {
 
     #[test]
     fn rust_mangled_recognized() {
-        assert!(is_rust_mangled("__RNvMs_NtCs_12hematite_abi9RocStr8from_str", Format::Macho));
+        assert!(is_rust_mangled("__RNvMs_NtCs_12trantor_abi9RocStr8from_str", Format::Macho));
         assert!(is_rust_mangled("__ZN4core3fmt3num", Format::Macho));
         assert!(!is_rust_mangled("_sqlite3_open", Format::Macho));
         assert!(!is_rust_mangled("_vendored_answer", Format::Macho));
-        assert!(is_rust_mangled("_RNvMs_NtCs_12hematite_abi9RocStr8from_str", Format::Wasm));
-        assert!(!is_rust_mangled("hematite__b__seed", Format::Wasm));
+        assert!(is_rust_mangled("_RNvMs_NtCs_12trantor_abi9RocStr8from_str", Format::Wasm));
+        assert!(!is_rust_mangled("trantor__b__seed", Format::Wasm));
     }
 
     #[test]
@@ -180,7 +180,7 @@ mod tests {
         let sample = "\
 File: libb.a(b.o)\n\
 Symbols [\n\
-  Symbol {\n    Name: hematite__b__seed\n    Type: FUNCTION (0x0)\n    Flags [ (0x0)\n    ]\n    ElementIndex: 0x4\n  }\n\
+  Symbol {\n    Name: trantor__b__seed\n    Type: FUNCTION (0x0)\n    Flags [ (0x0)\n    ]\n    ElementIndex: 0x4\n  }\n\
   Symbol {\n    Name: __popcountsi2\n    Type: FUNCTION (0x0)\n    Flags [ (0x4)\n      VISIBILITY_HIDDEN (0x4)\n    ]\n  }\n\
   Symbol {\n    Name: anon.abc.0.llvm.1\n    Type: DATA (0x1)\n    Flags [ (0x4)\n      VISIBILITY_HIDDEN (0x4)\n    ]\n  }\n\
   Symbol {\n    Name: roc_alloc\n    Type: FUNCTION (0x0)\n    Flags [ (0x10)\n      UNDEFINED (0x10)\n    ]\n  }\n\
@@ -189,7 +189,7 @@ Symbols [\n\
   Symbol {\n    Name: DATA_SYM\n    Type: DATA (0x1)\n    Flags [ (0x0)\n    ]\n  }\n\
 ]\n";
         let defs = wasm_global_defs(sample);
-        assert!(defs.contains("hematite__b__seed"));
+        assert!(defs.contains("trantor__b__seed"));
         assert!(defs.contains("DATA_SYM"));
         assert!(!defs.contains("__popcountsi2")); // hidden
         assert!(!defs.contains("anon.abc.0.llvm.1")); // hidden

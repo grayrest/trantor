@@ -42,7 +42,7 @@ the client spine; HC4 depends on HC0 (features), HC1 (cert), and HC2/HC3.
   given path and the key to `<path>.key`.
 - New `justfile` with `make-local-cert <cert-path>`: check the toolchain (cargo),
   `cargo run -p local-cert -- <cert-path>`, print the `export
-  HEMATITE_HTTP_EXTRA_CA=<cert-path>` line.
+  TRANTOR_HTTP_EXTRA_CA=<cert-path>` line.
 - **Exit:** `just make-local-cert <tmp>` produces a cert+key that rustls/openssl
   parse and that chains to itself for `localhost`; a unit test in the crate loads
   the generated PEM into a rustls `RootCertStore`. Standalone, no HTTP.
@@ -57,7 +57,7 @@ the client spine; HC4 depends on HC0 (features), HC1 (cert), and HC2/HC3.
   lazy `Agent` (H8); `send!` returns status + NUL-joined multi-value headers
   (H10) + a body `InputStream` minted from `resp.into_body().into_reader()` via
   `sync_io_core::input_stream` (H5); request body `List(U8)` (H7); error mapping
-  to the 4-variant twin (H3); redirects from `HEMATITE_HTTP_MAX_REDIRECTS`
+  to the 4-variant twin (H3); redirects from `TRANTOR_HTTP_MAX_REDIRECTS`
   (default 10, `max_redirects_will_error=false`, H16); per-phase anti-stall
   `timeout_ms` on the call and the body stream (H9); `to_host_method` u8 map
   unchanged (H15).
@@ -66,7 +66,7 @@ the client spine; HC4 depends on HC0 (features), HC1 (cert), and HC2/HC3.
   header.
 - **Exit:** over the plaintext testnet an app `send!`s, reads the body stream in
   chunks, and collects; a large body arrives whole; a redirect chain is followed
-  and `HEMATITE_HTTP_MAX_REDIRECTS=0` returns the 3xx; a stalled server trips the
+  and `TRANTOR_HTTP_MAX_REDIRECTS=0` returns the 3xx; a stalled server trips the
   timeout as `Timeout`; a mid-body cutoff surfaces as `StreamErr` on read (H15);
   multi-value headers arrive as separate pairs; resource `live()==0` and the
   alloc-gauge reports `live=0`.
@@ -88,11 +88,11 @@ the client spine; HC4 depends on HC0 (features), HC1 (cert), and HC2/HC3.
 
 - `http-host`: add the `tls` Cargo feature (default on) → `ureq/rustls`
   (ring + webpki-roots); build the root store from webpki-roots **plus** any
-  certs at `HEMATITE_HTTP_EXTRA_CA` (additive, H13); `https://` with `tls` off →
+  certs at `TRANTOR_HTTP_EXTRA_CA` (additive, H13); `https://` with `tls` off →
   `Other("https requires the tls feature…")`.
 - `testnet`: a rustls server presenting HC1's cert. `verify.sh` generates an
   **ephemeral** cert via `tools/local-cert` into a temp dir, points
-  `HEMATITE_HTTP_EXTRA_CA` at it, runs an `https://` GET.
+  `TRANTOR_HTTP_EXTRA_CA` at it, runs an `https://` GET.
 - Compose a `tls`-off `http-host` (via HC0's features knob) for the negative case.
 - **Exit:** the `https://` GET against the local rustls testnet succeeds
   (handshake + cert validation + streaming-a-body-over-TLS), deterministic and

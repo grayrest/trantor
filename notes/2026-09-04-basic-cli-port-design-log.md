@@ -1,11 +1,11 @@
-# basic-cli → hematite port — design log (P1–P14)
+# basic-cli → trantor port — design log (P1–P14)
 
-Decisions from a design session on porting **basic-cli** onto hematite by
+Decisions from a design session on porting **basic-cli** onto trantor by
 splitting it into interfaces (grouped à la WASI) and implementing each in a
 crate. **Pre-implementation** — no code yet; this records the resolved design
 tree. Numbered in resolution order; each depends on those above it.
 
-Companion to the hematite design log ([`2026-09-04-hematite-design-log.md`](2026-09-04-hematite-design-log.md),
+Companion to the trantor design log ([`2026-09-04-trantor-design-log.md`](2026-09-04-trantor-design-log.md),
 D1–D23); references to `Dn` are its decisions.
 
 ## Evidence the decisions rest on
@@ -63,7 +63,7 @@ as derived sugar.** The primitive interface is WASI's capability model
 Rationale: the descriptor model **is** the isolation that makes WASI fit Roc
 (the reason cited in P1); it makes seahaven's confinement fall out of the
 primitive layer for free (a confined impl hands out restricted preopens) instead
-of being a fork. **This drives a hematite feature: real WIT `resource` types**
+of being a fork. **This drives a trantor feature: real WIT `resource` types**
 (D3 anticipated them; the fixtures never built them).
 
 **P5 — A `resource` is a refcounted opaque host handle; refcounting *is*
@@ -73,7 +73,7 @@ a `resource` keyword. WASI's manual `own`/`borrow` and `i32` handle-tables exist
 only because WASM lacks refcounting; Roc *has* refcounting, so `own`/`borrow` are
 **subsumed for free** (pass-by-value = borrow, last drop = own) and memory-safe
 by construction. The decref-destructor mechanism is already present in glue
-(`decref_box_with`) and tested upstream, so hematite's work is to *confirm*
+(`decref_box_with`) and tested upstream, so trantor's work is to *confirm*
 drop-balance in a composition (a host open/close gauge), not discover it. Lowers
 to WASI's `i32` handle on the wasm edge (D22) — a lowering concern only.
 
@@ -176,7 +176,7 @@ changing the platform URL. Excludes sqlite (own world), includes http/tcp/tempor
 for 0.21 parity. **Confinement/preopens is a swappable filesystem impl**: the
 baseline hands out a `/` preopen (ambient parity); seahaven's confinement is a
 `roc:filesystem` impl that hands out a restricted preopen — the same interface,
-so seahaven stops being a fork and becomes a component. This is the hematite
+so seahaven stops being a fork and becomes a component. This is the trantor
 thesis landing on the platform it was built for.
 
 **P15 — The `roc:basic-cli` world's app-facing `Path`/`File`/`Env` are
@@ -212,8 +212,8 @@ place) and accessed/created times on `stat_at!`.
 4. **`own`/`borrow`** deliberately deferred (P5 — refcounting subsumes them);
    revisit only if a use-after-move bug surfaces that refcounting doesn't catch.
 5. **Windows `os-path` variant** deferred until Windows is a target (P11).
-6. **hematite features this port drives**, to fold into hematite's own plan: the
+6. **trantor features this port drives**, to fold into trantor's own plan: the
    `resource` keyword + refcounted-handle codegen (P5), the bytes-primitive path
    convention (P11), and confirmation that D14 world-rename covers the path swap
    (P11). The resource work is the load-bearing prerequisite and should be a
-   hematite gate before the port starts.
+   trantor gate before the port starts.

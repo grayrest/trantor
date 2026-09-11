@@ -4,7 +4,7 @@
 //! `#[no_mangle]` symbols: cargo bundles an rlib into each dependent staticlib,
 //! and a bundled no_mangle would be the H0c duplicate-symbol footgun. The
 //! hosted read!/write! symbols live in the separate `sync-io` staticlib.
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::RocBox;
 use std::io::{BufReader, Read, Write};
 

@@ -1,7 +1,7 @@
 //! roc:locale host (roc-native, P3): BCP-47 tags from LANGUAGE / LC_ALL / LANG.
 //! `all` is served as count+at so the Roc shim builds the List(Str) (R-B5).
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::*;
 use std::sync::OnceLock;
 
@@ -24,15 +24,15 @@ fn locales() -> &'static Vec<String> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__locale_host__get() -> LocaleHostGetResult {
+pub extern "C-unwind" fn trantor__locale_host__get() -> LocaleHostGetResult {
     match locales().first() {
         Some(t) => LocaleHostGetResult { payload: LocaleHostGetResultPayload { ok: ManuallyDrop::new(RocStr::from_str(t, abi::host())) }, tag: LocaleHostGetResultTag::Ok },
         None => LocaleHostGetResult { payload: LocaleHostGetResultPayload { err: [] }, tag: LocaleHostGetResultTag::Err },
     }
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__locale_host__count() -> u64 { locales().len() as u64 }
+pub extern "C-unwind" fn trantor__locale_host__count() -> u64 { locales().len() as u64 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__locale_host__at(i: u64) -> RocStr {
+pub extern "C-unwind" fn trantor__locale_host__at(i: u64) -> RocStr {
     RocStr::from_str(locales().get(i as usize).map(String::as_str).unwrap_or(""), abi::host())
 }

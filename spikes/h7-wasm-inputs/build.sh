@@ -49,13 +49,13 @@ echo "== 3. merge: driver whole, component rooted by its contract members =="
 # `-r` cannot take `--undefined`, so a component's contract symbols are rooted
 # by naming the members that define them (found with llvm-nm); everything else
 # in the component archive stays lazy, which is what keeps std and the
-# compiler builtins single-copy. hematite knows every contract symbol, so this
+# compiler builtins single-copy. trantor knows every contract symbol, so this
 # is a deterministic recipe, not a heuristic.
 NM="${NM:-$(command -v llvm-nm || echo /opt/homebrew/opt/llvm/bin/llvm-nm)}"
 roots=()
 for m in build/b-members/*; do
     [ -f "$m" ] || continue
-    "$NM" --defined-only "$m" 2>/dev/null | grep -q " T hematite__b__seed$" && roots+=("$m")
+    "$NM" --defined-only "$m" 2>/dev/null | grep -q " T trantor__b__seed$" && roots+=("$m")
 done
 echo "   b contract members: ${#roots[@]}"
 wasm-ld -r --whole-archive build/liba.a --no-whole-archive "${roots[@]}" build/libb.a \

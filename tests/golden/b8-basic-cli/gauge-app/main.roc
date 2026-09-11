@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/b8-basic-cli/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/b8-basic-cli/platform/main.roc" }
 import pf.OsStr
 import pf.Stdout
 import pf.Env
@@ -8,7 +8,7 @@ import pf.Path
 ## is concatenated at RUNTIME so `big` is a real HEAP RocStr, not a static
 ## literal -- only a heap allocation is visible to the gauge. It crosses into
 ## the host through Env.set_cwd! -> Host.env_set_cwd! -> FsOps.set_cwd! ->
-## Cell.put!, an owned-RocStr host argument (B0). Under HEMATITE_ALLOC_GAUGE the
+## Cell.put!, an owned-RocStr host argument (B0). Under TRANTOR_ALLOC_GAUGE the
 ## driver prints the alloc/dealloc balance at exit; a host that fails to release
 ## this owned arg leaks `big` and shows live>0 (verified: it does).
 ##

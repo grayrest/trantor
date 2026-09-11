@@ -3,7 +3,7 @@
 //! (glue contract, B0): the stream handle is released via `resource::with`,
 //! and list args are `.decref`'d — no Drop exists on bare RocListWith.
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::{RocBox, RocListWith, RocStr,
     StreamsReadResult as ReadR, StreamsReadResultPayload as ReadP, StreamsReadResultTag as ReadT,
     StreamsWriteResult as WriteR, StreamsWriteResultPayload as WriteP, StreamsWriteResultTag as WriteT,
@@ -42,7 +42,7 @@ fn write_err(e: &std::io::Error) -> WriteR {
 
 /// `Streams.read! : InputStream, U64 => Try(List(U8), [StreamErr(IOErr)])`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sync_io__read(s: *mut u64, max: u64) -> ReadR {
+pub extern "C-unwind" fn trantor__sync_io__read(s: *mut u64, max: u64) -> ReadR {
     // Owned handle: `with` borrows then releases (B0 rule).
     let outcome: std::io::Result<Vec<u8>> = unsafe {
         abi::resource::with(s as RocBox, |inp: &mut Input| {
@@ -64,7 +64,7 @@ pub extern "C-unwind" fn hematite__sync_io__read(s: *mut u64, max: u64) -> ReadR
 
 /// `Streams.write! : OutputStream, List(U8) => Try({}, [StreamErr(IOErr)])`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sync_io__write(s: *mut u64, bytes: RocListWith<u8, false>) -> WriteR {
+pub extern "C-unwind" fn trantor__sync_io__write(s: *mut u64, bytes: RocListWith<u8, false>) -> WriteR {
     let outcome: std::io::Result<()> = unsafe {
         abi::resource::with(s as RocBox, |out: &mut Output| out.0.write_all(bytes.as_slice()))
     };

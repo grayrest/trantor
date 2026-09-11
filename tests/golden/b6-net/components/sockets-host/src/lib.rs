@@ -2,7 +2,7 @@
 //! resources (P5); bytes flow through sync-io streams minted per call from a
 //! cloned socket. Blocking (P12). Owned args decref'd; handles via resource::with.
 use core::mem::ManuallyDrop;
-use hematite_abi as abi;
+use trantor_abi as abi;
 use abi::*;
 use std::net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 
@@ -21,7 +21,7 @@ macro_rules! sock_result { ($R:ident, $P:ident, $T:ident, $r:expr) => {
 }}
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__resolve(name: RocStr) -> SocketsResolveResult {
+pub extern "C-unwind" fn trantor__sockets_host__resolve(name: RocStr) -> SocketsResolveResult {
     let host = take_str(name);
     match format!("{host}:0").to_socket_addrs() {
         Ok(addrs) => {
@@ -35,51 +35,51 @@ pub extern "C-unwind" fn hematite__sockets_host__resolve(name: RocStr) -> Socket
     }
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__tcp_connect(host: RocStr, port: u16) -> SocketsTcpConnectResult {
+pub extern "C-unwind" fn trantor__sockets_host__tcp_connect(host: RocStr, port: u16) -> SocketsTcpConnectResult {
     let h = take_str(host);
     sock_result!(SocketsTcpConnectResult, SocketsTcpConnectResultPayload, SocketsTcpConnectResultTag, TcpStream::connect((h.as_str(), port)).map(Sock::Stream))
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__tcp_listen(host: RocStr, port: u16) -> SocketsTcpListenResult {
+pub extern "C-unwind" fn trantor__sockets_host__tcp_listen(host: RocStr, port: u16) -> SocketsTcpListenResult {
     let h = take_str(host);
     sock_result!(SocketsTcpListenResult, SocketsTcpListenResultPayload, SocketsTcpListenResultTag, TcpListener::bind((h.as_str(), port)).map(Sock::Listener))
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__tcp_accept(l: *mut u64) -> SocketsTcpAcceptResult {
+pub extern "C-unwind" fn trantor__sockets_host__tcp_accept(l: *mut u64) -> SocketsTcpAcceptResult {
     let r = unsafe { abi::resource::with(l as RocBox, |s: &mut Sock| match s { Sock::Listener(l) => l.accept().map(|(c, _)| Sock::Stream(c)), _ => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "not a listener")) }) };
     sock_result!(SocketsTcpAcceptResult, SocketsTcpAcceptResultPayload, SocketsTcpAcceptResultTag, r)
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__tcp_input(s: *mut u64) -> *mut u64 {
+pub extern "C-unwind" fn trantor__sockets_host__tcp_input(s: *mut u64) -> *mut u64 {
     let r: Box<dyn std::io::Read> = unsafe { abi::resource::with(s as RocBox, |x: &mut Sock| match x { Sock::Stream(t) => t.try_clone().map(|c| Box::new(c) as Box<dyn std::io::Read>).unwrap_or_else(|_| Box::new(std::io::empty())), _ => Box::new(std::io::empty()) }) };
     sync_io_core::input_stream(r) as *mut u64
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__tcp_output(s: *mut u64) -> *mut u64 {
+pub extern "C-unwind" fn trantor__sockets_host__tcp_output(s: *mut u64) -> *mut u64 {
     let w: Box<dyn std::io::Write> = unsafe { abi::resource::with(s as RocBox, |x: &mut Sock| match x { Sock::Stream(t) => t.try_clone().map(|c| Box::new(c) as Box<dyn std::io::Write>).unwrap_or_else(|_| Box::new(std::io::sink())), _ => Box::new(std::io::sink()) }) };
     sync_io_core::output_stream(w) as *mut u64
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__tcp_set_read_timeout(s: *mut u64, ms: u64) {
+pub extern "C-unwind" fn trantor__sockets_host__tcp_set_read_timeout(s: *mut u64, ms: u64) {
     unsafe { abi::resource::with(s as RocBox, |x: &mut Sock| { if let Sock::Stream(t) = x { let _ = t.set_read_timeout(if ms == 0 { None } else { Some(std::time::Duration::from_millis(ms)) }); } }) }
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__tcp_local_port(s: *mut u64) -> u16 {
+pub extern "C-unwind" fn trantor__sockets_host__tcp_local_port(s: *mut u64) -> u16 {
     unsafe { abi::resource::with(s as RocBox, |x: &mut Sock| match x { Sock::Stream(t) => t.local_addr().map(|a| a.port()).unwrap_or(0), Sock::Listener(l) => l.local_addr().map(|a| a.port()).unwrap_or(0), Sock::Udp(u) => u.local_addr().map(|a| a.port()).unwrap_or(0) }) }
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__udp_bind(host: RocStr, port: u16) -> SocketsUdpBindResult {
+pub extern "C-unwind" fn trantor__sockets_host__udp_bind(host: RocStr, port: u16) -> SocketsUdpBindResult {
     let h = take_str(host);
     sock_result!(SocketsUdpBindResult, SocketsUdpBindResultPayload, SocketsUdpBindResultTag, UdpSocket::bind((h.as_str(), port)).map(Sock::Udp))
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__udp_send_to(s: *mut u64, host: RocStr, port: u16, bytes: RocListWith<u8, false>) -> SocketsUdpSendToResult {
+pub extern "C-unwind" fn trantor__sockets_host__udp_send_to(s: *mut u64, host: RocStr, port: u16, bytes: RocListWith<u8, false>) -> SocketsUdpSendToResult {
     let h = take_str(host); let b = bytes.as_slice().to_vec(); unsafe { bytes.decref(abi::host()) };
     let r = unsafe { abi::resource::with(s as RocBox, |x: &mut Sock| match x { Sock::Udp(u) => u.send_to(&b, (h.as_str(), port)), _ => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "not udp")) }) };
     match r { Ok(n) => SocketsUdpSendToResult { payload: SocketsUdpSendToResultPayload { ok: ManuallyDrop::new(n as u64) }, tag: SocketsUdpSendToResultTag::Ok }, Err(e) => SocketsUdpSendToResult { payload: SocketsUdpSendToResultPayload { err: ManuallyDrop::new(ioerr(&e)) }, tag: SocketsUdpSendToResultTag::Err } }
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__udp_recv(s: *mut u64, max: u64) -> SocketsUdpRecvResult {
+pub extern "C-unwind" fn trantor__sockets_host__udp_recv(s: *mut u64, max: u64) -> SocketsUdpRecvResult {
     let r = unsafe { abi::resource::with(s as RocBox, |x: &mut Sock| match x { Sock::Udp(u) => { let mut buf = vec![0u8; max as usize]; u.recv_from(&mut buf).map(|(n, from)| { buf.truncate(n); (buf, from) }) }, _ => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "not udp")) }) };
     match r {
         Ok((buf, from)) => SocketsUdpRecvResult { payload: SocketsUdpRecvResultPayload { ok: ManuallyDrop::new(AnonStruct902edcae59c36540 { bytes: unsafe { RocListWith::<u8, false>::from_slice(&buf, abi::host()) }, from_host: RocStr::from_str(&from.ip().to_string(), abi::host()), from_port: from.port() }) }, tag: SocketsUdpRecvResultTag::Ok },
@@ -87,6 +87,6 @@ pub extern "C-unwind" fn hematite__sockets_host__udp_recv(s: *mut u64, max: u64)
     }
 }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__udp_local_port(s: *mut u64) -> u16 { hematite__sockets_host__tcp_local_port(s) }
+pub extern "C-unwind" fn trantor__sockets_host__udp_local_port(s: *mut u64) -> u16 { trantor__sockets_host__tcp_local_port(s) }
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn hematite__sockets_host__live() -> i32 { abi::resource::live() as i32 }
+pub extern "C-unwind" fn trantor__sockets_host__live() -> i32 { abi::resource::live() as i32 }

@@ -1,5 +1,5 @@
 # nm-scan REJECT case: two host components that both define the same unmangled
-# global (`hematite_probe_collision`). `hematite scan` must reject this — the
+# global (`trantor_probe_collision`). `trantor scan` must reject this — the
 # roc link would otherwise resolve it silently by archive order (H0c). This
 # world exists only to exercise the scanner; it is not composed or run.
 [world]

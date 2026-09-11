@@ -3,7 +3,7 @@
 ## the driver's own methods destructure with full patterns.
 Env := {
 	width : U64,
-	## @hematite(env)
+	## @trantor(env)
 	## @end
 }.{
 	width : Env -> U64

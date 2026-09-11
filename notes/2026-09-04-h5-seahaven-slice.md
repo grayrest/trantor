@@ -1,6 +1,6 @@
 # H5 — seahaven migration: substitution proof (slice)
 
-Gate H5 of [`plans/2026-09-04-hematite-v1.md`](../plans/2026-09-04-hematite-v1.md).
+Gate H5 of [`plans/2026-09-04-trantor-v1.md`](../plans/2026-09-04-trantor-v1.md).
 Fixture: `tests/golden/seahaven-slice/`.
 
 **Scope, stated plainly.** The plan's full H5 is "decompose all of seahaven,
@@ -25,7 +25,7 @@ plan says so.
 - **Substitution means something.** Two host components — `std-stdio` (real
   `std::io`) and `capture-stdio` (same code, `[cap] ` prefix) — each implement
   the same 6-symbol stdio interface. The world wires one or the other
-  (`world.toml` vs `world-capture.toml`, selected with `hematite compose --world`).
+  (`world.toml` vs `world-capture.toml`, selected with `trantor compose --world`).
   The SAME unmodified derived layer prints `out: …` under one and `[cap] out: …`
   under the other. That is the whole "alternate implementation of the CLI
   interfaces" claim, demonstrated on real code.
@@ -33,7 +33,7 @@ plan says so.
 ## Tool changes this drove
 
 - **Symbol mangling must sanitize component names.** `std-stdio` → hosted symbol
-  `hematite__std_stdio__stdout_line` (hyphen → underscore); roc rejects a hosted
+  `trantor__std_stdio__stdout_line` (hyphen → underscore); roc rejects a hosted
   symbol that is not a valid C identifier, and cargo emits `libstd_stdio.a`, so
   both the mangled symbol and the archive filename go through `resolve::sanitize`.
 - **`--world <file>`** selects the composition manifest, so one component/

@@ -54,7 +54,7 @@ interface field, not this pass.
 The HTTP body joins files/sockets/stdin as an `InputStream` producer.
 
 **H6 — App-facing shape: streaming default + collect helper + bridge (option
-C).** Hematite `Response { status, headers, body : Streams.InputStream }` is the
+C).** Trantor `Response { status, headers, body : Streams.InputStream }` is the
 default. `Http.read_body_to_end!(response) => List(U8)` is the "I want the whole
 thing" collect. `Http.to_http_response!(response) =>` `roc-lang/http` `Response`
 bridges to the eager shared type for interop. **Requests keep** `roc-lang/http`
@@ -118,12 +118,12 @@ disabled in this build")`. This needs a **new general per-component Cargo-featur
 knob in the composer** (a manifest field flowing into the generated `Cargo.toml`,
 useful beyond TLS; default = the crate's own defaults).
 
-**H13 — Trust: webpki-roots + additive `HEMATITE_HTTP_EXTRA_CA`.** With `tls`
+**H13 — Trust: webpki-roots + additive `TRANTOR_HTTP_EXTRA_CA`.** With `tls`
 on, the rustls root store is webpki-roots **plus** any certs at the
-`HEMATITE_HTTP_EXTRA_CA` PEM path (additive — public CAs still trusted; opt-in;
+`TRANTOR_HTTP_EXTRA_CA` PEM path (additive — public CAs still trusted; opt-in;
 `NODE_EXTRA_CA_CERTS`-style). One env var, one PEM file (may hold several certs),
 no directory scan, no replace-the-store mode. It is both the deterministic
-local-TLS **test** hook and the **easy local-cert route** for any hematite user
+local-TLS **test** hook and the **easy local-cert route** for any trantor user
 (local dev cert, corporate CA, self-signed service) — same path the suite
 exercises, so it can't rot. Ignored when `tls` is off.
 
@@ -132,12 +132,12 @@ threads) grows to serve, over plaintext, a streamed large body, chunked
 transfer-encoding, gzip+brotli, a 301/302/307/308 redirect chain, a stalled
 server for the timeout, and multi-value headers. TLS is exercised deterministically:
 `testnet` runs a rustls server with an **ephemeral** cert, the test build points
-`HEMATITE_HTTP_EXTRA_CA` at it, and an `https://` GET proves handshake + cert
+`TRANTOR_HTTP_EXTRA_CA` at it, and an `https://` GET proves handshake + cert
 validation + streaming-a-body-over-TLS. Cert generation is a small self-contained
 **`tools/local-cert` crate (rcgen)**, wrapped by **`just make-local-cert
 <cert-path>`** (writes the cert PEM to `<cert-path>`, the key to
 `<cert-path>.key`, SANs `localhost`/`127.0.0.1`/`::1`, long validity, prints the
-`export HEMATITE_HTTP_EXTRA_CA=…` line). The suite generates a throwaway cert per
+`export TRANTOR_HTTP_EXTRA_CA=…` line). The suite generates a throwaway cert per
 run via the same tool — **no committed cert or key** (keeps a private key out of
 git, dodges expiry).
 
@@ -153,11 +153,11 @@ the stream, harmless); redirects resolve inside `send!` (final hop only);
 early-drop of the stream closes/recycles the connection via the B0 destructor;
 the `to_host_method` u8 table + `method_ext` for `Unknown` carries over unchanged.
 
-**H16 — Global redirect knob: `HEMATITE_HTTP_MAX_REDIRECTS`.** The shared
+**H16 — Global redirect knob: `TRANTOR_HTTP_MAX_REDIRECTS`.** The shared
 Agent's `max_redirects` is read from this env when the Agent is built — default
 `10` (H4's browser-like following), `0` = don't follow (a 3xx comes back as the
 `Response`, restoring basic-cli's behavior without a rebuild). Per-process,
-runtime, no interface change; consistent with the `HEMATITE_HTTP_EXTRA_CA`
+runtime, no interface change; consistent with the `TRANTOR_HTTP_EXTRA_CA`
 env convention (H13). `max_redirects_will_error` stays **false** (hitting the
 ceiling returns the last response, not an error — browser-like);
 `redirect_auth_headers` keeps ureq's default. **Per-request** redirect policy
@@ -173,7 +173,7 @@ redirect field, so it cannot be per-request without extending that type.
   `Response`; new `read_body_to_end!` and `to_http_response!`. `Http.roc` /
   `InternalHttp.roc` are no longer byte-verbatim from basic-cli.
 - Composer: new per-component `features` knob (H12).
-- New env: `HEMATITE_HTTP_EXTRA_CA` (H13), `HEMATITE_HTTP_MAX_REDIRECTS` (H16).
+- New env: `TRANTOR_HTTP_EXTRA_CA` (H13), `TRANTOR_HTTP_MAX_REDIRECTS` (H16).
   New Cargo feature: `http-host/tls` (default on, H12). New crate:
   `tools/local-cert` + `just make-local-cert` (H14).
 
@@ -218,7 +218,7 @@ future additions behind the shapes chosen here.
   is `WebPki` **or** `Specific(certs)` — not both, and webpki-roots are trust
   *anchors*, not full cert DERs, so they can't feed `Specific`. The
   `webpki-root-certs` crate provides Mozilla roots as full DERs, so with
-  HEMATITE_HTTP_EXTRA_CA set the host builds `Specific(webpki-root-certs +
+  TRANTOR_HTTP_EXTRA_CA set the host builds `Specific(webpki-root-certs +
   extra-CA)` — genuinely additive (H13), no custom connector, no
   replace-the-store. Default (no extra CA) stays `RootCerts::WebPki` (cheap).
 - **`tls` feature rides HC0's knob.** `http-host` declares `[features] default =
@@ -230,7 +230,7 @@ future additions behind the shapes chosen here.
   `Other("https requires the tls feature…")`.
 - **Deterministic HTTPS.** `testnet-host` runs a rustls server presenting an
   **ephemeral** cert (`just make-local-cert` per run, no committed key); the test
-  trusts it via HEMATITE_HTTP_EXTRA_CA and an `https://` GET proves handshake +
+  trusts it via TRANTOR_HTTP_EXTRA_CA and an `https://` GET proves handshake +
   cert validation + body-over-TLS. Without the extra CA the same cert is
   rejected (trust is real, not blanket). The tls-on `http-host` archive is
   self-contained with rustls (so the testnet-less published baseline can do

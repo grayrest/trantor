@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/b7-temporal/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/b7-temporal/platform/main.roc" }
 import pf.Stdout
 import pf.Temporal
 

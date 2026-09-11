@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/b6-net/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/b6-net/platform/main.roc" }
 import pf.Stdout
 import pf.Streams
 import pf.Sockets
@@ -6,7 +6,7 @@ import pf.TempTest
 
 ## HC2: drive the streaming HTTP primitive directly — send!, then read the body
 ## InputStream in chunks. Exercises a large body (arrives whole), a redirect
-## chain (followed unless HEMATITE_HTTP_MAX_REDIRECTS=0), multi-value headers
+## chain (followed unless TRANTOR_HTTP_MAX_REDIRECTS=0), multi-value headers
 ## (every occurrence preserved), a stall (send! -> Timeout), and a mid-body
 ## cutoff (StreamErr on read, H15). Exit code == live resources (0 = balanced).
 main! : List(Str) => Try({}, [Exit(I32), ..])

@@ -7,5 +7,5 @@ publish = false
 crate-type = ["staticlib", "rlib"]
 [dependencies]
 # A crates-io name that does not exist: resolved by the workspace's default
-# patch for lint/test, and by hematite's per-build patch for each world.
-hematite-abi = "0.0.0"
+# patch for lint/test, and by trantor's per-build patch for each world.
+trantor-abi = "0.0.0"

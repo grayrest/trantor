@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../target/hematite/b3-fs/platform/main.roc" }
+app [main!] { pf: platform "../target/trantor/b3-fs/platform/main.roc" }
 import pf.Stdout
 import pf.Path
 import pf.Env

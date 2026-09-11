@@ -1,6 +1,6 @@
 # Roc `build` SIGSEGV on a type error upstream of a chained hosted effect
 
-Found while building a drop-balance test fixture for the hematite basic-cli
+Found while building a drop-balance test fixture for the trantor basic-cli
 port. `roc check` reports a clean type mismatch; `roc build` **segfaults** on the
 same program — but only when the ill-typed value feeds a chained effectful
 hosted call. This is a compiler robustness bug: `build` should surface the type
@@ -19,7 +19,7 @@ error, not crash.
 
 ## The program
 
-Platform: the composed hematite basic-cli world at
+Platform: the composed trantor basic-cli world at
 `tests/golden/b8-basic-cli/platform/main.roc` (its `Cmd` is seahaven's, whose
 `args : List OsStr`, where `OsStr` is a nominal type with a *string-literal*
 coercion but no coercion from a runtime `Str`). The same shape exists in
@@ -103,7 +103,7 @@ front end already produced.
 3. Minimize platform-side: the only ingredients are a nominal type (`OsStr`)
    with a literal-only `Str` coercion, a builder function taking `List` of it
    (`args`), and an effectful hosted function consuming the builder. A ~30-line
-   hand-rolled platform should reproduce without hematite/seahaven.
+   hand-rolled platform should reproduce without trantor/seahaven.
 
 ## Impact
 

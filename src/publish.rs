@@ -5,7 +5,7 @@
 //! — a hash over the roc compiler, the glue spec, and the platform sources. A
 //! Tier-1 consumer (pure-Roc extension) reuses the prebuilt archives and only
 //! has to check that its compiler still matches the fingerprint (H11): if it
-//! does, the prebuilt `libhost` is sound; if not, hematite warns rather than let
+//! does, the prebuilt `libhost` is sound; if not, trantor warns rather than let
 //! a stale-glue mismatch become a runtime segfault.
 
 use crate::manifest::World;
@@ -66,7 +66,7 @@ pub fn abi_fingerprint(_dir: &Path) -> Result<String, String> {
 /// archives, and `baseline.lock` with the fingerprint.
 pub fn publish(dir: &Path) -> Result<(), String> {
     // The composed platform is generated, so it is read from
-    // `target/hematite/<world>` (D-H7-38); `dist/` is an artifact too and goes
+    // `target/trantor/<world>` (D-H7-38); `dist/` is an artifact too and goes
     // beside it.
     let gen = match crate::manifest::load_world(dir, "world.toml") {
         Ok(w) => crate::manifest::out_dir(dir, &w),
@@ -119,10 +119,10 @@ pub fn publish(dir: &Path) -> Result<(), String> {
     let fp = abi_fingerprint(dir)?;
     std::fs::write(
         dist.join("baseline.lock"),
-        format!("# hematite baseline lock (D11/H11)\nabi_fingerprint = \"{fp}\"\n"),
+        format!("# trantor baseline lock (D11/H11)\nabi_fingerprint = \"{fp}\"\n"),
     )
     .map_err(|e| e.to_string())?;
-    eprintln!("hematite: published baseline to {} (abi_fingerprint {fp})", dist.display());
+    eprintln!("trantor: published baseline to {} (abi_fingerprint {fp})", dist.display());
     Ok(())
 }
 

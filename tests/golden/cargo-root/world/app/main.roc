@@ -1,4 +1,4 @@
-app [main!] { pf: platform "../../target/hematite/world/platform/main.roc" }
+app [main!] { pf: platform "../../target/trantor/world/platform/main.roc" }
 
 import pf.Host
 
