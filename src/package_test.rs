@@ -49,7 +49,9 @@ impl Steps<'_> {
         self.driver()?;
         let with = self.world(APP_WORLD, true)?;
         trantor(&["compose", s(&with)], self.root, "compose the package with its dev-deps")?;
-        println!("ok: composes with its dev-deps");
+        if !self.pkg.dev_deps.is_empty() {
+            println!("ok: composes with its dev-deps");
+        }
         let base = if self.is_add_on() && !self.pkg.dev_deps.is_empty() {
             let base = self.world("base", false)?;
             trantor(&["compose", s(&base)], self.root, "compose the dev-deps alone")?;
@@ -106,6 +108,7 @@ impl Steps<'_> {
         let out = trantor_output(&["compose", s(&solo)], self.root)?;
         let said = String::from_utf8_lossy(&out.stderr).into_owned() + &String::from_utf8_lossy(&out.stdout);
         match (driver_in_reach(self.root, self.pkg, 0), out.status.success()) {
+            (Some(true), true) if self.pkg.package.provides_driver.is_some() => Ok(println!("ok: a baseline, it composes alone on its own driver")),
             (Some(true), true) => Ok(println!("ok: it composes alone, on the driver its dependencies provide")),
             (Some(true), false) => Err(format!("a driver is in reach, but it does not compose alone:\n{said}")),
             (Some(false), true) => Err("no driver is in reach, yet it composed alone".into()),
