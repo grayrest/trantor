@@ -39,13 +39,18 @@ pass=0; total=0; failed=""
 for f in $(git -C "$REPO" ls-tree --name-only "$TAG" examples/ | grep '\.roc$'); do
   n=$(basename "$f" .roc); [[ $n == sqlite-* ]] && continue
   [[ $n == http-client || $n == http-simple ]] && continue   # adapted + run in HC3
+  # Tty moved OUT of trantor-cli: raw mode is termios state, not a CLI
+  # primitive, and it belongs to a terminal package rather than the baseline.
+  # These two are the only basic-cli examples that import it. Excluded like
+  # sqlite-*, and they come back the moment that package exists.
+  [[ $n == tty || $n == terminal-app-snake ]] && continue
   total=$((total+1)); mkdir -p "$X/$n"
   git -C "$REPO" show "${TAG}:${f}" | perl -pe 's|platform "[^"]+"|platform "../../target/trantor/b8-basic-cli/platform/main.roc"|' > "$X/$n/main.roc"
   if cap "$ROC" check "$X/$n/main.roc" >/dev/null 2>&1; then pass=$((pass+1)); else failed="$failed $n"; fi
 done
 # Guard against a vacuous 0/0 pass (wrong tag, moved examples/, detached repo):
 # basic-cli 0.21.0 ships ~26 non-sqlite, non-http examples.
-[[ $total -ge 20 ]] || { echo "FAIL: only $total example(s) found at $TAG (expected >=20); migration proof would be vacuous"; exit 1; }
+[[ $total -ge 18 ]] || { echo "FAIL: only $total example(s) found at $TAG (expected >=18); migration proof would be vacuous"; exit 1; }
 [[ $pass -eq $total ]] || { echo "FAIL: $pass/$total examples check; failing:$failed"; exit 1; }
 echo "ok: $pass/$total basic-cli $TAG non-http examples roc-check with only the platform URL changed"
 
