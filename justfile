@@ -26,22 +26,42 @@ verify *filter:
     mapfile -t scripts < <(ls tests/golden/*/verify*.sh | sort)
     [[ ${#scripts[@]} -gt 0 ]] || { echo "verify: found no fixture scripts — the glob is wrong"; exit 1; }
     filter="{{filter}}"
+    # Every fixture's COMPLETE output goes to a file, pass or fail. The console
+    # still shows the last twelve lines of a failure, which is all it can
+    # usefully hold — but twelve lines is not a diagnosis. An intermittent b8
+    # failure was investigated for an afternoon on a tail that had already
+    # scrolled past the cause, and a second occurrence told us nothing because
+    # the evidence was gone the moment the runner returned.
+    #
+    # Written as the script runs rather than captured into a variable, so the
+    # log survives a killed or hung run — which is the case most worth having
+    # it for. target/ is gitignored, so this cannot dirty the tree.
+    logs=target/verify-logs
+    rm -rf "$logs"; mkdir -p "$logs"
     ran=0; failed=()
     for s in "${scripts[@]}"; do
         [[ -n "$filter" && "$s" != *"$filter"* ]] && continue
         ran=$((ran+1))
-        printf '%-46s' "$(dirname "${s#tests/golden/}")/$(basename "$s")"
-        if out=$(bash "$s" 2>&1); then
+        name="$(dirname "${s#tests/golden/}")/$(basename "$s")"
+        printf '%-46s' "$name"
+        log="$logs/${name//\//__}.log"
+        if bash "$s" > "$log" 2>&1; then
             echo "PASS"
         else
             echo "FAIL"
             failed+=("$s")
-            sed 's/^/      | /' <<<"$out" | tail -12
+            sed 's/^/      | /' "$log" | tail -12
+            # Kept aside under a timestamp so the NEXT run cannot clobber the
+            # one occurrence of a rare failure.
+            keep="$logs/failed-$(date +%Y%m%dT%H%M%S)-${name//\//__}.log"
+            cp "$log" "$keep"
+            echo "      | full log: $keep"
         fi
     done
     [[ $ran -gt 0 ]] || { echo "verify: filter '$filter' matched no fixture"; exit 1; }
     dirty=$(git status --porcelain | wc -l | tr -d ' ')
     echo "----"
     echo "verify: $ran script(s) run, ${#failed[@]} failed, working tree $dirty file(s) dirty"
+    echo "verify: full logs in $logs/"
     if [[ ${#failed[@]} -gt 0 ]]; then printf 'FAILED: %s\n' "${failed[@]}"; exit 1; fi
     [[ "$dirty" == 0 ]] || { echo "FAIL: the suite dirtied the working tree"; git status --short; exit 1; }
