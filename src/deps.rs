@@ -72,6 +72,10 @@ struct Staged {
     components: BTreeMap<String, (crate::manifest::Component, String)>,
     wiring: BTreeMap<String, (String, String)>,
     driver: Option<(String, String)>, // (component, package)
+    /// Unioned, not claimed: two packages exposing the same module name is a
+    /// module collision that `codegen` already refuses when it writes them.
+    exports: Vec<String>,
+    packages: BTreeMap<String, (String, String)>, // alias -> (url, package)
 }
 
 fn claim<T>(
@@ -137,6 +141,23 @@ fn expand_into(
         for (iface, expr) in pkg.provides {
             claim(&mut staged.wiring, &iface, expr, &pkg_name, "wiring for")?;
         }
+        for e in pkg.package.exports {
+            if !staged.exports.contains(&e) {
+                staged.exports.push(e);
+            }
+        }
+        for (alias, url) in pkg.packages {
+            if let Some((first_url, first_pkg)) = staged.packages.get(&alias) {
+                if *first_url != url {
+                    return Err(format!(
+                        "two dependencies bind the Roc package alias `{alias}` to different \
+                         URLs: `{first_pkg}` and `{pkg_name}`. An alias is a single import \
+                         name; rename one, or pin both to the same release."
+                    ));
+                }
+            }
+            staged.packages.insert(alias, (url, pkg_name.clone()));
+        }
         if let Some(d) = pkg.package.provides_driver {
             if let Some((first, first_pkg)) = &staged.driver {
                 return Err(format!(
@@ -182,6 +203,14 @@ pub fn expand(world_dir: &Path, world: &mut World) -> Result<(), String> {
     }
     for (iface, (expr, _)) in staged.wiring {
         world.wiring.entry(iface).or_insert(expr);
+    }
+    for e in staged.exports {
+        if !world.world.exports.contains(&e) {
+            world.world.exports.push(e);
+        }
+    }
+    for (alias, (url, _)) in staged.packages {
+        world.packages.entry(alias).or_insert(url);
     }
     if world.world.driver.is_none() {
         if let Some((d, _)) = staged.driver {

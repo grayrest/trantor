@@ -163,6 +163,11 @@ pub struct Package {
     pub components: BTreeMap<String, Component>,
     #[serde(default)]
     pub deps: BTreeMap<String, Dep>,
+    /// External Roc packages the package's own modules import by alias, merged
+    /// into the consumer's `[packages]`. A platform that vendors a Roc library
+    /// (basic-cli's `http`) cannot compose without it.
+    #[serde(default)]
+    pub packages: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,6 +180,13 @@ pub struct PackageMeta {
     /// A baseline declares the driver its consumers inherit (D-U1-6).
     #[serde(default)]
     pub provides_driver: Option<String>,
+    /// Roc modules the composed platform must expose. `codegen` writes
+    /// `exposes [...]` from the world's list, so a package that ships modules
+    /// has to contribute to it or its own modules are unreachable from an app —
+    /// and an app importing a module missing from exposes SEGFAULTS `roc build`
+    /// rather than failing to typecheck (D-H7-35's finding).
+    #[serde(default)]
+    pub exports: Vec<String>,
 }
 
 /// Join `rel` under `base`, refusing anything a DEPENDENCY must not be allowed
