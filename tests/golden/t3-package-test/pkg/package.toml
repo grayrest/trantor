@@ -1,0 +1,13 @@
+# The smallest add-on package `trantor test` has to handle: one pure-Roc module,
+# an expect, a README example, an app suite and a script suite.
+[package]
+name = "greet"
+version = "0.0.0"
+exports = ["Greet"]
+
+[components.greet-lib]
+kind = "roc"
+exports = ["Greet"]
+
+[dev-deps]
+trantor-cli = { path = "../../../../../trantor-cli" }
