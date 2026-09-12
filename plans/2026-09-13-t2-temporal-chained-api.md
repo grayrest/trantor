@@ -51,8 +51,12 @@ Consequences that drive the design:
 2. **Optional arguments are spread from a named zero.** `Temporal.time` is
    midnight; `Temporal.duration` is all-zeros. There is deliberately NO date
    zero — a date always names all three fields.
-3. **`with` keeps its TC39 meaning** (replace a field) and `add`/`subtract` do
-   arithmetic. Both take a record argument.
+3. **There is no `with`.** `add`/`subtract` do arithmetic and take a record.
+   Field replacement is already spelled by the language: `{ ..jan31, day: 1 }`
+   spreads a nominal value, so `Temporal.plain_date({ ..jan31, day: 1 })` IS
+   TC39's `with`. TC39 needs the method because a JS Temporal object is opaque
+   and has no spread; Roc has one, and a second way to say it would be the
+   only way to say it wrong.
 4. **`Calendar` becomes a closed tag union**, not a resource. 16 canonical
    calendars, measured from temporal_rs 0.2.6: `Iso`, `Buddhist`, `Chinese`,
    `Coptic`, `Dangi`, `Ethioaa`, `Ethiopic`, `Gregory`, `Hebrew`, `Indian`,
@@ -61,19 +65,35 @@ Consequences that drive the design:
 5. **`TimeZone` becomes its identifier string**, not a resource. The set is
    open (598 zones and tzdb grows), so a tag union is not available.
    `ZonedDateTime` is then the ONLY resource in the package.
+6. **The host MUST memoise the identifier → `TimeZone` mapping.** This is not
+   an optimisation; without it the change is a 6.3x regression on every zoned
+   call. See below.
 
-Measured basis for 4 and 5: `Calendar` is 8 bytes and clones in ~1 ns — the
+Measured basis for 4: a `Calendar` is 8 bytes and clones in ~1 ns — the
 `Box(U64)` was buying refcounting for something smaller than a pointer to it.
-`TimeZone` is 24 bytes and already `Copy`. Re-resolving from an identifier
-costs 64 ns (calendar) and 198 ns (zone); one `PlainDate::add` is 326 ns, so a
-calendar resolve is ~20% of a single operation before FFI dilutes it.
+A tag match into a static table costs nothing, so the tag union has no
+resolve cost at all; it never parses a string.
 
-## Open question — NOT decided
+Measured basis for 5 and 6. A `TimeZone` is NOT an identifier — it is
+`IanaIdentifier(TimeZoneId { normalized: NormalizedId(170), resolved:
+ResolvedId(0) })`, two resolved indices into the tzdb provider. Passing the
+string across the ABI therefore discards resolution the type exists to cache.
+Best of 5 runs, 300k iterations, against a ZONED operation (the earlier figure
+in this plan compared a zone resolve against `PlainDate::add`, which uses no
+zone, and was meaningless):
 
-`with` may be redundant. Spread works on nominal values, so
-`Temporal.plain_date({ ..jan31, day: 1 })` already is `with` with no new API.
-TC39 needs `with` because a JS Temporal object is opaque and has no spread;
-Roc has one. Raised with the user; resolve before implementing §3.
+| | ns/op |
+|---|---|
+| a. `TimeZone` held resolved — what a resource gives you | 44.6 |
+| b. resolve the identifier on every call | 280.0 |
+| c. host-side cache, one hot zone | 56.5 |
+| d. host-side cache, five zones rotating | 46.8 |
+
+So (b) is 6.3x (a), and a cache lands within 5% of it. The user's model is "an
+identifier the host can map back to the data"; the cache IS that mapping, and
+the API keeps the plain-data property. Key on the identifier bytes and look up
+WITHOUT allocating a `String` per call — the allocating form measured 104 ns
+against 64 ns for `get(&str)`.
 
 ## Work
 
