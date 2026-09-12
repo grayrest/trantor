@@ -476,6 +476,15 @@ so any installed handler — this package's or anyone's — surfaces a resize as
 `Interrupted` from trantor-net's `Tcp` (`sockets-host/src/lib.rs:183`). That is a
 trantor-net defect and is fixed there, not worked around here.
 
+*(Fixed in trantor-net f2c71eb, `tests/eintr`.)* Measured on Linux 6.8: TCP
+recv, UDP recv and TCP send all return EINTR under a handler, with or without
+`SA_RESTART`. Each socket leaf now takes one monotonic deadline for the whole
+call and retries EINTR within it. On macOS the kernel behaves differently:
+without `SA_RESTART` it returns EINTR, which the fix covers, but with
+`SA_RESTART` it restarts the call with a fresh timeout (2.71s for a 2s budget),
+and no host retry can bound that. So on macOS, the flags this package installs
+SIGWINCH with decide whether a resize can stretch a trantor-net call.
+
 **D-K1-26 — `TCSANOW` for mode entry, not `TCSAFLUSH`.** Flushing discards keys
 typed during startup (the snake enables Raw before drawing), and made the b8
 snake run racy: keys sent before Raw were thrown away and the loop blocked
@@ -503,5 +512,8 @@ layout as a single-kind T3 directory.
   of K1.
 - `Stdout` writes interleaved with `Screen` frames on the same device are the
   app's to avoid; whether `Terminal` should warn is not decided.
-- trantor-net's socket reads returning `Interrupted` under any installed signal
-  handler on Linux (D-K1-25) — a trantor-net fix.
+- Whether SIGWINCH is installed with `SA_RESTART`. With it, macOS restarts a
+  timed trantor-net socket call with a fresh timeout, so each resize can
+  stretch it by up to its whole budget. Without it, every blocking syscall in
+  the process that does not retry EINTR sees `Interrupted` on a resize
+  (D-K1-25).
