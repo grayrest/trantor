@@ -1,0 +1,11 @@
+# A CLI baseline: it provides the driver and nothing else. Everything the app
+# can do, the app's author adds.
+[package]
+name = "base"
+version = "0.1.0"
+provides_driver = "drv"
+
+[components.drv]
+kind = "driver"
+lang = "rust"
+provides_runtime = true

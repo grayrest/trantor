@@ -43,16 +43,91 @@ fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 
+/// The first existing `name` on `$PATH`.
+fn on_path(name: &str) -> Option<String> {
+    std::env::var_os("PATH").and_then(|p| {
+        std::env::split_paths(&p)
+            .map(|d| d.join(name))
+            .find(|c| c.is_file())
+            .map(|c| c.to_string_lossy().into_owned())
+    })
+}
+
+/// `$ROC`, else roc as installed normally, else this repo's pin.
+///
+/// PATH used to not be consulted at all: it was `$ROC` or `$HOME/.bin/roc`,
+/// which is one developer's layout, so anyone who installed roc the ordinary
+/// way met `spawn /Users/them/.bin/roc: No such file or directory` — a path
+/// they never chose, from a step they did not know existed. The front door
+/// cannot depend on a path only its author has.
 fn roc_bin() -> String {
-    std::env::var("ROC").unwrap_or_else(|_| format!("{}/.bin/roc", home()))
+    std::env::var("ROC")
+        .ok()
+        .or_else(|| on_path("roc"))
+        .unwrap_or_else(|| format!("{}/.bin/roc", home()))
 }
 
 fn glue_src() -> String {
-    std::env::var("GLUE").unwrap_or_else(|_| format!("{}/.bin/RustGlue.roc", home()))
+    if let Ok(g) = std::env::var("GLUE") {
+        return g;
+    }
+    let pinned = format!("{}/.bin/RustGlue.roc", home());
+    if Path::new(&pinned).is_file() {
+        return pinned;
+    }
+    // roc installs glue specs under a shorthand; look where it puts them
+    // before giving up, so `roc install` is a real answer to the error below.
+    let alt = format!("{}/.roc/glue/RustGlue.roc", home());
+    if Path::new(&alt).is_file() { alt } else { pinned }
 }
+
+/// Report a missing toolchain as the missing toolchain, naming where we looked
+/// and what to do, rather than as a spawn failure on a path the user never
+/// typed.
+fn require_toolchain(need_glue: bool) -> Result<(), String> {
+    let roc = roc_bin();
+    if !Path::new(&roc).is_file() {
+        return Err(format!(
+            "no roc compiler.\n  looked at: $ROC, then `roc` on $PATH, then {}/.bin/roc\n  \
+             install roc, or point $ROC at it.",
+            home()
+        ));
+    }
+    if need_glue {
+        let g = glue_src();
+        if !Path::new(&g).is_file() {
+            return Err(format!(
+                "no Rust glue spec.\n  looked at: $GLUE, then {g}\n  it must match your roc \
+                 ({roc}); `roc install` fetches a glue spec from a bundle URL, or point $GLUE at \
+                 the RustGlue.roc you built with."
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// While `trantor run` is building, the toolchain's progress must not land on
+/// stdout: stdout belongs to the app being run, and a build that chatters into
+/// it makes `trantor run | …` useless. roc writes progress to stdout, so the
+/// build phase captures it and re-emits it on stderr.
+static BUILD_OUTPUT_TO_STDERR: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Run a command in `dir`, inheriting stdio, failing on a nonzero status.
 fn run(program: &str, args: &[&str], dir: &Path, what: &str) -> Result<(), String> {
+    if BUILD_OUTPUT_TO_STDERR.load(std::sync::atomic::Ordering::Relaxed) {
+        let out = Command::new(program)
+            .args(args)
+            .current_dir(dir)
+            .stderr(std::process::Stdio::inherit())
+            .output()
+            .map_err(|e| format!("{what}: spawn {program}: {e}"))?;
+        eprint!("{}", String::from_utf8_lossy(&out.stdout));
+        if !out.status.success() {
+            return Err(format!("{what}: {program} exited {}", out.status));
+        }
+        return Ok(());
+    }
     let status = Command::new(program)
         .args(args)
         .current_dir(dir)
@@ -106,6 +181,7 @@ pub fn build(
     out: &str,
     target: &str,
 ) -> Result<(), String> {
+    require_toolchain(true)?;
     // 1. compose (in-process).
     let world = crate::manifest::load_world(dir, world_file)?;
     let driver = crate::manifest::load_driver(dir, &world)?;
@@ -169,7 +245,7 @@ pub fn build(
     // `--app` names a directory holding main.roc, or a .roc file directly — an
     // app dir can carry one entry per world (`main.roc`, `dom.roc`) sharing
     // its modules, since a Roc app names exactly one platform.
-    let app_main = if app.ends_with(".roc") { app.to_string() } else { format!("{app}/main.roc") };
+    let app_main = app_entry(app);
     roc_capped(&["check", &app_main], dir, "roc check")?;
     std::fs::create_dir_all(gen.join("bin")).map_err(|e| format!("mkdir bin: {e}"))?;
     let bin = abs(&gen.join("bin"))?;
@@ -177,6 +253,74 @@ pub fn build(
     roc_capped(&["build", &out_flag, &app_main], dir, "roc build")?;
     eprintln!("trantor build: linked {bin}/{out}");
     Ok(())
+}
+
+/// Compose, then typecheck the app. No glue, no cargo, no link — this is the
+/// inner loop, and the tool has never had one: `build` was the cheapest way to
+/// find out whether the app still typechecks, and it runs the whole toolchain.
+pub fn check(dir: &Path, world_file: &str, app: &str) -> Result<(), String> {
+    require_toolchain(false)?;
+    let world = crate::manifest::load_world(dir, world_file)?;
+    let driver = crate::manifest::load_driver(dir, &world)?;
+    let resolved = crate::resolve::resolve(dir, &world, &driver)?;
+    let gen = crate::manifest::out_dir(dir, &world);
+    crate::codegen::emit(dir, &gen, &world, &driver, &resolved)?;
+    let app_main = app_entry(app);
+    roc_capped(&["check", &app_main], dir, "roc check")?;
+    eprintln!("trantor check: `{}` typechecks", world.world.name);
+    Ok(())
+}
+
+/// Build, then exec, passing the app its arguments and its exit code back.
+pub fn run_app(
+    dir: &Path,
+    world_file: &str,
+    app: &str,
+    target: &str,
+    args: &[String],
+) -> Result<std::process::ExitStatus, String> {
+    BUILD_OUTPUT_TO_STDERR.store(true, std::sync::atomic::Ordering::Relaxed);
+    let built = build(dir, world_file, Some(app), "app", target);
+    BUILD_OUTPUT_TO_STDERR.store(false, std::sync::atomic::Ordering::Relaxed);
+    built?;
+    let world = crate::manifest::load_world(dir, world_file)?;
+    let bin = crate::manifest::out_dir(dir, &world).join("bin/app");
+    Command::new(&bin)
+        .args(args)
+        .status()
+        .map_err(|e| format!("run {}: {e}", bin.display()))
+}
+
+/// `roc test` over the app, and `cargo test` over the project's own crates.
+/// Both need the composed platform to exist, so compose first — which is also
+/// what makes the workspace's abi patch resolve.
+pub fn test(dir: &Path, world_file: &str, app: &str) -> Result<(), String> {
+    require_toolchain(false)?;
+    let world = crate::manifest::load_world(dir, world_file)?;
+    let driver = crate::manifest::load_driver(dir, &world)?;
+    let resolved = crate::resolve::resolve(dir, &world, &driver)?;
+    let gen = crate::manifest::out_dir(dir, &world);
+    crate::codegen::emit(dir, &gen, &world, &driver, &resolved)?;
+
+    let app_main = app_entry(app);
+    if dir.join(&app_main).exists() {
+        roc_capped(&["test", &app_main], dir, "roc test")?;
+        eprintln!("trantor test: roc expects pass");
+    } else {
+        eprintln!("trantor test: no app at {app_main}, skipping roc test");
+    }
+    // The user's own workspace, when there is one. Their components are the
+    // only Rust here that is theirs to test.
+    if dir.join("Cargo.toml").is_file() {
+        run("cargo", &["test", "--quiet"], dir, "cargo test")?;
+        eprintln!("trantor test: cargo tests pass");
+    }
+    Ok(())
+}
+
+/// `--app` names a directory holding main.roc, or a .roc file directly.
+fn app_entry(app: &str) -> String {
+    if app.ends_with(".roc") { app.to_string() } else { format!("{app}/main.roc") }
 }
 
 /// Generate `platform/targets/macos-sysroot` containing exactly the frameworks

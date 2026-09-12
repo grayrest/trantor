@@ -172,6 +172,24 @@ fn roc_decl(module_src: &str, leaf: &str) -> Option<String> {
     })
 }
 
+/// The argument side of `args => ret`, at depth zero.
+fn args_of(sig: &str) -> Option<String> {
+    let b = sig.as_bytes();
+    let (mut depth, mut i) = (0i32, 0usize);
+    while i < b.len() {
+        match b[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b'=' | b'-' if depth == 0 && i + 1 < b.len() && b[i + 1] == b'>' => {
+                return Some(sig[..i].trim().to_string());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 /// The return side of `args => ret` / `args -> ret`, at depth zero so an arrow
 /// inside a nested type is not mistaken for the top-level one.
 fn return_of(sig: &str) -> Option<String> {
@@ -226,9 +244,8 @@ pub fn interface_stub(dir: &Path, world_file: &str, iface_name: &str) -> Result<
             "read {}: {e}\n\
              \n\
              The glue does not exist yet. Run `trantor build {} --platform-only` once first: it \
-             composes and glues (step 2), then fails at the roc link on this interface's \
-             undefined symbols — which is the expected outcome, and the glue is on disk \
-             afterwards.",
+             composes and glues before it needs any host code, so the glue is on disk \
+             afterwards even when the component has none.",
             gen.display(),
             dir.display()
         )
@@ -265,6 +282,36 @@ pub fn interface_stub(dir: &Path, world_file: &str, iface_name: &str) -> Result<
         if let Some(ret) = roc_decl(&module_src, &leaf.leaf).as_deref().and_then(return_of) {
             result_of.entry(ret).or_insert(ty);
         }
+    }
+
+    // The glue must already know this interface. If a leaf TAKES arguments and
+    // glue defines no args struct for it, the glue predates the interface —
+    // and without this check the stub silently emits a zero-argument function,
+    // which compiles, links against nothing, and is wrong in the one way the
+    // whole command exists to prevent.
+    let stale: Vec<&str> = iface
+        .hosted
+        .iter()
+        .filter(|l| {
+            let takes_args = roc_decl(&module_src, &l.leaf)
+                .as_deref()
+                .and_then(args_of)
+                .is_some_and(|a| a != "{}");
+            takes_args && !defines(&glue, &format!("{}{}Args", iface.module, pascal(&l.symbol_stem)))
+        })
+        .map(|l| l.leaf.as_str())
+        .collect();
+    if !stale.is_empty() {
+        return Err(format!(
+            "the generated glue does not describe `{iface_name}` yet: {stale:?} take arguments \
+             and no `{}<Leaf>Args` type exists in {}.\n\n\
+             Run `trantor build {} --platform-only` to regenerate it, then re-run this. \
+             (Generating anyway would emit a zero-argument function: it compiles, and it is \
+             wrong.)",
+            iface.module,
+            gen.display(),
+            dir.display()
+        ));
     }
 
     let mut unresolved = 0usize;
@@ -343,7 +390,12 @@ pub fn interface_stub(dir: &Path, world_file: &str, iface_name: &str) -> Result<
     )
     .join("src/lib.rs");
 
-    if target.exists() {
+    // Refuse to clobber real work; replace a placeholder without ceremony.
+    // "Real work" is a hosted function — a scaffolded lib.rs is a comment and
+    // a manifest that would not otherwise parse.
+    let has_impl = std::fs::read_to_string(&target)
+        .is_ok_and(|t| t.contains("extern \"C-unwind\""));
+    if has_impl {
         print!("{out}");
         eprintln!(
             "trantor: {} leaf/leaves for `{iface_name}` -> stdout ({} already exists; \
@@ -428,6 +480,13 @@ mod tests {
         let without = "\nimpl B {\n    pub fn other(self) {}\n}\n";
         assert!(has_decref(with, "A"));
         assert!(!has_decref(without, "B"));
+    }
+
+    #[test]
+    fn args_of_splits_at_the_top_level_arrow() {
+        assert_eq!(args_of("Str => Str").unwrap(), "Str");
+        assert_eq!(args_of("{} => Str").unwrap(), "{}", "a unit argument is not an argument");
+        assert_eq!(args_of("{ a : Str, b : U64 } => {}").unwrap(), "{ a : Str, b : U64 }");
     }
 
     #[test]

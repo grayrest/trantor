@@ -1,0 +1,7 @@
+# A perfectly ordinary Rust library, standing in for the image crate: something
+# the host component depends on through cargo, with no trantor involvement.
+[package]
+name = "upper-lib"
+version = "0.1.0"
+edition = "2021"
+publish = false

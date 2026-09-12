@@ -31,6 +31,7 @@ mod manifest;
 mod publish;
 mod registry;
 mod resolve;
+mod scaffold;
 mod scan;
 mod services;
 mod splice;
@@ -52,14 +53,99 @@ fn main() -> ExitCode {
     }
 }
 
+/// The one thing every CLI is asked for first. `trantor --help`, `-h` and
+/// `help` all used to print `trantor: missing <world-dir>` and nothing else.
+const HELP: &str = "\
+trantor — compose Roc platforms from Rust components.
+
+Starting out
+  new <dir> [--from <path|org/repo>]  scaffold a project (and compose it)
+  add <dir> <org/repo> [--as <name>]  add a dependency, pinning a semver tag
+  update <dir> [<name>]               move a pin
+  remove <dir> <name>                 drop a dependency
+
+Working
+  check <dir>                         compose + typecheck (the inner loop)
+  run <dir> [-- <args>]               build, then run the app
+  test <dir>                          roc expects + cargo tests
+  build <dir> [--app <d>] [--out <n>] [--target <t>] [--platform-only]
+
+Adding a capability
+  new-interface <dir> <name>          scaffold an interface + host component
+  interface-stub <dir> <name>         the Rust signatures, from the Roc
+
+Platform authoring
+  compose <dir> [--out <d>]           generate sources only
+  scan <dir>                          the archive symbol-collision scan
+  publish <dir>                       package a baseline
+  tier <dir>                          classify an extension
+
+Common flags: --world <file> picks a world variant (default world.toml).
+";
+
 fn run(args: &[String]) -> Result<(), String> {
     let mut it = args.iter().skip(1);
-    let cmd = it
-        .next()
-        .ok_or("usage: trantor <compose|build|add|update|remove|publish|tier|scan|interface-stub> <world-dir> [flags]")?;
-    let dir = PathBuf::from(it.next().ok_or("missing <world-dir>")?);
+    let Some(cmd) = it.next() else {
+        eprint!("{HELP}");
+        return Err("no subcommand".into());
+    };
+    if matches!(cmd.as_str(), "-h" | "--help" | "help") {
+        print!("{HELP}");
+        return Ok(());
+    }
+    let dir = PathBuf::from(it.next().ok_or_else(|| {
+        format!("{cmd}: missing <dir> (the project or world directory). `trantor --help` lists every command.")
+    })?);
 
     match cmd.as_str() {
+        "check" | "run" | "test" => {
+            let mut world_file = String::from("world.toml");
+            let mut app = String::from("app");
+            let mut target = String::from("arm64mac");
+            let mut rest: Vec<String> = Vec::new();
+            while let Some(f) = it.next() {
+                match f.as_str() {
+                    "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
+                    "--app" => app = it.next().ok_or("--app: missing dir")?.clone(),
+                    "--target" => target = it.next().ok_or("--target: missing triple")?.clone(),
+                    // Everything after `--` belongs to the app, not to trantor.
+                    "--" => rest.extend(it.by_ref().cloned()),
+                    other => return Err(format!("unknown flag {other:?}")),
+                }
+            }
+            return match cmd.as_str() {
+                "check" => build::check(&dir, &world_file, &app),
+                "test" => build::test(&dir, &world_file, &app),
+                _ => {
+                    let status = build::run_app(&dir, &world_file, &app, &target, &rest)?;
+                    // The app's exit code is the app's, not a build result.
+                    std::process::exit(status.code().unwrap_or(70));
+                }
+            };
+        }
+        "new" => {
+            let mut from: Option<String> = None;
+            while let Some(f) = it.next() {
+                match f.as_str() {
+                    "--from" => from = Some(it.next().ok_or("--from: missing <path|org/repo>")?.clone()),
+                    "--cli" => {}  // the only app shape today; accepted so the
+                                   // walkthrough reads the way it will later.
+                    other => return Err(format!("unknown flag {other:?}")),
+                }
+            }
+            return scaffold::new_project(&dir, from.as_deref());
+        }
+        "new-interface" => {
+            let name = it.next().ok_or("new-interface: missing <name>")?.clone();
+            let mut world_file = String::from("world.toml");
+            while let Some(f) = it.next() {
+                match f.as_str() {
+                    "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
+                    other => return Err(format!("unknown flag {other:?}")),
+                }
+            }
+            return scaffold::new_interface(&dir, &world_file, &name);
+        }
         "add" | "update" | "remove" => {
             // D-U1-3. `dir` is the world dir, as with every other subcommand.
             let mut world_file = String::from("world.toml");
