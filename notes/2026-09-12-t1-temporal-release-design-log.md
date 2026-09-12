@@ -280,6 +280,98 @@ transition is unreliable in it on both the construction and the arithmetic
 path. Both corrections are conditional on detecting the wrong answer, so both
 retire themselves when upstream fixes this.
 
+**D-T1-15 — the web comparison drove the surface out, and the shapes follow
+from the compiler.** Measured against the current TC39 surface (spec-compliant
+polyfill docs, not memory). Where the web passes zones and calendars as
+strings, this passes resources — the P5 model's cost, and the difference a
+reader meets first. What was genuinely missing came in:
+
+- **`with`** as per-field setters on the records (`date_with_day`) and
+  whole-value `zdt_with_plain_date!`/`_plain_time!`/`_calendar!` on the
+  resource. The web's `with({ day: 1 })` needs partial records and this
+  compiler has none; one function per field says the same thing. The zoned ones
+  rebuild through the wall-clock path rather than temporal_rs's `with`, so they
+  inherit D-T1-13's correction — changing the date of a zoned value is exactly
+  the operation the upstream defect spoils.
+- **Rounding, totals and `compare`**, with `RelativeTo` as
+  `[Unanchored, ToDate(PlainDate)]`: a duration in calendar units has no fixed
+  length until it is anchored, and `Unanchored` is an error for those units
+  rather than a guess. One month totals 29 days anchored to February 2024 and
+  refuses to answer unanchored, which is the right pair of behaviours.
+- **Calendar accessors as ONE leaf** returning a record of all twelve.
+  They are calendar-aware, so each would otherwise be its own crossing, and
+  twelve crossings for one date is what this package left a baseline to avoid.
+- **`hours_in_day` and `getTimeZoneTransition`**, and the rest of TC39's
+  difference options as a `DiffOptions` RECORD rather than four more arguments
+  — which is also the shape the web's `until(other, options)` takes, and it
+  keeps a seven-argument leaf off the ABI.
+
+`compare` returns `[Before, Same, After]`, not the web's -1/0/1: a tag says
+which way round it is without anyone recalling the convention.
+
+Not taken: `PlainDateTime` (D-T1-11 stands), `PlainYearMonth`/`PlainMonthDay`,
+`Instant` as a type, and locale-aware formatting. The package keeps what the
+web has not got, too — strftime formatting and strict pattern parsing.
+
+**D-T1-16 — a third upstream defect, in `start_of_day`, corrected by its own
+invariant.** Found by `hours_in_day` returning 25 for an ordinary day. A day
+starts at midnight on ITS OWN date, and temporal_rs 0.2.6 breaks that in the
+same window as the other two: asked for the start of 2026-03-07 in New York it
+answers `2026-03-06T23:00`, an hour early and on the wrong date.
+
+Measured over every day of 2026, walking local dates: upstream finds **two
+short and two long days for America/New_York, where there is exactly one of
+each, and four of each for Europe/Berlin**. Australia/Sydney was already right
+(one and one) and stays right, so the correction does not disturb a correct
+answer. Tokyo and São Paulo, which have no transition in 2026, read 365 x 24
+either way.
+
+The guard had to read the result through `try_new` rather than its own
+accessors: a first attempt compared `to_plain_date()`, which goes through the
+very cached offset that is wrong, and so never fired. `hours_in_day` is then
+computed from one corrected day-start to the next rather than taken from
+upstream, since it inherits the same defect.
+
+That is three defects in the newest published temporal_rs, all in wall-clock
+resolution near a DST transition, all corrected conditionally so that each
+retires itself when upstream lands a fix. Worth saying plainly in the README,
+which it is.
+
+**D-T1-17 — the clock is its own interface, wired by default.** `temporal-now`
+(`NowHost`) with its own `now-host` component, and a `Now` Roc module over it.
+Reading the wall clock and the machine's configured zone is ambient authority,
+and this project routes that through interfaces everywhere else; a world's
+composed wiring now names it.
+
+It is wired by default rather than opt-in, and the reason is an integration
+fact rather than a preference: a package's `exports` are unioned into the
+consuming world unconditionally (`deps.rs:237`) and pure-Roc components' modules
+are copied unconditionally (`codegen.rs:168`), while interface BINDING modules
+follow `world.wiring` (`codegen.rs:159`). So an unwired `temporal-now` would
+export a `Now` module importing a `NowHost` that was never generated — the same
+`FileNotFound` the half-finished net split produced. Genuine opt-in needs a
+separate PACKAGE; that was offered and not taken, and "named but not removable"
+is still a long way from a clock hidden inside a datetime library.
+
+`now-host` vendors no temporal_rs: `std::time::SystemTime` for the instant and
+`iana-time-zone` for the zone, which is precisely what temporal_rs's `sys-local`
+feature uses. `temporal-host` then drops that default feature, so each native
+lands in exactly one archive — measured: temporal_rs 856 symbols in
+`libtemporal_host.a` and 0 elsewhere, iana-time-zone 5 in `libnow_host.a` and 0
+elsewhere. Before that change iana-time-zone was in both.
+
+`iana-time-zone` asks CoreFoundation for the zone on macOS, which the link
+found missing until `frameworks = ["CoreFoundation"]` was declared — the
+mechanism already existed.
+
+**Finding, not a decision: glue mis-lays-out `Try(I128, [Tag(Str)])`.** The
+first shape tried for `epoch_ns!` was `Try(I128, [ClockUnavailable(Str)])`, and
+the generated ABI's OWN size and tag-offset assertions refuse to compile it —
+an i128 payload beside a Str-carrying error tag. It fails loudly rather than
+corrupting, which is the assertion doing its job. Both leaves now carry
+payload-less error tags, matching `Clocks.wall_now!`'s proven shape; both
+failures mean a misconfigured machine, which a tag says as well as a sentence.
+
 ## Still open (raised, not decided)
 
 - **The tzdb is frozen at the `=0.2.6` pin.** `sys-local` bundles the database,
