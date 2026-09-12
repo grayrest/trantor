@@ -1,98 +1,21 @@
-# B7 consumes the trantor-temporal PACKAGE. It used to carry its own copy of
-# the interface and the host, which drifted: after the package's release rework
-# this fixture still held — and still asserted as correct — every defect that
-# rework removed.
+# B7 consumes two packages — trantor-cli for the platform, trantor-temporal on
+# top — and carries no component of its own.
 #
-# Its job now is the one thing the package's own gate cannot show, since that
-# gate composes against trantor-cli: the package drops into a DIFFERENT world,
-# with a different driver and no basic-cli shim, and still vendors temporal_rs
-# in exactly one archive (H0c).
-[deps]
-trantor-temporal = { path = "../../../../trantor-temporal" }
-
+# It used to vendor a copy of trantor-cli's components with a hand-wired
+# driver, and its header claimed that made it "a different world, with a
+# different driver and no basic-cli shim". Neither held. The driver differed
+# only in carrying trantor-cli's OLD `main!` contract, and it exported
+# Stdout/Env/Path/Utc/Locale/Url from vendored shim components. It was a stale
+# snapshot, and like every copy in this tree it drifted.
+#
+# What B7 proves that trantor-temporal's own gate does not: temporal_rs lives in
+# exactly one archive (H0c), a world WITHOUT the package links none of it, and
+# the resources the package hands out are all dropped. The package's gate has a
+# module-level negative control but no archive check, no link-level one, and no
+# drop gauge.
 [world]
 name = "b7-temporal"
-driver = "main-driver"
-exports = ["Stdout", "Stderr", "Stdin", "Tty", "Env", "Path", "Utc", "Sleep", "Random", "Locale", "Url", "Temporal", "Gauge"]
-[components.main-driver]
-kind = "driver"
-lang = "rust"
-provides_runtime = true
-requires_uses = ["Stdout", "Stderr", "Stdin", "Env"]
-[interfaces.io]
-[interfaces.sync-io]
-[interfaces.cli-stdout]
-[interfaces.cli-stdin]
-[interfaces.cli-env]
-[interfaces.cli-tty]
-[interfaces.fs]
-[interfaces.cell]
-[interfaces.clocks]
-[interfaces.random]
-[interfaces.locale]
-[interfaces.gauge]
-[components.sync-io]
-kind = "host"
-lang = "rust"
-exports = ["sync-io"]
-[components.cli-host]
-kind = "host"
-lang = "rust"
-imports = ["sync-io"]
-exports = ["cli-stdout", "cli-stdin", "cli-env", "cli-tty"]
-[components.cell]
-kind = "host"
-lang = "rust"
-exports = ["cell"]
-[components.fs-unconfined]
-kind = "host"
-lang = "rust"
-imports = ["sync-io"]
-exports = ["fs"]
-[components.clocks-host]
-kind = "host"
-lang = "rust"
-exports = ["clocks"]
-[components.random-host]
-kind = "host"
-lang = "rust"
-exports = ["random"]
-[components.locale-host]
-kind = "host"
-lang = "rust"
-exports = ["locale"]
-# Drop-balance probe, supplied by the WORLD rather than the package. The
-# package used to export a `live!` leaf purely so a test could count handles;
-# a gauge belongs to the test, not to everyone's API.
-[components.gauge-host]
-kind = "host"
-lang = "rust"
-exports = ["gauge"]
-[components.host-shim]
-kind = "roc"
-exports = ["Host"]
-[components.basic-lib]
-kind = "roc"
-exports = ["Utc", "Sleep", "Random", "Locale", "Url", "InternalDateTime"]
-[components.fs-ops]
-kind = "roc"
-imports = ["fs", "cell"]
-exports = ["FsOps"]
-[components.path]
-kind = "roc"
-exports = ["Path"]
-[components.stdio-lib]
-kind = "roc"
-exports = ["Stdout", "Stderr", "Stdin", "Tty", "Env"]
-[wiring]
-sync-io = "sync-io"
-cli-stdout = "cli-host"
-cli-stdin = "cli-host"
-cli-env = "cli-host"
-cli-tty = "cli-host"
-cell = "cell"
-fs = "fs-unconfined"
-clocks = "clocks-host"
-random = "random-host"
-locale = "locale-host"
-gauge = "gauge-host"
+
+[deps]
+trantor-cli      = { path = "../../../../trantor-cli" }
+trantor-temporal = { path = "../../../../trantor-temporal" }
