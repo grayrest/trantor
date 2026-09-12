@@ -178,8 +178,24 @@ interface → shim (enough to typecheck) → glue → host → gate.
   so all 70 expected values are unchanged. That is the evidence the rework is
   behaviour-preserving.
 
+## The `!` on the arithmetic is not a choice
+
+`add!`, `until!` and `fields!` read nothing and are deterministic, and the
+interface header has always called them "blocking, pure computation". They
+carry a bang because THIS COMPILER treats every hosted function as an effect:
+a leaf declared `calendar_id : Calendar -> Str` is rejected with "this function
+performs an effect, so its name must end in `!`". Nothing in trantor imposes it
+— `src/manifest.rs` only records the leaf name and no validation requires the
+bang — so if the compiler's model changes, the whole arithmetic surface loses
+its bang and its `=>` with no other work. Measured, not assumed.
+
 ## Still open
 
+- `Temporal.iso` was a second way to write `Iso` and is gone. Worth noting how
+  it got in: the argument against `with` was made and then the same mistake
+  shipped one screen later, because the gate happened to want a binding called
+  `iso`. A convenience that exists to make the TEST read well is the shape to
+  watch for.
 - The README no longer documents `TemporalHost` at all — the "Two surfaces"
   section went with the rewrite. The package still exposes it and D-T1-1 still
   says why, so either the section comes back or that decision needs revisiting.

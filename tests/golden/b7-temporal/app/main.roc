@@ -10,7 +10,7 @@ import pf.Gauge
 ## out is dropped (exit code = live handles; 0 = balanced).
 main! : List(Str) => Try({}, [Exit(I32), ..])
 main! = |_args| {
-	iso = Temporal.iso
+	iso = Iso
 	ny = Temporal.time_zone_from_id!("America/New_York") ?? return(Err(Exit(3)))
 	tokyo = Temporal.time_zone_from_id!("Asia/Tokyo") ?? return(Err(Exit(4)))
 
