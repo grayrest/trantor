@@ -591,6 +591,45 @@ The numbers above count what actually reads back as midnight, which is the
 question. The wrong census would not have changed the fix, but it would have
 gone into this file as a fact.
 
+## D-T3 — `trantor test` tests packages
+
+Each package had a hand-rolled `verify.sh` (495, 457 and 489 lines) repeating
+the same composition steps. `trantor test <dir>` on a directory with
+`package.toml` now runs them, and all three gates are deleted. Plan:
+`plans/2026-09-13-t3-package-test.md`.
+
+- **D-T3-1** A package names its test baseline in `[dev-deps]`, never expanded
+  for a consumer.
+- **D-T3-2** README examples are checked by the tool: every ```roc block builds
+  and runs, and a comment opening with a literal value is compared. Prelude
+  bindings come from `tests/readme-prelude.roc`.
+- **D-T3-3** The expect check is a delta over the dev-deps, failing only when
+  the sources hold `expect`s and none ran. The floors (140, 5, 200) are gone:
+  each was a number someone had to bump, and the temporal one was already
+  stale in its own comment.
+- **D-T3-4** All three packages converted.
+- **D-T3-5** What a stdout diff cannot express is `tests/<n>/test.sh`, one
+  section each, carrying the old section's assertions and comments.
+
+What implementing it found, each fixed rather than worked around:
+
+- **The "add-on must fail alone" rule was wrong.** trantor-net has no driver
+  of its own but inherits one through `[deps]`. The rule is now whether a
+  driver is in reach through the `[deps]` chain.
+- **The negative control needs no app.** It reads the composed platform's
+  `exposes` — an app would have to match some driver's `main!` contract, and
+  `trantor new`'s scaffold still carries an old one.
+- **A world's output directory is its DIRECTORY name**, not `[world] name`.
+  The core only worked because its scratch worlds happen to be named `app`.
+- **README blocks are sometimes whole programs.** trantor-cli's are; they are
+  built and run as written rather than stitched into the fragment app.
+- **The README port had its own bug on first run:** a name after `..` (a
+  spread) was taken for a field access.
+
+Costs, measured: trantor-temporal 37 s, trantor-cli 64 s, trantor-net 100 s —
+net's scripts each build their own world where the old gate reused one.
+Printing the sweeps' counts is lost; cargo reports pass or fail.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20

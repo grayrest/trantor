@@ -78,3 +78,16 @@ shown to FAIL when broken.
 - `test.sh` must not become a way to smuggle the old gates in whole: a script
   holds one section, and any step the core now does is removed from it.
 - trantor-cli is under active edit; convert it last, from a clean tree.
+
+## What implementation changed
+
+- Step 1's rule became "compose alone exactly when a driver is in reach through
+  `[deps]`" (trantor-net), and a github dep in the chain reports the outcome
+  without asserting it.
+- Step 3 reads `exposes` from the composed platform instead of checking an app.
+- Step 5 builds a block that opens with `app [` as a whole program.
+- Scripts also get `DEV_DEPS`; script worlds must live in a directory named
+  after the app header's world (`app`, `myapp`), because output is keyed by
+  directory name.
+- Phase 2 and 3 landed in one commit: the README step is part of the core
+  sequence, so they do not build apart.
