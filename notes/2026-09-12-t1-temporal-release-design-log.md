@@ -226,72 +226,52 @@ matching TC39's default for `ZonedDateTime.from`. A string that carries its own
 offset is asserting something checkable; silently preferring one side would
 make a wrong string produce a plausible instant.
 
-**D-T1-13 — the host corrects an upstream wall-clock defect, arithmetically.**
-Found while verifying M1, in temporal_rs 0.2.6 — which `cargo search` confirms
-is the newest published release, so there is no upgrade to take. Resolving a
-wall clock against a zone picks the wrong side of a nearby DST transition: the
-instant lands an hour off, and the value disagrees with itself, because
-`to_plain_time` reads the stale cached offset while `to_ixdtf_string`
-recomputes it. Measured over 2026 at three hours a day: 3 wrong values for
-America/New_York, 26 for Europe/Berlin. It reproduces through
+**D-T1-13 — the upstream wall-clock defect, and that the host must work around
+it.** Found while verifying M1, in temporal_rs 0.2.6 — which `cargo search`
+confirms is the newest published release, so there is no upgrade to take.
+Resolving a wall clock against a zone picks the wrong side of a nearby DST
+transition: the instant lands an hour off, and the value disagrees with itself,
+because `to_plain_time` reads the stale cached offset while `to_ixdtf_string`
+recomputes it. Measured over 2026 at every hour: 24 wrong values for
+America/New_York, 213 for Europe/Berlin, 214 for Europe/London, 24 for
+Pacific/Auckland, none for Sydney, Santiago or Tokyo. It reproduces through
 `PlainDate::to_zoned_date_time` as well as `from_partial`, and with no
 disambiguation argument at all, so it is not ours and not the option.
 
-`from_partial` resolved against `cached`; the instant's true offset is `actual`
-(the epoch-ns constructor is unaffected, measured on both sides of a
-transition), so the requested wall clock sits at `i + (cached - actual)`. The
-correction applies only when the two disagree — dead code the day upstream
-fixes this, rather than double-applying — and only when the corrected instant
-keeps that offset, leaving a genuine gap or overlap to `Disambiguation`.
-**SUPERSEDED by D-T1-18 — this decision was wrong, and its measurement was
-worse.** "0 wrong and 0 self-inconsistent over 5 zones x 365 days x 3 hours"
-was true and worthless: the three hours sampled were 00, 10 and 23, and the
-regression it shipped lives at 02:30. Comparing a cached offset against the
-true one is a PROXY for "this instant is wrong", and temporal_rs sometimes
-returns the right instant carrying a stale cache — so this moved correct
-answers in 144 zones.
-
-`zdt_from_str!` needs it too: a string naming a zone but no offset resolves a
-wall clock, and `2026-03-07T10:40:00[America/New_York]` parsed to 09:40 without
-it.
+`zdt_from_str!` meets it too: a string naming a zone but no offset resolves a
+wall clock, and `2026-03-07T10:40:00[America/New_York]` parsed to 09:40.
 
 Shipping the defect documented, or holding the leaf out of 0.1.0, were the
 alternatives. A constructor that silently returns the wrong instant — and hands
 back a value whose answer depends on which accessor you call — is the kind of
-bug that becomes someone's incident.
+bug that becomes someone's incident. **How the host works around it is
+D-T1-18**, which replaced a first attempt that compared cached offsets and made
+correct answers wrong.
 
-**D-T1-14 — and the same defect on the arithmetic path, corrected by its own
-invariant.** Found while verifying M2: `zdt_subtract!` did not round-trip.
-2026-03-08T10:40-04:00 minus P1D lands on 09:40 rather than 10:40, going
-backwards over a spring-forward. Forward arithmetic is fine. Measured over
-2026: 3 wrong for America/New_York, 26 for Europe/Berlin.
-
-**Correction: "Forward arithmetic is unaffected" is WRONG.** Measured at 10:40
-across 2026, raw `add(+P1D)` loses the wall clock on exactly as many days as
-`subtract`: New York 1 and 1, Berlin 9 and 9, Auckland 1 and 1.
-`preserve_wall_clock` is direction-agnostic and repairs both, so the package
-was right — the finding recorded here was not. It generalised from the one
-direction the original example happened to fail in.
+**D-T1-14 — the same defect on the arithmetic path, corrected by the
+operation's own invariant.** Found while verifying M2: `zdt_subtract!` did not
+round-trip. 2026-03-08T10:40-04:00 minus P1D lands on 09:40 rather than 10:40.
+Measured at 10:40 across 2026, raw `add` loses the wall clock in BOTH
+directions and equally often — New York 1 forward and 1 backward, Berlin 9 and
+9, Auckland 1 and 1.
 
 Two things this settled. `subtract(P1D)` and `add(-P1D)` agree *exactly*,
 including on the wrong answer — so D-T1-3's claim that subtract is free in the
-shim holds, and no leaf is owed. And `corrected` cannot see this one: the
-result is self-consistent, a real instant with the right offset for it, just
-not the instant that was asked for.
+shim holds, and no leaf is owed. And an offset comparison cannot see this one:
+the result is self-consistent, a real instant with the right offset for it,
+just not the instant that was asked for.
 
 The correction is the operation's own invariant. A duration with no time parts
 moves the date in wall-clock time, so the time of day does not change — that is
 precisely what makes `+P1D` across a transition 23 hours instead of 24. When it
 does change, keep the date the arithmetic chose, put the original time of day
 back, and resolve that wall clock. Mixed durations are untouched, since theirs
-is supposed to move. Measured 0 wrong across 5 zones x 12 months x 28 days x
-{+1d, -1d, +1m}, with `+P1DT2H` still moving 10:40 to 12:40.
+is supposed to move. It is direction-agnostic, so it repairs both.
 
-Two upstream defects in one release is worth saying plainly: temporal_rs 0.2.6
-is the newest published version, and wall-clock resolution near a DST
-transition is unreliable in it on both the construction and the arithmetic
-path. Both corrections are conditional on detecting the wrong answer, so both
-retire themselves when upstream fixes this.
+Wall-clock resolution near a DST transition is unreliable in temporal_rs 0.2.6
+on the construction path, the arithmetic path and in `start_of_day` (D-T1-19).
+Every workaround is conditional on detecting a wrong answer, so each retires
+itself when upstream fixes this.
 
 **D-T1-15 — the web comparison drove the surface out, and the shapes follow
 from the compiler.** Measured against the current TC39 surface (spec-compliant

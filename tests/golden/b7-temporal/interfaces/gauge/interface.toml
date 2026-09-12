@@ -1,0 +1,6 @@
+# A drop-balance probe for the acceptance test. Deliberately part of this
+# WORLD and not of any package: counting live handles is a test's business.
+module = "Gauge"
+[[hosted]]
+leaf = "live!"
+symbol_stem = "live"

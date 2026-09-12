@@ -231,23 +231,15 @@ out-of-range input, and is verified to fail when the old correction is
 reinstated.
 
 Resolved from the list below: the `as` narrowing (checked `try_from`), the gate
-being red (trantor-cli's split landed), and `/dev/null` hiding failures. The
-resource-drop gauge has an answer that needs no `live!` in the package — a test
-world can supply its own gauge component, measured balanced across every
-handle-creating leaf — but it is not yet folded into `verify.sh`.
+being red (trantor-cli's split landed), `/dev/null` hiding failures, and both
+the b7 duplication and the drop gauge — b7 consumes the package now and
+supplies its own `live!` component, so counting handles stays a test's business
+and never enters the package's API.
 
 ## Open, and deliberately not decided here
 
 - **A LICENSE.** None of trantor, trantor-cli or trantor-net has one either, so
   this is an ecosystem-wide decision and a legal one. Nothing was invented here.
-- **Resource-drop coverage.** Dropping `live!` was right for the public
-  surface, but the package now has no proof its destructors run; the gauge
-  lives only in `tests/golden/b7-temporal`. trantor-cli's `TempTest` is
-  precedent for a test-only module shipped in a package. Needs a call before
-  release.
-- **`b7-temporal` still duplicates the interface and host** byte-for-byte apart
-  from `live!`. b8 was converted to consume trantor-cli; b7 was never converted
-  to consume this package, so the fixture and the released API can drift.
-  Converting it and the gauge question are the same piece of work.
+
 - **`temporal_rs = "=0.2.6"` freezes the bundled tzdb.** What is current
   upstream was not measured; only 0.2.6 is in the cargo cache.

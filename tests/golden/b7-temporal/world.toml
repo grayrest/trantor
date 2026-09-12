@@ -1,7 +1,19 @@
+# B7 consumes the trantor-temporal PACKAGE. It used to carry its own copy of
+# the interface and the host, which drifted: after the package's release rework
+# this fixture still held — and still asserted as correct — every defect that
+# rework removed.
+#
+# Its job now is the one thing the package's own gate cannot show, since that
+# gate composes against trantor-cli: the package drops into a DIFFERENT world,
+# with a different driver and no basic-cli shim, and still vendors temporal_rs
+# in exactly one archive (H0c).
+[deps]
+trantor-temporal = { path = "../../../../trantor-temporal" }
+
 [world]
 name = "b7-temporal"
 driver = "main-driver"
-exports = ["Stdout", "Stderr", "Stdin", "Tty", "Env", "Path", "Utc", "Sleep", "Random", "Locale", "Url", "Temporal"]
+exports = ["Stdout", "Stderr", "Stdin", "Tty", "Env", "Path", "Utc", "Sleep", "Random", "Locale", "Url", "Temporal", "Gauge"]
 [components.main-driver]
 kind = "driver"
 lang = "rust"
@@ -18,7 +30,7 @@ requires_uses = ["Stdout", "Stderr", "Stdin", "Env"]
 [interfaces.clocks]
 [interfaces.random]
 [interfaces.locale]
-[interfaces.temporal]
+[interfaces.gauge]
 [components.sync-io]
 kind = "host"
 lang = "rust"
@@ -49,10 +61,13 @@ exports = ["random"]
 kind = "host"
 lang = "rust"
 exports = ["locale"]
-[components.temporal-host]
+# Drop-balance probe, supplied by the WORLD rather than the package. The
+# package used to export a `live!` leaf purely so a test could count handles;
+# a gauge belongs to the test, not to everyone's API.
+[components.gauge-host]
 kind = "host"
 lang = "rust"
-exports = ["temporal"]
+exports = ["gauge"]
 [components.host-shim]
 kind = "roc"
 exports = ["Host"]
@@ -80,4 +95,4 @@ fs = "fs-unconfined"
 clocks = "clocks-host"
 random = "random-host"
 locale = "locale-host"
-temporal = "temporal-host"
+gauge = "gauge-host"

@@ -1,10 +1,9 @@
 [package]
-name = "temporal-host"
+name = "gauge-host"
 version = "0.0.0"
 edition = "2021"
 publish = false
 [lib]
 crate-type = ["staticlib", "rlib"]
 [dependencies]
-trantor-abi = { path = "../../abi" }
-temporal_rs = "=0.2.6"
+trantor-abi = "0.0.0"
