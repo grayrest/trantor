@@ -28,7 +28,10 @@ mod cargo;
 mod codegen;
 mod deps;
 mod manifest;
+mod package_suites;
+mod package_test;
 mod publish;
+mod readme_examples;
 mod registry;
 mod resolve;
 mod scaffold;
@@ -85,7 +88,8 @@ Starting out
 Working
   check <dir>                         compose + typecheck (the inner loop)
   run <dir> [-- <args>]               build, then run the app
-  test <dir>                          roc expects + cargo tests
+  test <dir>                          a world: roc expects + cargo tests
+                                      a package: composed on its [dev-deps], plus tests/
   build <dir> [--app <d>] [--out <n>] [--target <t>] [--platform-only]
 
 Adding a capability
@@ -133,6 +137,11 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             return match cmd.as_str() {
                 "check" => build::check(&dir, &world_file, &app),
+                // A package has no world of its own: `trantor test` composes
+                // it against its [dev-deps] and runs the package checks (T3).
+                "test" if !dir.join(&world_file).exists() && dir.join("package.toml").exists() => {
+                    package_test::test_package(&dir)
+                }
                 "test" => build::test(&dir, &world_file, &app),
                 _ => {
                     let status = build::run_app(&dir, &world_file, &app, &target, &rest)?;

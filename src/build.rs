@@ -60,7 +60,7 @@ fn on_path(name: &str) -> Option<String> {
 /// way met `spawn /Users/them/.bin/roc: No such file or directory` — a path
 /// they never chose, from a step they did not know existed. The front door
 /// cannot depend on a path only its author has.
-fn roc_bin() -> String {
+pub(crate) fn roc_bin() -> String {
     std::env::var("ROC")
         .ok()
         .or_else(|| on_path("roc"))
