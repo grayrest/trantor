@@ -39,26 +39,46 @@ fn workspace_toml(world: &str) -> String {
 }
 
 /// What a composed platform requires of its app: `main!`'s signature as the
-/// platform declares it, and the modules that signature's types come from.
+/// platform declares it, the modules that signature's types come from, and a
+/// parameter list and body that typecheck against it.
+#[derive(Debug)]
 pub struct MainContract {
     pub signature: String,
     pub imports: Vec<String>,
-    /// `|{}|` or `|_args|`, whichever the signature takes.
-    pub param: &'static str,
+    /// `{}`, `_args`, or `_arg1, _arg2` — one per argument.
+    pub param: String,
+    /// `Ok({})` for a `Try` return; otherwise a `crash` naming what to write,
+    /// since no value of an arbitrary type can be produced from nothing.
+    pub body: String,
 }
 
 /// Read the contract from a composed `platform/main.roc`. The signature is the
 /// driver's to decide — trantor-cli's takes `List(OsStr)`, a bare driver's
 /// takes `{}` — so a scaffold that writes one from memory is wrong for every
-/// baseline but the one it remembered, and this one was: it still wrote
-/// `{} => Try({}, [Exit(I32), ..])` after trantor-cli's contract had moved on.
+/// baseline but the one it remembered. A driver may wrap it over several lines.
 pub fn main_contract(platform: &str) -> Result<MainContract, String> {
-    let signature = platform
-        .lines()
-        .map(str::trim)
-        .find(|l| l.starts_with("main! :"))
-        .ok_or("the composed platform requires no `main!`")?
-        .to_string();
+    let requires = platform.split_once("requires").map(|(_, r)| r).unwrap_or(platform);
+    let block = requires.split_once('{').map(|(_, r)| r).unwrap_or(requires);
+    let mut depth = 1;
+    let end = block.char_indices().find_map(|(i, c)| {
+        match c { '{' | '(' | '[' => depth += 1, '}' | ')' | ']' => depth -= 1, _ => {} }
+        (depth == 0).then_some(i)
+    }).unwrap_or(block.len());
+    let block = &block[..end];
+    let start = block.find("main! :").ok_or_else(|| {
+        format!("the composed platform requires no `main!` — it requires {{{}}} — so there is no app shape to scaffold", block.trim())
+    })?;
+    let mut entry = String::new();
+    for (i, line) in block[start..].lines().enumerate() {
+        let t = line.trim();
+        let new_entry = i > 0 && t.split_once(" :").is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '!'));
+        if new_entry { break }
+        if !t.is_empty() {
+            if !entry.is_empty() { entry.push(' ') }
+            entry.push_str(t);
+        }
+    }
+    let signature = entry.trim_end_matches(',').to_string();
     let exposed: Vec<&str> = platform
         .lines()
         .find(|l| l.trim_start().starts_with("exposes"))
@@ -70,17 +90,46 @@ pub fn main_contract(platform: &str) -> Result<MainContract, String> {
         .filter(|w| !w.is_empty() && exposed.contains(w))
         .map(|w| format!("pf.{w}"))
         .collect();
+    imports.sort();
     imports.dedup();
-    let takes_unit = signature.split_once(':').is_some_and(|(_, t)| t.trim_start().starts_with("{}"));
-    Ok(MainContract { signature, imports, param: if takes_unit { "{}" } else { "_args" } })
+    let ty = signature.split_once(':').map(|(_, t)| t.trim()).unwrap_or("");
+    let (args, ret) = split_top_level(ty, "=>").or_else(|| split_top_level(ty, "->")).unwrap_or((ty, ""));
+    let arity = if args.trim().is_empty() { 0 } else { top_level_commas(args) + 1 };
+    let param = match arity {
+        _ if args.trim() == "{}" => "{}".to_string(),
+        0 | 1 => "_args".to_string(),
+        n => (1..=n).map(|i| format!("_arg{i}")).collect::<Vec<_>>().join(", "),
+    };
+    let body = if ret.trim_start().starts_with("Try(") { "Ok({})".to_string() } else { "crash \"write your program here\"".to_string() };
+    Ok(MainContract { signature, imports, param, body })
+}
+
+fn split_top_level<'a>(s: &'a str, sep: &str) -> Option<(&'a str, &'a str)> {
+    let mut depth = 0;
+    for (i, c) in s.char_indices() {
+        match c { '(' | '[' | '{' => depth += 1, ')' | ']' | '}' => depth -= 1, _ => {} }
+        if depth == 0 && s[i..].starts_with(sep) {
+            return Some((&s[..i], &s[i + sep.len()..]));
+        }
+    }
+    None
+}
+
+fn top_level_commas(s: &str) -> usize {
+    let mut depth = 0;
+    s.chars().filter(|&c| {
+        match c { '(' | '[' | '{' => depth += 1, ')' | ']' | '}' => depth -= 1, _ => {} }
+        depth == 0 && c == ','
+    }).count()
 }
 
 fn app_main(name: &str, contract: &MainContract) -> String {
     format!(
-        "app [main!] {{ pf: platform \"../target/trantor/{name}/platform/main.roc\" }}\n\n{}\n\n{}\nmain! = |{}| {{\n\tOk({{}})\n}}\n",
+        "app [main!] {{ pf: platform \"../target/trantor/{name}/platform/main.roc\" }}\n\n{}\n\n{}\nmain! = |{}| {{\n\t{}\n}}\n",
         contract.imports.iter().map(|i| format!("import {i}")).collect::<Vec<_>>().join("\n"),
         contract.signature,
         contract.param,
+        contract.body,
     )
 }
 
@@ -93,6 +142,7 @@ pub fn ensure_app(dir: &Path, name: &str) -> Result<bool, String> {
         return Ok(false);
     }
     let platform = dir.join("target/trantor").join(name).join("platform/main.roc");
+    let name = name;
     let text = std::fs::read_to_string(&platform).map_err(|e| format!("read {}: {e}", platform.display()))?;
     write_new(&app, &app_main(name, &main_contract(&text)?))?;
     Ok(true)
@@ -160,7 +210,16 @@ pub fn new_project(dir: &Path, from: Option<&str>) -> Result<(), String> {
         // Compose now: `cargo add` and rust-analyzer need the abi crate the
         // patch points at, and it does not exist until something composes.
         crate::build::build(dir, "world.toml", None, "app", "arm64mac")?;
-        ensure_app(dir, &name)?;
+        // Composition keys output by the directory's resolved name, so a
+        // project reached through a symlink is found under the real one.
+        let staged = dir.canonicalize().ok().and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned())).unwrap_or_else(|| name.clone());
+        if let Err(e) = ensure_app(dir, &staged) {
+            // A driver whose contract is not `main!` still composed: the project
+            // is usable, it just needs the app written by hand. Failing here
+            // left a directory `new` then refused to touch again.
+            eprintln!("trantor: composed, but wrote no app/main.roc: {e}");
+            return Ok(());
+        }
         eprintln!("trantor: composed — `trantor run` builds it, `cargo add` works in your components");
     } else {
         // No baseline, so no driver has said what `main!` must be, and an app
@@ -180,6 +239,18 @@ mod tests {
 
     const CLI: &str = "platform \"\"\n\trequires {\n\t\tmain! : List(OsStr) => Try({}, [Io(IOErr), ..])\n\t}\n\texposes [Cli, IOErr, OsStr, Stdout]\n";
     const BARE: &str = "platform \"\"\n\trequires {\n\t\tmain! : {} => Try({}, [Exit(I32), ..])\n\t}\n\texposes [Stdout]\n";
+
+    #[test]
+    fn a_wrapped_repeated_or_non_try_signature_still_scaffolds_an_app_that_can_typecheck() {
+        let wrapped = main_contract("\trequires {\n\t\tmain! : List(OsStr)\n\t\t\t=> Try({}, [Io(IOErr), BadArg(OsStr)])\n\t}\n\texposes [IOErr, OsStr]\n").unwrap();
+        assert_eq!(wrapped.signature, "main! : List(OsStr) => Try({}, [Io(IOErr), BadArg(OsStr)])");
+        assert_eq!(wrapped.imports, vec!["pf.IOErr", "pf.OsStr"], "a type named twice is imported once");
+        let int = main_contract("\trequires {\n\t\tmain! : {} => I32\n\t}\n\texposes []\n").unwrap();
+        assert_eq!((int.param.as_str(), int.body.starts_with("crash")), ("{}", true));
+        let two = main_contract("\trequires {\n\t\tmain! : Str, List(Str) => Try({}, _)\n\t}\n\texposes []\n").unwrap();
+        assert_eq!(two.param, "_arg1, _arg2");
+        assert!(main_contract("\trequires {\n\t\trun! : {} => {}\n\t}\n").unwrap_err().contains("requires no `main!`"));
+    }
 
     #[test]
     fn the_scaffold_takes_main_from_the_platform_it_was_composed_on() {

@@ -1,40 +1,36 @@
 //! `trantor test <package>`: the checks every package's `verify.sh` used to
 //! repeat by hand (T3). Each step drives trantor itself as a subprocess, so a
 //! package is tested through exactly the commands a consumer runs.
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 
-use crate::manifest::{DepSource, Package};
+use crate::bounded::{self, Ran};
+use crate::manifest::Package;
+use crate::package_worlds::{driver_in_reach, scratch_world, Deps, Reach};
 
-/// Name of the world an app test composes into. A test app's header points at
-/// `../target/trantor/app/platform/main.roc`, so this is part of the contract.
+/// The world app suites and README examples compose into. A test app's header
+/// points at `../target/trantor/app/platform/main.roc`, so this is part of the
+/// contract. It exposes exactly what consumers see.
 pub const APP_WORLD: &str = "app";
+/// The world expects run in: the app world plus every module the package
+/// ships, so an expect in a module it keeps unexported still runs.
+const EXPECTS_WORLD: &str = "expects";
+const BASE_WORLD: &str = "base";
 
 pub fn test_package(dir: &Path) -> Result<(), String> {
     let root = dir.canonicalize().map_err(|e| format!("{}: {e}", dir.display()))?;
     let text = std::fs::read_to_string(root.join("package.toml"))
         .map_err(|e| format!("read {}/package.toml: {e}", root.display()))?;
     let pkg: Package = toml::from_str(&text).map_err(|e| format!("parse package.toml: {e}"))?;
-    let scratch = Scratch::new(&pkg.package.name)?;
-    let result = Steps { root: &root, pkg: &pkg, scratch: &scratch.0 }.all();
-    match result {
+    let scratch = crate::package_worlds::fresh_scratch(&pkg.package.name)?;
+    match (Steps { root: &root, pkg: &pkg, scratch: &scratch }).all() {
         Ok(()) => {
-            std::fs::remove_dir_all(&scratch.0).ok();
+            std::fs::remove_dir_all(&scratch).ok();
             println!("trantor test: {} PASS", pkg.package.name);
             Ok(())
         }
-        Err(e) => Err(format!("{e}\n  (scratch worlds kept at {})", scratch.0.display())),
-    }
-}
-
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(name: &str) -> Result<Scratch, String> {
-        let p = std::env::temp_dir().join(format!("trantor-test-{name}-{}", std::process::id()));
-        std::fs::remove_dir_all(&p).ok();
-        std::fs::create_dir_all(&p).map_err(|e| format!("create {}: {e}", p.display()))?;
-        Ok(Scratch(p))
+        Err(e) => Err(format!("{e}\n  (scratch worlds kept at {})", scratch.display())),
     }
 }
 
@@ -47,50 +43,44 @@ pub struct Steps<'a> {
 impl Steps<'_> {
     fn all(&self) -> Result<(), String> {
         self.driver()?;
-        let with = self.world(APP_WORLD, true)?;
-        trantor(&["compose", s(&with)], self.root, "compose the package with its dev-deps")?;
+        let with = self.world(APP_WORLD, Deps::WithPackage, &[])?;
+        self.trantor(&["compose", s(&with)], "compose the package with its dev-deps")?;
         if !self.pkg.dev_deps.is_empty() {
             println!("ok: composes with its dev-deps");
         }
-        let base = if self.is_add_on() && !self.pkg.dev_deps.is_empty() {
-            let base = self.world("base", false)?;
-            trantor(&["compose", s(&base)], self.root, "compose the dev-deps alone")?;
+        let modules = self.modules()?;
+        let shipped: Vec<String> = modules.keys().cloned().collect();
+        let expects = self.world(EXPECTS_WORLD, Deps::WithPackage, &shipped)?;
+        self.trantor(&["compose", s(&expects)], "compose the package with every module it ships exposed")?;
+        let base = if crate::package_worlds::deps_body(self.root, self.pkg, Deps::Baseline)?.is_empty() {
+            None
+        } else {
+            let base = self.world(BASE_WORLD, Deps::Baseline, &[])?;
+            self.trantor(&["compose", s(&base)], "compose what the package stands on, without it")?;
             self.negative_control(&with, &base)?;
             Some(base)
-        } else {
-            None
         };
-        self.expects(&with, base.as_deref())?;
+        self.expects(&expects, base.as_deref(), &modules)?;
         crate::readme_examples::check(self, &with)?;
         crate::package_suites::run_all(self, &with)
     }
 
-    pub fn is_add_on(&self) -> bool {
-        self.pkg.package.provides_driver.is_none()
+    pub fn world(&self, name: &str, which: Deps, extra: &[String]) -> Result<PathBuf, String> {
+        scratch_world(self.root, self.pkg, self.scratch, name, which, extra)
     }
 
-    /// `[deps]` for a scratch world: the dev-deps, and the package itself.
-    pub fn deps_body(&self, with_package: bool) -> Result<String, String> {
-        let mut body = String::new();
-        for (name, dep) in &self.pkg.dev_deps {
-            let line = match dep.source(name)? {
-                DepSource::Path(p) => {
-                    let abs = self.root.join(&p);
-                    let abs = abs.canonicalize().map_err(|e| format!("dev-dep `{name}` at {}: {e}", abs.display()))?;
-                    format!("{name} = {{ path = {:?} }}\n", abs.display().to_string())
-                }
-                DepSource::GitHub(g) => format!("{name} = {{ github = {g:?} }}\n"),
-            };
-            body.push_str(&line);
+    /// trantor as a subprocess, bounded; success required.
+    pub fn trantor(&self, args: &[&str], what: &str) -> Result<Ran, String> {
+        let ran = self.trantor_ran(args)?;
+        if !ran.ok() {
+            return Err(ran.failure(what));
         }
-        if with_package {
-            body.push_str(&format!("{} = {{ path = {:?} }}\n", self.pkg.package.name, self.root.display().to_string()));
-        }
-        Ok(body)
+        Ok(ran)
     }
 
-    pub fn world(&self, name: &str, with_package: bool) -> Result<PathBuf, String> {
-        scratch_world(self.root, self.pkg, self.scratch, name, with_package)
+    pub fn trantor_ran(&self, args: &[&str]) -> Result<Ran, String> {
+        let exe = std::env::current_exe().map_err(|e| format!("locate trantor: {e}"))?;
+        bounded::run(Command::new(exe).args(args).current_dir(self.root), &format!("trantor {}", args.join(" ")), &self.scratch.join("runs"))
     }
 
     /// A package with a driver in reach — its own, or one of its `[deps]`'s —
@@ -98,95 +88,116 @@ impl Steps<'_> {
     fn driver(&self) -> Result<(), String> {
         let solo = self.scratch.join("solo");
         std::fs::create_dir_all(solo.join("app")).map_err(|e| format!("create {}: {e}", solo.display()))?;
-        let toml = format!("[world]\nname = \"solo\"\n\n[deps]\n{} = {{ path = {:?} }}\n",
-            self.pkg.package.name, self.root.display().to_string());
+        let toml = format!("[world]\nname = \"solo\"\n\n[deps]\n{} = {{ path = {} }}\n",
+            self.pkg.package.name, crate::package_worlds::toml_str(&self.root.to_string_lossy()));
         std::fs::write(solo.join("world.toml"), toml).map_err(|e| format!("write: {e}"))?;
-        let out = trantor_output(&["compose", s(&solo)], self.root)?;
-        let said = String::from_utf8_lossy(&out.stderr).into_owned() + &String::from_utf8_lossy(&out.stdout);
-        match (driver_in_reach(self.root, self.pkg, 0), out.status.success()) {
-            (Some(true), true) if self.pkg.package.provides_driver.is_some() => Ok(println!("ok: a baseline, it composes alone on its own driver")),
-            (Some(true), true) => Ok(println!("ok: it composes alone, on the driver its dependencies provide")),
-            (Some(true), false) => Err(format!("a driver is in reach, but it does not compose alone:\n{said}")),
-            (Some(false), true) => Err("no driver is in reach, yet it composed alone".into()),
-            (Some(false), false) if !said.contains("names no driver") => Err(format!("alone, it fails for the wrong reason:\n{said}")),
-            (Some(false), false) => Ok(println!("ok: alone it says it has no driver")),
-            (None, true) => Ok(println!("ok: it composes alone")),
-            (None, false) => Err(format!("it does not compose alone, and a github dependency means trantor cannot tell whether it should:\n{said}")),
+        let ran = self.trantor_ran(&["compose", s(&solo)])?;
+        let said = format!("{}{}", ran.stdout, ran.stderr);
+        let own = self.pkg.package.provides_driver.is_some();
+        match (driver_in_reach(self.root, self.pkg, 0), ran.ok()) {
+            (Reach::Yes, true) if own => Ok(println!("ok: a baseline, it composes alone on its own driver")),
+            (Reach::Yes, true) => Ok(println!("ok: it composes alone, on the driver its dependencies provide")),
+            (Reach::Yes, false) => Err(format!("a driver is in reach, but it does not compose alone:\n{said}")),
+            (Reach::No, true) => Err("no driver is in reach, yet it composed alone".into()),
+            (Reach::No, false) if !said.contains("names no driver") => Err(format!("alone, it fails for the wrong reason:\n{said}")),
+            (Reach::No, false) => Ok(println!("ok: alone it says it has no driver")),
+            (Reach::Unknown(_), true) => Ok(println!("ok: it composes alone")),
+            (Reach::Unknown(why), false) => Err(format!("it does not compose alone, and whether it should is unknown ({why}):\n{said}")),
         }
     }
 
-    /// The dev-deps alone must not provide what this package exports, or every
-    /// later check could be passing on the baseline's behalf.
+    /// What the package stands on must not already provide what it exports, or
+    /// every later check could be passing on that baseline's behalf.
     fn negative_control(&self, with: &Path, base: &Path) -> Result<(), String> {
         let exposed = |w: &Path, name: &str| exposes(&platform_dir(w, name).join("main.roc"));
-        let (mine, theirs) = (exposed(with, APP_WORLD)?, exposed(base, "base")?);
+        let (mine, theirs) = (exposed(with, APP_WORLD)?, exposed(base, BASE_WORLD)?);
         for m in &self.pkg.package.exports {
             if !mine.contains(m) {
                 return Err(format!("the package exports {m}, but the composed platform does not expose it"));
             }
-            if theirs.contains(m) || platform_dir(base, "base").join(format!("{m}.roc")).exists() {
-                return Err(format!("the dev-deps alone already provide {m} — this package is not what supplies it"));
+            if theirs.contains(m) || platform_dir(base, BASE_WORLD).join(format!("{m}.roc")).exists() {
+                return Err(format!("what it stands on already provides {m} — this package is not what supplies it"));
             }
         }
-        println!("ok: the dev-deps alone provide none of its {} exported modules", self.pkg.package.exports.len());
+        println!("ok: what it stands on provides none of its {} exported modules", self.pkg.package.exports.len());
         Ok(())
     }
 
-    /// Expects, counted as the package's contribution: the dev-deps bring
-    /// their own, so a raw count passes with this package's modules unreachable.
-    fn expects(&self, with: &Path, base: Option<&Path>) -> Result<(), String> {
-        let both = expect_count(&platform_dir(with, APP_WORLD).join("main.roc"))?;
+    /// Every module the package ships, by the name a platform exposes it
+    /// under — roc components' exports and its interfaces' modules — with the
+    /// source file it comes from and whether that file holds an expect. An
+    /// export may be a rename (`"Path as StrPath"`): the source is `Path.roc`,
+    /// the exposed name `StrPath`.
+    fn modules(&self) -> Result<BTreeMap<String, (PathBuf, bool)>, String> {
+        let mut out = BTreeMap::new();
+        for (name, c) in &self.pkg.components {
+            if c.kind != "roc" {
+                continue;
+            }
+            let dir = self.root.join(c.path.clone().unwrap_or_else(|| format!("components/{name}")));
+            for entry in &c.exports {
+                let (source, exposed) = entry.split_once(" as ").unwrap_or((entry, entry));
+                let file = dir.join(format!("{}.roc", source.trim()));
+                let expects = has_expect(&file);
+                out.insert(exposed.trim().to_string(), (file, expects));
+            }
+        }
+        for iface in self.pkg.interfaces.keys() {
+            let dir = self.root.join("interfaces").join(iface);
+            let module = std::fs::read_to_string(dir.join("interface.toml")).ok()
+                .and_then(|t| toml::from_str::<toml::Value>(&t).ok())
+                .and_then(|v| v.get("module").and_then(|m| m.as_str()).map(str::to_string));
+            if let Some(m) = module {
+                let file = dir.join(format!("{m}.roc"));
+                let expects = has_expect(&file);
+                out.insert(m, (file, expects));
+            }
+        }
+        Ok(out)
+    }
+
+    /// The package's expects run and are counted as its contribution. Every
+    /// `.roc` file holding an expect must belong to a module the package ships,
+    /// or no world can reach it: an unexported helper's failing expect used to
+    /// pass silently.
+    fn expects(&self, expects: &Path, base: Option<&Path>, modules: &BTreeMap<String, (PathBuf, bool)>) -> Result<(), String> {
+        let exposed = exposes(&platform_dir(expects, EXPECTS_WORLD).join("main.roc"))?;
+        for file in roc_files_with_expects(self.root) {
+            let shipped = modules.iter().any(|(name, (source, _))| same_file(source, &file) && exposed.contains(name));
+            if !shipped {
+                let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+                return Err(format!(
+                    "{} holds expects, but {stem} is not a module any component exports or interface declares, so nothing can run them",
+                    file.strip_prefix(self.root).unwrap_or(&file).display()
+                ));
+            }
+        }
+        let both = self.expect_count(&platform_dir(expects, EXPECTS_WORLD).join("main.roc"))?;
         let theirs = match base {
-            Some(b) => expect_count(&platform_dir(b, "base").join("main.roc"))?,
+            Some(b) => self.expect_count(&platform_dir(b, BASE_WORLD).join("main.roc"))?,
             None => 0,
         };
         let mine = both.saturating_sub(theirs);
-        if mine == 0 && source_has_expects(self.root) {
-            return Err(format!("the package's sources contain `expect`s, but it contributed none of the {both} that ran"));
+        let with_expects = modules.values().filter(|(_, e)| *e).count();
+        if with_expects > 0 && mine == 0 {
+            return Err(format!("{with_expects} of its modules hold expects, but none of the {both} that ran were its own"));
         }
-        println!("ok: {both} expects run, {mine} of them this package's own");
+        println!("ok: {both} expects run, {mine} of them this package's own (every module it ships exposed)");
         Ok(())
     }
-}
 
-/// Whether the package or anything in its `[deps]` provides a driver. `None`
-/// when a github dependency is in the chain and cannot be read without
-/// fetching it.
-pub fn driver_in_reach(root: &Path, pkg: &Package, depth: usize) -> Option<bool> {
-    if pkg.package.provides_driver.is_some() {
-        return Some(true);
-    }
-    if depth > 16 {
-        return Some(false);
-    }
-    let mut unknown = false;
-    for (name, dep) in &pkg.deps {
-        let Ok(DepSource::Path(p)) = dep.source(name) else { unknown = true; continue };
-        let dir = root.join(p);
-        let parsed = std::fs::read_to_string(dir.join("package.toml")).ok().and_then(|t| toml::from_str::<Package>(&t).ok());
-        match parsed.map(|d| driver_in_reach(&dir, &d, depth + 1)) {
-            Some(Some(true)) => return Some(true),
-            Some(Some(false)) => {}
-            _ => unknown = true,
+    /// `roc test`'s count. "All (0) tests passed" is also what it prints having
+    /// reached no module at all, which is why the count, not the status, is read.
+    fn expect_count(&self, main: &Path) -> Result<usize, String> {
+        let ran = bounded::run(Command::new(crate::build::roc_bin()).args(["test", s(main)]), "roc test", &self.scratch.join("runs"))?;
+        let text = format!("{}{}", ran.stdout, ran.stderr);
+        if !ran.ok() {
+            return Err(ran.failure(&format!("roc test {}", main.display())));
         }
+        text.lines()
+            .find_map(|l| l.strip_prefix("All (").and_then(|r| r.split_once(')')).and_then(|(n, _)| n.parse().ok()))
+            .ok_or_else(|| format!("roc test printed no count:\n{text}"))
     }
-    if unknown { None } else { Some(false) }
-}
-
-/// A scratch world at `scratch/<name>` depending on the package's [dev-deps]
-/// and, when `with_package`, the package itself — with the package's
-/// trantor.lock copied in, since github deps resolve through the world's lock.
-pub fn scratch_world(root: &Path, pkg: &Package, scratch: &Path, name: &str, with_package: bool) -> Result<PathBuf, String> {
-    let dir = scratch.join(name);
-    std::fs::create_dir_all(dir.join("app")).map_err(|e| format!("create {}: {e}", dir.display()))?;
-    let steps = Steps { root, pkg, scratch };
-    let toml = format!("[world]\nname = \"{name}\"\n\n[deps]\n{}", steps.deps_body(with_package)?);
-    std::fs::write(dir.join("world.toml"), toml).map_err(|e| format!("write world.toml: {e}"))?;
-    let lock = root.join(crate::registry::LOCK_FILE);
-    if lock.is_file() {
-        std::fs::copy(&lock, dir.join(crate::registry::LOCK_FILE)).map_err(|e| format!("copy {}: {e}", lock.display()))?;
-    }
-    Ok(dir)
 }
 
 pub fn s(p: &Path) -> &str {
@@ -197,20 +208,8 @@ pub fn platform_dir(world: &Path, name: &str) -> PathBuf {
     world.join("target/trantor").join(name).join("platform")
 }
 
-pub fn trantor_output(args: &[&str], cwd: &Path) -> Result<Output, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("locate trantor: {e}"))?;
-    Command::new(exe).args(args).current_dir(cwd).output().map_err(|e| format!("spawn trantor: {e}"))
-}
-
-pub fn trantor(args: &[&str], cwd: &Path, what: &str) -> Result<Output, String> {
-    let out = trantor_output(args, cwd)?;
-    if !out.status.success() {
-        return Err(format!("{what}:\n{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)));
-    }
-    Ok(out)
-}
-
-/// The module names a composed platform's `exposes [...]` lists.
+/// The module names a composed platform's `exposes [...]` lists. codegen
+/// writes it on one line.
 fn exposes(main: &Path) -> Result<Vec<String>, String> {
     let text = std::fs::read_to_string(main).map_err(|e| format!("read {}: {e}", main.display()))?;
     let line = text.lines().find(|l| l.trim_start().starts_with("exposes"))
@@ -219,35 +218,45 @@ fn exposes(main: &Path) -> Result<Vec<String>, String> {
     Ok(inner.split(',').map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect())
 }
 
-/// `roc test`'s count. "All (0) tests passed" is also what it prints having
-/// reached no module at all, which is why the count, not the status, is read.
-fn expect_count(main: &Path) -> Result<usize, String> {
-    let out = Command::new("perl")
-        .args(["-e", "alarm shift; exec @ARGV", "300", &crate::build::roc_bin(), "test", s(main)])
-        .output()
-        .map_err(|e| format!("spawn roc test: {e}"))?;
-    let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
-    if !out.status.success() {
-        return Err(format!("roc test {}:\n{text}", main.display()));
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
     }
-    text.lines()
-        .find_map(|l| l.strip_prefix("All (").and_then(|r| r.split_once(')')).and_then(|(n, _)| n.parse().ok()))
-        .ok_or_else(|| format!("roc test printed no count:\n{text}"))
 }
 
-fn source_has_expects(root: &Path) -> bool {
-    fn walk(dir: &Path) -> bool {
-        let Ok(entries) = std::fs::read_dir(dir) else { return false };
-        entries.flatten().any(|e| {
-            let p = e.path();
-            let skip = matches!(p.file_name().and_then(|n| n.to_str()), Some("target" | "tests" | ".git"));
-            if p.is_dir() {
-                !skip && walk(&p)
-            } else {
-                p.extension().is_some_and(|x| x == "roc")
-                    && std::fs::read_to_string(&p).is_ok_and(|t| t.lines().any(|l| l.trim_start().starts_with("expect ")))
+/// `expect` as a statement: the keyword, then whitespace or the end of the
+/// line. A multi-line expect (`expect` alone, its body below) used to be missed.
+fn has_expect(file: &Path) -> bool {
+    std::fs::read_to_string(file).is_ok_and(|t| {
+        t.lines().any(|l| l.trim_start().strip_prefix("expect").is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace)))
+    })
+}
+
+/// `.roc` files under the package holding an expect — outside `tests/`,
+/// `target/` and dot-directories, and never through a symlink, which could
+/// loop (two `ln -s .` made this walk effectively endless).
+fn roc_files_with_expects(root: &Path) -> Vec<PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let Ok(kind) = e.file_type() else { continue };
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            if kind.is_symlink() {
+                continue;
             }
-        })
+            if kind.is_dir() {
+                if !(name == "target" || name == "tests" || name.starts_with('.')) {
+                    walk(&path, out);
+                }
+            } else if path.extension().is_some_and(|x| x == "roc") && has_expect(&path) {
+                out.push(path);
+            }
+        }
     }
-    walk(root)
+    let mut out = vec![];
+    walk(root, &mut out);
+    out.sort();
+    out
 }

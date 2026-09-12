@@ -43,6 +43,36 @@ pub fn add(dir: &Path, world_flag: Option<&str>, slug: &str, as_name: Option<&st
     }
 }
 
+/// `trantor add <org>/<repo> [<dir>] [--as <name>] [--world <file>]`: the
+/// dependency is the first positional, the project directory the optional
+/// second (default: the current one).
+pub fn command(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>) -> Result<(), String> {
+    let (mut positional, mut as_name, mut world): (Vec<String>, Option<String>, Option<String>) = (vec![], None, None);
+    while let Some(f) = it.next() {
+        match f.as_str() {
+            "--as" => as_name = Some(it.next().ok_or("--as: missing name")?.clone()),
+            "--world" => world = Some(it.next().ok_or("--world: missing file")?.clone()),
+            other if other.starts_with("--") => return Err(format!("unknown flag {other:?}")),
+            other => positional.push(other.to_string()),
+        }
+    }
+    let (slug, dir) = match positional.as_slice() {
+        [slug] => (slug.clone(), PathBuf::from(".")),
+        [first, second] if !is_slug(first) && is_slug(second) => {
+            return Err(format!("add: arguments are `trantor add <org>/<repo> [<dir>]` — try `trantor add {second} {first}`"));
+        }
+        [slug, dir] => (slug.clone(), PathBuf::from(dir)),
+        [] => return Err("add: missing <org>/<repo>; usage: trantor add <org>/<repo> [<dir>]".into()),
+        _ => return Err("add: expected `trantor add <org>/<repo> [<dir>]`".into()),
+    };
+    add(&dir, world.as_deref(), &slug, as_name.as_deref())
+}
+
+fn is_slug(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('/').collect();
+    parts.len() == 2 && parts.iter().all(|p| !p.is_empty() && !p.starts_with('.')) && !std::path::Path::new(s).exists()
+}
+
 enum Target {
     World(String),
     Package,
@@ -89,8 +119,9 @@ fn validate_package(dir: &Path) -> Result<(), String> {
     let pkg: Package = toml::from_str(&text).map_err(|e| format!("parse package.toml: {e}"))?;
     let scratch = std::env::temp_dir().join(format!("trantor-add-{}-{}", pkg.package.name, std::process::id()));
     std::fs::remove_dir_all(&scratch).ok();
-    let world = crate::package_test::scratch_world(&root, &pkg, &scratch, "check", true)?;
-    let can_compose = !pkg.dev_deps.is_empty() || crate::package_test::driver_in_reach(&root, &pkg, 0) == Some(true);
+    let world = crate::package_worlds::scratch_world(&root, &pkg, &scratch, "check", crate::package_worlds::Deps::WithPackage, &[])?;
+    let can_compose = !pkg.dev_deps.is_empty()
+        || matches!(crate::package_worlds::driver_in_reach(&root, &pkg, 0), crate::package_worlds::Reach::Yes);
     let result = if can_compose {
         crate::build::compose(&world, "world.toml", None)
     } else {

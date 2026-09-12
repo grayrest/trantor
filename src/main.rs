@@ -28,11 +28,15 @@ mod build;
 mod cargo;
 mod codegen;
 mod deps;
+mod help;
 mod manifest;
+mod bounded;
 mod package_suites;
 mod package_test;
+mod package_worlds;
 mod publish;
 mod readme_examples;
+mod readme_lex;
 mod registry;
 mod resolve;
 mod scaffold;
@@ -77,59 +81,19 @@ fn main() -> ExitCode {
 
 /// The one thing every CLI is asked for first. `trantor --help`, `-h` and
 /// `help` all used to print `trantor: missing <world-dir>` and nothing else.
-const HELP: &str = "\
-trantor — compose Roc platforms from Rust components.
-
-Starting out
-  new <dir> [--from <path|org/repo>]  scaffold a project (and compose it)
-  add <org/repo> [<dir>] [--as <name>] add a dependency here (world or package),
-                                      pinning a semver tag; composes, or changes nothing
-  update <dir> [<name>]               move a pin
-  remove <dir> <name>                 drop a dependency
-
-Working
-  check <dir>                         compose + typecheck (the inner loop)
-  run <dir> [-- <args>]               build, then run the app
-  test <dir>                          a world: roc expects + cargo tests
-                                      a package: composed on its [dev-deps], plus tests/
-  build <dir> [--app <d>] [--out <n>] [--target <t>] [--platform-only]
-
-Adding a capability
-  new-interface <dir> <name>          scaffold an interface + host component
-  interface-stub <dir> <name>         the Rust signatures, from the Roc
-
-Platform authoring
-  compose <dir> [--out <d>]           generate sources only
-  scan <dir>                          the archive symbol-collision scan
-  publish <dir>                       package a baseline
-  tier <dir>                          classify an extension
-
-Common flags: --world <file> picks a world variant (default world.toml).
-
-Testing a package (a directory with package.toml, run as `trantor test .`)
-  Composes it alone (it must fail naming the driver unless one is in reach),
-  then on its [dev-deps]; checks the dev-deps alone expose none of its
-  exports; runs its expects; builds README.md's roc blocks (a whole app runs
-  as written) and compares each `expr   # value` comment; then each
-  tests/<name>/ is one of:
-    main.roc + expected   an app, stdout compared line for line
-    Cargo.toml            cargo test --release
-    test.sh               run with TRANTOR ROC PKG TMP DEPS DEV_DEPS
-  A README example's missing bindings come from tests/readme-prelude.roc.
-";
 
 fn run(args: &[String]) -> Result<(), String> {
     let mut it = args.iter().skip(1);
     let Some(cmd) = it.next() else {
-        eprint!("{HELP}");
+        eprint!("{}", help::HELP);
         return Err("no subcommand".into());
     };
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
-        print!("{HELP}");
+        print!("{}", help::HELP);
         return Ok(());
     }
     if cmd == "add" {
-        return add_command(&mut it);
+        return add::command(&mut it);
     }
     let dir = PathBuf::from(it.next().ok_or_else(|| {
         format!("{cmd}: missing <dir> (the project or world directory). `trantor --help` lists every command.")
@@ -138,12 +102,16 @@ fn run(args: &[String]) -> Result<(), String> {
     match cmd.as_str() {
         "check" | "run" | "test" => {
             let mut world_file = String::from("world.toml");
+            let mut world_given = false;
             let mut app = String::from("app");
             let mut target = String::from("arm64mac");
             let mut rest: Vec<String> = Vec::new();
             while let Some(f) = it.next() {
                 match f.as_str() {
-                    "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
+                    "--world" => {
+                        world_file = it.next().ok_or("--world: missing file")?.clone();
+                        world_given = true;
+                    }
                     "--app" => app = it.next().ok_or("--app: missing dir")?.clone(),
                     "--target" => target = it.next().ok_or("--target: missing triple")?.clone(),
                     // Everything after `--` belongs to the app, not to trantor.
@@ -155,7 +123,9 @@ fn run(args: &[String]) -> Result<(), String> {
                 "check" => build::check(&dir, &world_file, &app),
                 // A package has no world of its own: `trantor test` composes
                 // it against its [dev-deps] and runs the package checks (T3).
-                "test" if !dir.join(&world_file).exists() && dir.join("package.toml").exists() => {
+                // package.toml wins unless --world names a world explicitly: a
+                // stray world.toml in a package used to make this test nothing.
+                "test" if !world_given && dir.join("package.toml").exists() => {
                     package_test::test_package(&dir)
                 }
                 "test" => build::test(&dir, &world_file, &app),
@@ -297,32 +267,3 @@ fn run(args: &[String]) -> Result<(), String> {
     build::compose(&dir, &world_file, out)
 }
 
-/// `trantor add <org>/<repo> [<dir>] [--as <name>] [--world <file>]`: the
-/// dependency is the first positional, the project directory the optional
-/// second (default: the current one).
-fn add_command(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>) -> Result<(), String> {
-    let (mut positional, mut as_name, mut world): (Vec<String>, Option<String>, Option<String>) = (vec![], None, None);
-    while let Some(f) = it.next() {
-        match f.as_str() {
-            "--as" => as_name = Some(it.next().ok_or("--as: missing name")?.clone()),
-            "--world" => world = Some(it.next().ok_or("--world: missing file")?.clone()),
-            other if other.starts_with("--") => return Err(format!("unknown flag {other:?}")),
-            other => positional.push(other.to_string()),
-        }
-    }
-    let (slug, dir) = match positional.as_slice() {
-        [slug] => (slug.clone(), PathBuf::from(".")),
-        [first, second] if !is_slug(first) && is_slug(second) => {
-            return Err(format!("add: arguments are `trantor add <org>/<repo> [<dir>]` — try `trantor add {second} {first}`"));
-        }
-        [slug, dir] => (slug.clone(), PathBuf::from(dir)),
-        [] => return Err("add: missing <org>/<repo>; usage: trantor add <org>/<repo> [<dir>]".into()),
-        _ => return Err("add: expected `trantor add <org>/<repo> [<dir>]`".into()),
-    };
-    add::add(&dir, world.as_deref(), &slug, as_name.as_deref())
-}
-
-fn is_slug(s: &str) -> bool {
-    let parts: Vec<&str> = s.split('/').collect();
-    parts.len() == 2 && parts.iter().all(|p| !p.is_empty() && !p.starts_with('.')) && !std::path::Path::new(s).exists()
-}
