@@ -9,7 +9,6 @@ driver = "drv"
 exports = ["Text"]
 
 [interfaces.text]
-source = "u1:text@0.1.0"
 
 [components.drv]
 kind = "driver"

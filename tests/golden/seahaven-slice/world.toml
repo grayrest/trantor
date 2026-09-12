@@ -4,9 +4,7 @@ driver = "cli"
 exports = ["Stdout", "Stderr"]
 
 [interfaces.io]
-source = "roc:cli/io@0.1.0"
 [interfaces.stdio]
-source = "roc:cli/stdio@0.1.0"
 
 [components.std-stdio]
 kind = "host"

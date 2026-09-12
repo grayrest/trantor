@@ -8,21 +8,13 @@ lang = "rust"
 provides_runtime = true
 requires_uses = ["Stdout", "Stderr", "Stdin", "Env"]
 [interfaces.io]
-source = "roc:io/error@0.1.0"
 [interfaces.sync-io]
-source = "roc:sync-io/streams@0.1.0"
 [interfaces.cli-stdout]
-source = "roc:cli/stdout@0.1.0"
 [interfaces.cli-stdin]
-source = "roc:cli/stdin@0.1.0"
 [interfaces.cli-env]
-source = "roc:cli/environment@0.1.0"
 [interfaces.cli-tty]
-source = "roc:cli/terminal@0.1.0"
 [interfaces.fs]
-source = "roc:filesystem@0.1.0"
 [interfaces.cell]
-source = "roc:cell@0.1.0"
 [components.sync-io]
 kind = "host"
 lang = "rust"

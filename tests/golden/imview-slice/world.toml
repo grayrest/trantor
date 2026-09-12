@@ -4,9 +4,7 @@ driver = "imview"
 exports = ["Element", "Env"]
 
 [interfaces.ui]
-source = "roc:ui/element@0.1.0"
 [interfaces.env]
-source = "roc:ui/env@0.1.0"
 
 [components.imview]
 kind = "driver"

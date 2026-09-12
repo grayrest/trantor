@@ -6,13 +6,9 @@ driver = "drv"
 exports = ["Sql", "Report", "Turso"]
 
 [interfaces.io]
-source = "roc:io/error@0.1.0"
 [interfaces.sqlite]
-source = "roc:sqlite-unsound@0.1.0"
 [interfaces.turso]
-source = "roc:turso@0.1.0"
 [interfaces.report]
-source = "test:report@0.1.0"
 
 [components.drv]
 kind = "driver"

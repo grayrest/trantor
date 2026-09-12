@@ -6,9 +6,7 @@ driver = "drv"
 exports = ["Probe"]
 
 [interfaces.io]
-source = "roc:io/error@0.1.0"
 [interfaces.probe]
-source = "sq0:probe@0.1.0"
 
 [components.drv]
 kind = "driver"

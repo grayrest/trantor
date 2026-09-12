@@ -26,6 +26,7 @@
 mod build;
 mod cargo;
 mod codegen;
+mod deps;
 mod manifest;
 mod publish;
 mod resolve;

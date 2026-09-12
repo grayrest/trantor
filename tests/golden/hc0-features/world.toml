@@ -11,9 +11,7 @@ driver = "drv"
 exports = ["Mark"]
 
 [interfaces.io]
-source = "roc:io/error@0.1.0"
 [interfaces.mark]
-source = "hc0:mark@0.1.0"
 
 [components.drv]
 kind = "driver"

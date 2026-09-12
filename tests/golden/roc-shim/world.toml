@@ -8,15 +8,10 @@ driver = "cli"
 exports = ["Path", "Stdio", "Env"]
 
 [interfaces.io]
-source = "roc:cli/io@0.1.0"
 [interfaces.filesystem]
-source = "roc:cli/filesystem@0.1.0"
 [interfaces.stdio]
-source = "roc:cli/stdio@0.1.0"
 [interfaces.env]
-source = "roc:cli/env@0.1.0"
 [interfaces.cell]
-source = "roc:cli/cell@0.1.0"
 
 [components.stdio]
 kind = "host"

@@ -86,7 +86,7 @@ fn parse_chain(expr: &str) -> Vec<String> {
 }
 
 pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, String> {
-    let driver_name = world.world.driver.clone();
+    let driver_name = world.driver()?.to_string();
 
     // --- hosted symbol map, in interface-name order (deterministic) ---
     let mut hosted = Vec::new();

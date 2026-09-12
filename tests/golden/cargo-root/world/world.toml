@@ -7,7 +7,6 @@ exports = ["Host"]
 cargo_root = ".."
 
 [interfaces.seed]
-source = "test:seed@0.1.0"
 
 [components.drv]
 kind = "driver"

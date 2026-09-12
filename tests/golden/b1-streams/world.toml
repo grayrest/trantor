@@ -3,13 +3,9 @@ name = "b1-streams"
 driver = "cli"
 exports = ["Streams", "Memory", "FileIo"]
 [interfaces.io]
-source = "roc:io/error@0.1.0"
 [interfaces.sync-io]
-source = "roc:sync-io/streams@0.1.0"
 [interfaces.memory]
-source = "roc:test/memory@0.1.0"
 [interfaces.file]
-source = "roc:test/file@0.1.0"
 [components.sync-io]
 kind = "host"
 lang = "rust"

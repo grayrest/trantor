@@ -7,11 +7,8 @@ driver = "imview"
 exports = ["Element", "Env", "Cmd", "Event", "Echo", "EchoEvent", "Tick", "TickEvent", "TickEnv"]
 
 [interfaces.ui]
-source = "roc:ui/element@0.1.0"
 [interfaces.echo]
-source = "test:echo@0.1.0"
 [interfaces.tick]
-source = "test:tick@0.1.0"
 
 [components.imview]
 kind = "driver"

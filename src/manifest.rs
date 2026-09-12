@@ -8,11 +8,21 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct World {
     pub world: WorldMeta,
     #[serde(default)]
     pub interfaces: BTreeMap<String, InterfaceRef>,
+    /// Dependencies, each expanded into `interfaces`/`components`/`wiring`
+    /// before the world's own entries, which override by name (D-U1-1).
+    #[serde(default)]
+    pub deps: BTreeMap<String, Dep>,
+    /// Optional since U1: a world whose components all come from `deps`
+    /// declares none of its own. Every empty-set check downstream has to earn
+    /// its "clean" now — see `scan::check_collisions` and `build`'s sysroot.
+    #[serde(default)]
     pub components: BTreeMap<String, Component>,
+    #[serde(default)]
     pub wiring: BTreeMap<String, String>,
     /// External Roc packages the composed platform declares (`packages { alias: "url" }`),
     /// so verbatim modules that `import alias.Module` keep working (D18).
@@ -21,9 +31,14 @@ pub struct World {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WorldMeta {
     pub name: String,
-    pub driver: String,
+    /// Optional since U1 (D-U1-6): a world with exactly one dependency
+    /// providing a driver inherits it and names none. Read through
+    /// `World::driver()`, which reports the two failure modes separately.
+    #[serde(default)]
+    pub driver: Option<String>,
     #[serde(default)]
     pub exports: Vec<String>,
     /// Symbols the world explicitly declares as a shared/deduplicated native
@@ -67,21 +82,164 @@ pub struct WorldMeta {
     pub wasm_size_correct: bool,
 }
 
+impl World {
+    /// The driver component's name. `None` is a real state now that `[deps]`
+    /// can supply one, so the two ways of having no driver are reported apart:
+    /// nothing declared it, versus something declared it and it is not here.
+    pub fn driver(&self) -> Result<&str, String> {
+        match self.world.driver.as_deref() {
+            Some(d) => Ok(d),
+            None => Err(format!(
+                "world `{}` names no driver and no dependency provides one. Either set \
+                 `[world] driver = \"<component>\"`, or depend on a package whose \
+                 package.toml declares `provides_driver`.",
+                self.world.name
+            )),
+        }
+    }
+}
+
+/// One `[deps]` entry. Exactly one source must be given; `version` is reserved
+/// and ignored, so a constraint has somewhere to live before there is a
+/// resolver to honour it (the design log's open item).
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Dep {
+    #[serde(default)]
+    pub github: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub version: Option<String>,
+}
+
+impl Dep {
+    /// Validate the source and report which one it is.
+    pub fn source(&self, name: &str) -> Result<DepSource, String> {
+        match (&self.github, &self.path) {
+            (Some(g), None) => {
+                let ok = g.split('/').count() == 2 && g.split('/').all(|p| !p.is_empty());
+                if !ok {
+                    return Err(format!(
+                        "dep `{name}`: github must be \"<org>/<repo>\", got {g:?}"
+                    ));
+                }
+                Ok(DepSource::GitHub(g.clone()))
+            }
+            (None, Some(p)) => Ok(DepSource::Path(p.clone())),
+            (None, None) => Err(format!(
+                "dep `{name}`: needs a source — `{{ github = \"org/repo\" }}` or `{{ path = \"…\" }}`"
+            )),
+            (Some(_), Some(_)) => Err(format!(
+                "dep `{name}`: has both `github` and `path`; pick one"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DepSource {
+    GitHub(String),
+    Path(String),
+}
+
+/// A package's `package.toml`: the OFFER, as opposed to `world.toml`'s
+/// composition (D-U1-2). Kept a separate file because a composition
+/// legitimately has variants — `clay/world-vello.toml`, `world-confined.toml`,
+/// which is what `--world` exists for — and an offer does not.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Package {
+    pub package: PackageMeta,
+    /// The default wiring this package contributes: interface name -> the
+    /// wiring expression that serves it. This IS a `[wiring]` fragment, so it
+    /// accepts a chain (`audit(capstdfs)`) exactly as a world's does.
+    #[serde(default)]
+    pub provides: BTreeMap<String, String>,
+    #[serde(default)]
+    pub interfaces: BTreeMap<String, InterfaceRef>,
+    #[serde(default)]
+    pub components: BTreeMap<String, Component>,
+    #[serde(default)]
+    pub deps: BTreeMap<String, Dep>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackageMeta {
+    pub name: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub version: Option<String>,
+    /// A baseline declares the driver its consumers inherit (D-U1-6).
+    #[serde(default)]
+    pub provides_driver: Option<String>,
+}
+
+/// Join `rel` under `base`, refusing anything a DEPENDENCY must not be allowed
+/// to say (D-U1-13). `component_dir`, `cargo_root` and `interfaces_dir` are
+/// plain joins, and `cargo_root` becomes cargo's working directory — so a
+/// dependency declaring `cargo_root = "../../.."` would have trantor run
+/// `cargo build` in a directory of its choosing, against whatever Cargo.toml
+/// and build.rs live there.
+///
+/// Compiling a dependency's build.rs at all is cargo's trust model and is
+/// accepted deliberately. Letting a manifest choose the directory cargo runs
+/// in is not. Lexical, not canonicalizing: the path need not exist yet.
+pub fn confined(base: &Path, rel: &str, what: &str, pkg: &str) -> Result<PathBuf, String> {
+    use std::path::Component as C;
+    let p = Path::new(rel);
+    let bad = |why: &str| {
+        Err(format!(
+            "dependency `{pkg}` declares {what} = {rel:?}, which {why}. A dependency's paths \
+             must stay inside the package."
+        ))
+    };
+    if p.is_absolute() {
+        return bad("is absolute");
+    }
+    let mut depth: i32 = 0;
+    for c in p.components() {
+        match c {
+            C::Normal(_) => depth += 1,
+            C::CurDir => {}
+            C::ParentDir => {
+                depth -= 1;
+                if depth < 0 {
+                    return bad("escapes the package root");
+                }
+            }
+            C::RootDir | C::Prefix(_) => return bad("is not a relative path"),
+        }
+    }
+    Ok(base.join(rel))
+}
+
 /// The directory holding `<interface>/interface.toml` for a world.
 pub fn interfaces_dir(world_dir: &Path, world: &World) -> PathBuf {
     world_dir.join(world.world.interfaces_dir.as_deref().unwrap_or("interfaces"))
 }
 
-#[derive(Debug, Deserialize)]
+/// An interface the world uses. It carries no fields: the composer keys on the
+/// map name, and provenance is `[deps]`'s job now. It used to carry `source`
+/// (`"roc:io/error@0.1.0"`), which read like a dependency and was never once
+/// read — `#[allow(dead_code)]` said as much. Leaving it beside a live `[deps]`
+/// would have been actively misleading.
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct InterfaceRef {
-    /// The versioned interface identifier (e.g. `roc:io/error@0.1.0`). Part of
-    /// the manifest schema and carried for a future registry resolve; the
-    /// composer currently keys on the interface's map name, not this.
-    #[allow(dead_code)]
-    pub source: String,
+    /// Where this interface's `interface.toml` lives, when a dependency
+    /// supplied it. `None` means the world's own `interfaces_dir`. Not
+    /// deserialized — `deps::expand` fills it, which is why an interface from a
+    /// package is findable at all from a world that has never heard of its
+    /// layout.
+    #[serde(skip)]
+    pub dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Component {
     pub kind: String, // "host" | "roc" | "driver"
     /// Component implementation language (always `rust` today). Accepted for
@@ -186,6 +344,7 @@ pub fn module_path(component_dir: &Path, module: &str) -> PathBuf {
 /// One interface's `interface.toml`: the Roc module it ships and the hosted
 /// leaves it declares.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Interface {
     pub module: String,
     #[serde(default)]
@@ -221,12 +380,14 @@ impl Interface {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct ResourceDecl {
     #[allow(dead_code)]
     pub name: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct HostedLeaf {
     pub leaf: String,        // e.g. "file_read!"
     pub symbol_stem: String, // e.g. "file_read" -> trantor__<component>__file_read
@@ -316,6 +477,9 @@ pub fn load_world(dir: &Path, file: &str) -> Result<World, String> {
     let p = dir.join(file);
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     let mut w: World = toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))?;
+    // Before anything reads components or wiring, and before the driver's own
+    // lists are defaulted — the driver itself may come from a dependency.
+    crate::deps::expand(dir, &mut w)?;
     default_driver_lists(dir, &mut w)?;
     Ok(w)
 }
@@ -339,7 +503,7 @@ pub fn load_world(dir: &Path, file: &str) -> Result<World, String> {
 /// own — a separate `kind = "roc"` component carries them — and links nothing).
 /// A missing or unreadable `driver.toml` is left to `load_driver` to report.
 fn default_driver_lists(dir: &Path, w: &mut World) -> Result<(), String> {
-    let name = w.world.driver.clone();
+    let Some(name) = w.world.driver.clone() else { return Ok(()) };
     let Some(c) = w.components.get(&name) else { return Ok(()) };
     if !c.exports.is_empty() && !c.frameworks.is_empty() {
         return Ok(());
@@ -358,13 +522,16 @@ fn default_driver_lists(dir: &Path, w: &mut World) -> Result<(), String> {
 }
 
 pub fn load_interface(dir: &Path, world: &World, name: &str) -> Result<Interface, String> {
-    let p = interfaces_dir(dir, world).join(name).join("interface.toml");
+    let p = match world.interfaces.get(name).and_then(|r| r.dir.as_ref()) {
+        Some(d) => d.join("interface.toml"),
+        None => interfaces_dir(dir, world).join(name).join("interface.toml"),
+    };
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
 }
 
 pub fn load_driver(dir: &Path, world: &World) -> Result<Driver, String> {
-    let name = &world.world.driver;
+    let name = world.driver()?;
     let c = world
         .components
         .get(name)
