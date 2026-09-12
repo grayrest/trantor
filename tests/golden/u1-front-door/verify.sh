@@ -92,8 +92,8 @@ impl_with() { # body...
 # ---- 5. the quick way: shell out --------------------------------------------
 impl_with <<'RUST'
 {
-    let s = a.arg0.as_str().to_string();
-    unsafe { a.arg0.decref(abi::host()); }
+    let s = arg0.as_str().to_string();
+    unsafe { arg0.decref(abi::host()); }
     let out = std::process::Command::new("tr").arg("a-z").arg("A-Z")
         .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped())
         .spawn().and_then(|mut c| {
@@ -115,8 +115,8 @@ step "cargo add" cargo add --path "$FIX/upper-lib" --manifest-path "$P/component
 step "cargo metadata (rust-analyzer's precondition)" cargo metadata --format-version 1 --manifest-path "$P/Cargo.toml"
 impl_with <<'RUST'
 {
-    let loud = upper_lib::shout(a.arg0.as_str());
-    unsafe { a.arg0.decref(abi::host()); }
+    let loud = upper_lib::shout(arg0.as_str());
+    unsafe { arg0.decref(abi::host()); }
     println!("{loud}");
 }
 RUST
