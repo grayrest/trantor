@@ -281,8 +281,19 @@ fn edit_world(dir: &Path, world_file: &str) -> Result<(PathBuf, toml_edit::Docum
     Ok((p, doc))
 }
 
-/// `trantor add <org>/<repo>` — resolve, fetch, record, and write the one line.
-pub fn add(dir: &Path, world_file: &str, slug: &str, as_name: Option<&str>) -> Result<(), String> {
+/// A github package resolved to a commit and fetched into the cache.
+pub struct Fetched {
+    pub slug: String,
+    /// What the package calls itself — the name a `[deps]` entry uses.
+    pub name: String,
+    pub tag: Option<String>,
+    pub branch: Option<String>,
+    pub commit: String,
+}
+
+/// Resolve `<org>/<repo>` to a tag (or the default branch's HEAD) and fetch
+/// it. Touches no project file.
+pub fn fetch(slug: &str) -> Result<Fetched, String> {
     if slug.split('/').count() != 2 || slug.split('/').any(|p| p.is_empty()) {
         return Err(format!("add: expected <org>/<repo>, got {slug:?}"));
     }
@@ -292,10 +303,9 @@ pub fn add(dir: &Path, world_file: &str, slug: &str, as_name: Option<&str>) -> R
         Resolved::Branch(b, c) => (None, Some(b.clone()), c.clone()),
     };
     let root = ensure_cached(slug, &commit)?;
-
     // The dependency names itself; the repo name is only a fallback.
     let pkg_file = root.join("package.toml");
-    let pkg_name = std::fs::read_to_string(&pkg_file)
+    let name = std::fs::read_to_string(&pkg_file)
         .map_err(|e| {
             format!(
                 "add {slug}: read {}: {e}\nA trantor dependency is a package: it needs a \
@@ -309,33 +319,33 @@ pub fn add(dir: &Path, world_file: &str, slug: &str, as_name: Option<&str>) -> R
         })?
         .package
         .name;
-    let name = as_name.unwrap_or(&pkg_name).to_string();
+    Ok(Fetched { slug: slug.to_string(), name, tag, branch, commit })
+}
 
-    let (p, mut doc) = edit_world(dir, world_file)?;
+/// Write the one `[deps]` line into `manifest` (a world.toml or package.toml
+/// under `dir`) and pin it in `dir`'s lock. Validation, and undoing this when
+/// it fails, is the caller's.
+pub fn record(dir: &Path, manifest: &str, dep_name: &str, f: &Fetched) -> Result<bool, String> {
+    let (p, mut doc) = edit_world(dir, manifest)?;
     let deps = doc["deps"].or_insert(toml_edit::table());
     if let Some(t) = deps.as_table_mut() {
         t.set_implicit(false);
     }
     let mut inline = toml_edit::InlineTable::new();
-    inline.insert("github", slug.into());
-    deps[&name] = toml_edit::value(inline);
+    inline.insert("github", f.slug.as_str().into());
+    deps[dep_name] = toml_edit::value(inline);
     std::fs::write(&p, doc.to_string()).map_err(|e| format!("write {}: {e}", p.display()))?;
 
     let mut lock = Lock::load(dir)?;
-    lock.packages.retain(|e| e.name != name);
-    lock.packages.push(Entry { name: name.clone(), github: slug.to_string(), tag, branch, commit: commit.clone() });
-    let changed = lock.save(dir)?;
-
-    let pin = match &resolved {
-        Resolved::Tag(t, _) => format!("tag {t}"),
-        Resolved::Branch(b, _) => format!("{b} HEAD (no semver tags)"),
-    };
-    eprintln!(
-        "trantor: added `{name}` = {slug} at {pin}, commit {}{}",
-        &commit[..commit.len().min(12)],
-        if changed { "" } else { " (lock unchanged)" }
-    );
-    Ok(())
+    lock.packages.retain(|e| e.name != dep_name);
+    lock.packages.push(Entry {
+        name: dep_name.to_string(),
+        github: f.slug.clone(),
+        tag: f.tag.clone(),
+        branch: f.branch.clone(),
+        commit: f.commit.clone(),
+    });
+    lock.save(dir)
 }
 
 /// `trantor update [<name>]` — move a pin. Without this the lock's own header

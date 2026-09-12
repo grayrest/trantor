@@ -427,3 +427,22 @@ fn stage_archives(dir: &Path, target: &str, built: &[(String, PathBuf)]) -> Resu
     }
     Ok(())
 }
+
+/// Compose a world: expand its deps, resolve, and emit sources, under
+/// `target/trantor/<world dir>` unless `out` names somewhere else (D-H7-38).
+pub fn compose(dir: &Path, world_file: &str, out: Option<std::path::PathBuf>) -> Result<(), String> {
+    let world = crate::manifest::load_world(dir, world_file)?;
+    let out = out.unwrap_or_else(|| crate::manifest::out_dir(dir, &world));
+    let driver = crate::manifest::load_driver(dir, &world)?;
+    let resolved = crate::resolve::resolve(dir, &world, &driver)?;
+    crate::codegen::emit(dir, &out, &world, &driver, &resolved)?;
+    eprintln!(
+        "trantor: composed `{}` -> {} ({} hosted symbols, {} archives, driver `{}`)",
+        world.world.name,
+        out.display(),
+        resolved.hosted.len(),
+        resolved.archive_order.len(),
+        resolved.driver,
+    );
+    Ok(())
+}

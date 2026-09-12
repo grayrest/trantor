@@ -148,7 +148,10 @@ pub fn new_project(dir: &Path, from: Option<&str>) -> Result<(), String> {
     // compose, so it goes through the same path `trantor add` does.
     if let Some(f) = from {
         if !Path::new(f).exists() {
-            crate::registry::add(dir, "world.toml", f, Some("base"))?;
+            // `new` builds right after, so the compose that would validate this
+            // happens there; fetching and pinning is all that is needed here.
+            let fetched = crate::registry::fetch(f)?;
+            crate::registry::record(dir, "world.toml", "base", &fetched)?;
         }
     }
 
@@ -160,11 +163,12 @@ pub fn new_project(dir: &Path, from: Option<&str>) -> Result<(), String> {
         ensure_app(dir, &name)?;
         eprintln!("trantor: composed — `trantor run` builds it, `cargo add` works in your components");
     } else {
-        // No baseline, so no driver has said what `main!` must be. `trantor
-        // add` writes app/main.roc once it has composed one.
+        // No baseline, so no driver has said what `main!` must be, and an app
+        // written from memory is wrong for every baseline but one. Generating
+        // it stays in `new`: `trantor new --from` is the command that writes it.
         eprintln!(
-            "trantor: no baseline yet. `trantor add <org>/<repo>` in {} writes app/main.roc for it, then `trantor run`.",
-            dir.display()
+            "trantor: no baseline, so no app/main.roc: its main! is whatever the baseline's driver requires. \
+             `trantor new <dir> --from <org>/<repo>` scaffolds a project with one.",
         );
     }
     Ok(())

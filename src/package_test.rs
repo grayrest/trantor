@@ -90,11 +90,7 @@ impl Steps<'_> {
     }
 
     pub fn world(&self, name: &str, with_package: bool) -> Result<PathBuf, String> {
-        let dir = self.scratch.join(name);
-        std::fs::create_dir_all(dir.join("app")).map_err(|e| format!("create {}: {e}", dir.display()))?;
-        let toml = format!("[world]\nname = \"{name}\"\n\n[deps]\n{}", self.deps_body(with_package)?);
-        std::fs::write(dir.join("world.toml"), toml).map_err(|e| format!("write world.toml: {e}"))?;
-        Ok(dir)
+        scratch_world(self.root, self.pkg, self.scratch, name, with_package)
     }
 
     /// A package with a driver in reach — its own, or one of its `[deps]`'s —
@@ -156,7 +152,7 @@ impl Steps<'_> {
 /// Whether the package or anything in its `[deps]` provides a driver. `None`
 /// when a github dependency is in the chain and cannot be read without
 /// fetching it.
-fn driver_in_reach(root: &Path, pkg: &Package, depth: usize) -> Option<bool> {
+pub fn driver_in_reach(root: &Path, pkg: &Package, depth: usize) -> Option<bool> {
     if pkg.package.provides_driver.is_some() {
         return Some(true);
     }
@@ -175,6 +171,22 @@ fn driver_in_reach(root: &Path, pkg: &Package, depth: usize) -> Option<bool> {
         }
     }
     if unknown { None } else { Some(false) }
+}
+
+/// A scratch world at `scratch/<name>` depending on the package's [dev-deps]
+/// and, when `with_package`, the package itself — with the package's
+/// trantor.lock copied in, since github deps resolve through the world's lock.
+pub fn scratch_world(root: &Path, pkg: &Package, scratch: &Path, name: &str, with_package: bool) -> Result<PathBuf, String> {
+    let dir = scratch.join(name);
+    std::fs::create_dir_all(dir.join("app")).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let steps = Steps { root, pkg, scratch };
+    let toml = format!("[world]\nname = \"{name}\"\n\n[deps]\n{}", steps.deps_body(with_package)?);
+    std::fs::write(dir.join("world.toml"), toml).map_err(|e| format!("write world.toml: {e}"))?;
+    let lock = root.join(crate::registry::LOCK_FILE);
+    if lock.is_file() {
+        std::fs::copy(&lock, dir.join(crate::registry::LOCK_FILE)).map_err(|e| format!("copy {}: {e}", lock.display()))?;
+    }
+    Ok(dir)
 }
 
 pub fn s(p: &Path) -> &str {

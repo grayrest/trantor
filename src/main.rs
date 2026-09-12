@@ -23,6 +23,7 @@
 //! generates `abi/src/services.rs`, the driver's typed view of every service's
 //! contract (see splice.rs, services.rs).
 
+mod add;
 mod build;
 mod cargo;
 mod codegen;
@@ -81,7 +82,8 @@ trantor — compose Roc platforms from Rust components.
 
 Starting out
   new <dir> [--from <path|org/repo>]  scaffold a project (and compose it)
-  add <dir> <org/repo> [--as <name>]  add a dependency, pinning a semver tag
+  add <org/repo> [<dir>] [--as <name>] add a dependency here (world or package),
+                                      pinning a semver tag; composes, or changes nothing
   update <dir> [<name>]               move a pin
   remove <dir> <name>                 drop a dependency
 
@@ -125,6 +127,9 @@ fn run(args: &[String]) -> Result<(), String> {
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
         print!("{HELP}");
         return Ok(());
+    }
+    if cmd == "add" {
+        return add_command(&mut it);
     }
     let dir = PathBuf::from(it.next().ok_or_else(|| {
         format!("{cmd}: missing <dir> (the project or world directory). `trantor --help` lists every command.")
@@ -184,33 +189,18 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             return scaffold::new_interface(&dir, &world_file, &name);
         }
-        "add" | "update" | "remove" => {
-            // D-U1-3. `dir` is the world dir, as with every other subcommand.
+        "update" | "remove" => {
+            // D-U1-3. `dir` is the world dir. (`add` parses its own arguments.)
             let mut world_file = String::from("world.toml");
             let mut arg: Option<String> = None;
-            let mut as_name: Option<String> = None;
             while let Some(f) = it.next() {
                 match f.as_str() {
                     "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
-                    "--as" => as_name = Some(it.next().ok_or("--as: missing name")?.clone()),
                     other if other.starts_with("--") => return Err(format!("unknown flag {other:?}")),
                     other => arg = Some(other.to_string()),
                 }
             }
             return match cmd.as_str() {
-                "add" => {
-                    registry::add(&dir, &world_file, &arg.ok_or("add: missing <org>/<repo>")?, as_name.as_deref())?;
-                    // A project made by `trantor new` with no baseline has no
-                    // app yet: nothing had said what `main!` must be. Now
-                    // something has, so compose and write it.
-                    if !dir.join("app/main.roc").exists() {
-                        let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or("add: <dir> has no name")?;
-                        build::build(&dir, &world_file, None, "app", "arm64mac")?;
-                        scaffold::ensure_app(&dir, &name)?;
-                        eprintln!("trantor: wrote app/main.roc for this baseline's main!");
-                    }
-                    Ok(())
-                }
                 "update" => registry::update(&dir, &world_file, arg.as_deref()),
                 _ => registry::remove(&dir, &world_file, &arg.ok_or("remove: missing <name>")?),
             };
@@ -304,22 +294,35 @@ fn run(args: &[String]) -> Result<(), String> {
             other => return Err(format!("unknown flag {other:?}")),
         }
     }
+    build::compose(&dir, &world_file, out)
+}
 
-    let world = manifest::load_world(&dir, &world_file)?;
-    // Generated output goes under `target/trantor/<world>` unless `--out`
-    // names somewhere else (D-H7-38).
-    let out = out.unwrap_or_else(|| manifest::out_dir(&dir, &world));
-    let driver = manifest::load_driver(&dir, &world)?;
-    let resolved = resolve::resolve(&dir, &world, &driver)?;
-    codegen::emit(&dir, &out, &world, &driver, &resolved)?;
+/// `trantor add <org>/<repo> [<dir>] [--as <name>] [--world <file>]`: the
+/// dependency is the first positional, the project directory the optional
+/// second (default: the current one).
+fn add_command(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>) -> Result<(), String> {
+    let (mut positional, mut as_name, mut world): (Vec<String>, Option<String>, Option<String>) = (vec![], None, None);
+    while let Some(f) = it.next() {
+        match f.as_str() {
+            "--as" => as_name = Some(it.next().ok_or("--as: missing name")?.clone()),
+            "--world" => world = Some(it.next().ok_or("--world: missing file")?.clone()),
+            other if other.starts_with("--") => return Err(format!("unknown flag {other:?}")),
+            other => positional.push(other.to_string()),
+        }
+    }
+    let (slug, dir) = match positional.as_slice() {
+        [slug] => (slug.clone(), PathBuf::from(".")),
+        [first, second] if !is_slug(first) && is_slug(second) => {
+            return Err(format!("add: arguments are `trantor add <org>/<repo> [<dir>]` — try `trantor add {second} {first}`"));
+        }
+        [slug, dir] => (slug.clone(), PathBuf::from(dir)),
+        [] => return Err("add: missing <org>/<repo>; usage: trantor add <org>/<repo> [<dir>]".into()),
+        _ => return Err("add: expected `trantor add <org>/<repo> [<dir>]`".into()),
+    };
+    add::add(&dir, world.as_deref(), &slug, as_name.as_deref())
+}
 
-    eprintln!(
-        "trantor: composed `{}` -> {} ({} hosted symbols, {} archives, driver `{}`)",
-        world.world.name,
-        out.display(),
-        resolved.hosted.len(),
-        resolved.archive_order.len(),
-        resolved.driver,
-    );
-    Ok(())
+fn is_slug(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('/').collect();
+    parts.len() == 2 && parts.iter().all(|p| !p.is_empty() && !p.starts_with('.')) && !std::path::Path::new(s).exists()
 }
