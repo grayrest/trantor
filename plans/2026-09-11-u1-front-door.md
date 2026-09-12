@@ -1,6 +1,26 @@
 # Plan: U1 — the front door (project setup, dependencies, new interfaces)
 
-> **Status: NOT STARTED. Revised 2026-09-11** after an independent review that
+> **Status: COMPLETE 2026-09-11.** All phases landed; suite 23/23 (was 21, and
+> had never been run as a suite), 41 unit tests, clippy at its pre-existing 8.
+> Commits: `3565ee2` P0, `8d73aa6` P1, `0100391` P3, `246ef1b` P4, `9413415`
+> P2/P5/P6/P7, `83b2db3` the empty-set guard and the ignore prune, plus the
+> runner ahead of the rest of P7.
+>
+> **Phases were reordered** from the written sequence: P3/P4 (deps) ran before
+> P2/P5 (`new`, cargo), because `trantor new`'s final shape needs `[deps]` to
+> supply the driver and building it twice was the alternative. P7's aggregate
+> runner moved to the front, since every later phase changed the manifest schema
+> and hand-validating that is how the last regression got in — it immediately
+> found `verify-tier.sh` red since `a9ab498`.
+>
+> **Two deviations from the exit list.** Criterion 6 (dep-vs-dep collisions) is
+> four unit tests rather than four fixtures: the cases are pure manifest
+> resolution and a fixture would add a build to test nothing extra. Criterion 7
+> (confinement) likewise. Criterion 4's github/branch-fallback path is exercised
+> against live GitHub by hand (roc-lang/basic-cli resolved to 0.22.2, skipping
+> 0.23.0-rc1) rather than in the suite, which stays offline.
+>
+> Originally revised 2026-09-11** after an independent review that
 > measured the tree rather than the prose; findings and the decisions they
 > forced are in the design log's "Independent review" and "Decisions from the
 > review" sections. **Scope halved: prebuilt baselines are deferred (D-U1-9).**
@@ -284,6 +304,35 @@ trantor run -- big.png small.png          # same app code, work now in Rust
 The app's Roc source must be **byte-identical across both runs**. If moving the
 work from imagemagick into Rust changes the app, the interface boundary did not
 hold and the walkthrough proved nothing.
+
+## What the phases actually cost
+
+Recorded because the estimates were wrong in an informative direction: every
+phase's real work was a silent wrong answer found by running the thing, not by
+the feature it named.
+
+- **P1** — three glue behaviours no reasonable guess would have got right:
+  result types are deduplicated and named after the first leaf using one;
+  whole-struct `decref` is emitted only for multi-field structs (so the first
+  cut printed "nothing to release" over a leak in the single-argument case,
+  which is most of them); and the "Refcounted fields are owned" doc line is
+  printed unconditionally, so it is not a signal.
+- **P4** — three corrections before a dependency's crates would build: paths
+  must be absolute or `component_dir` joins them twice; every interface lookup
+  must route through one `iface_dir` or a dependency's Roc modules are invisible
+  though its manifest parsed; and cargo refuses a workspace member outside the
+  root, so a fetched crate has to be copied, exactly as codegen's own comment
+  already said.
+- **P2/P5** — `cargo add --path` writes a relative path that breaks when the
+  crate is copied, and re-anchoring it must be LEXICAL like cargo's own reading:
+  a physical resolution silently skipped every rewrite under `$TMPDIR` while
+  working under `/private/tmp`, because `/var` is a symlink and the extra
+  component moves where the `..` count lands.
+- **The recurring shape.** `interface-stub` against stale glue emitted a
+  zero-argument function that compiled; `classify` called an empty world pure;
+  `abi_fingerprint` returned a constant identical on every machine; the
+  allocator guard read an unreadable directory as clean. Four more instances of
+  the pattern this repo already had a name for.
 
 ## Risks
 
