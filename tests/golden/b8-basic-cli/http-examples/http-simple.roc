@@ -23,7 +23,7 @@ main! = |_args| {
 	Stdout.line!("The json I received was: { foo: \"${decoded.foo}\" }")?
 
 	response = Http.send!(Request.from_method(GET).with_uri("http://127.0.0.1:9000/html")) ? |err| SendHtmlFailed(err)
-	body = Str.from_utf8(Http.read_body_to_end!(response)) ? |err| HtmlBodyUtf8Failed(err)
+	body = Str.from_utf8(Http.read_body_to_end!(response)?) ? |err| HtmlBodyUtf8Failed(err)
 
 	Stdout.line!("Response body:")?
 	Stdout.line!(body)?

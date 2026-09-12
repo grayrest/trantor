@@ -17,7 +17,7 @@ main! : List(OsStr) => Try({}, _)
 main! = |_args| {
 	TempTest.start_test_server!({})
 	response = Http.send!(Request.from_method(GET).with_uri("http://127.0.0.1:9000/utf8test")) ? |err| SendFailed(err)
-	http_response = Http.to_http_response!(response)
+	http_response = Http.to_http_response!(response)?
 	status = U16.to_str(Response.status(http_response))
 	body = Str.from_utf8(Response.body(http_response)) ? |_| BridgeBodyUtf8Failed
 	Stdout.line!("bridge: ${status} ${body}")?
