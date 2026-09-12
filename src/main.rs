@@ -198,7 +198,19 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             return match cmd.as_str() {
-                "add" => registry::add(&dir, &world_file, &arg.ok_or("add: missing <org>/<repo>")?, as_name.as_deref()),
+                "add" => {
+                    registry::add(&dir, &world_file, &arg.ok_or("add: missing <org>/<repo>")?, as_name.as_deref())?;
+                    // A project made by `trantor new` with no baseline has no
+                    // app yet: nothing had said what `main!` must be. Now
+                    // something has, so compose and write it.
+                    if !dir.join("app/main.roc").exists() {
+                        let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or("add: <dir> has no name")?;
+                        build::build(&dir, &world_file, None, "app", "arm64mac")?;
+                        scaffold::ensure_app(&dir, &name)?;
+                        eprintln!("trantor: wrote app/main.roc for this baseline's main!");
+                    }
+                    Ok(())
+                }
                 "update" => registry::update(&dir, &world_file, arg.as_deref()),
                 _ => registry::remove(&dir, &world_file, &arg.ok_or("remove: missing <name>")?),
             };

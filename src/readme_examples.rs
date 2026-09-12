@@ -162,16 +162,10 @@ fn mentions(text: &str, name: &str) -> bool {
 }
 
 pub fn generate(blocks: &[Vec<(usize, String)>], prelude: &[(String, String)], platform: &str) -> Result<Generated, String> {
-    let requires = platform.lines().find(|l| l.trim_start().starts_with("main! :"))
-        .ok_or("the composed platform requires no `main!`, so there is no app to generate")?
-        .trim().to_string();
-    let takes_unit = requires.split_once(':').map(|(_, t)| t.trim_start().starts_with("{}")).unwrap_or(false);
+    let contract = crate::scaffold::main_contract(platform)?;
+    let requires = contract.signature.clone();
     let mut imports: Vec<String> = vec!["pf.Stdout".into()];
-    for word in requires.split(|c: char| !c.is_alphanumeric()) {
-        if word.starts_with(|c: char| c.is_ascii_uppercase()) && platform.contains(&format!(" {word},")) {
-            imports.push(format!("pf.{word}"));
-        }
-    }
+    imports.extend(contract.imports.iter().cloned());
     let (mut top, mut fns, mut calls, mut expected) = (vec![], vec![], vec![], String::new());
     for (index, block) in blocks.iter().enumerate() {
         imports.extend(block.iter().filter_map(|(_, l)| l.strip_prefix("import ").map(|m| m.trim().to_string())));
@@ -222,7 +216,7 @@ pub fn generate(blocks: &[Vec<(usize, String)>], prelude: &[(String, String)], p
     }
     imports.sort();
     imports.dedup();
-    let arg = if takes_unit { "{}" } else { "_args" };
+    let arg = contract.param;
     let app = format!(
         "app [main!] {{ pf: platform \"../target/trantor/{APP_WORLD}/platform/main.roc\" }}\n\n{}\n\n{}\n\n{}\n{requires}\nmain! = |{arg}| {{\n{}\n\tOk({{}})\n}}\n",
         imports.iter().map(|i| format!("import {i}")).collect::<Vec<_>>().join("\n"),

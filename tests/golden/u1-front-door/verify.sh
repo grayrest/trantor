@@ -43,6 +43,11 @@ step() {
 step "trantor new" "$TR" new "$P" --cli --from "$FIX/base"
 [[ -f "$P/world.toml" && -f "$P/app/main.roc" && -f "$P/Cargo.toml" && -f "$P/.gitignore" ]] \
 	|| { echo "FAIL: new did not scaffold the four files"; exit 1; }
+# "Works the moment it is made" includes the app it wrote. The scaffold used to
+# write `main!`'s signature from memory, which went on typechecking against this
+# fixture's baseline long after trantor-cli's contract had moved on — so the
+# untouched scaffold is checked here, before the next step replaces it.
+step "trantor check (the untouched scaffold)" "$TR" check "$P"
 
 # ---- 2. the app, written once and never touched again -----------------------
 cat > "$P/app/main.roc" <<'ROC'
