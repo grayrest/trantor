@@ -16,3 +16,5 @@ name = "basic-cli"
 trantor-cli = { path = "../../../../trantor-cli" }
 # The http examples need sockets and the test server, which left the baseline.
 trantor-net = { path = "../../../../trantor-net" }
+# `Tty` — raw mode left the baseline for its own package (K1).
+trantor-terminal = { path = "../../../../trantor-terminal" }

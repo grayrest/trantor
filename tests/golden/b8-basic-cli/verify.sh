@@ -14,9 +14,10 @@ cd "$(dirname "$0")/../../.."
 B=tests/golden/b8-basic-cli
 PKG=$PWD/../trantor-cli
 NET=$PWD/../trantor-net
-[[ -f "$PKG/package.toml" && -f "$NET/package.toml" ]] || {
-	echo "SKIP: this fixture consumes the trantor-cli package, which is not checked out"
-	echo "      beside this repo (looked for $PKG/package.toml and $NET/package.toml)."
+TERMINAL=$PWD/../trantor-terminal
+[[ -f "$PKG/package.toml" && -f "$NET/package.toml" && -f "$TERMINAL/package.toml" ]] || {
+	echo "SKIP: this fixture consumes the trantor-cli, trantor-net and trantor-terminal packages,"
+	echo "      which are not all checked out beside this repo."
 	exit 0
 }
 REPO=/Users/grayrest/Repositories/roc-basic-cli
@@ -39,18 +40,18 @@ pass=0; total=0; failed=""
 for f in $(git -C "$REPO" ls-tree --name-only "$TAG" examples/ | grep '\.roc$'); do
   n=$(basename "$f" .roc); [[ $n == sqlite-* ]] && continue
   [[ $n == http-client || $n == http-simple ]] && continue   # adapted + run in HC3
-  # Tty moved OUT of trantor-cli: raw mode is termios state, not a CLI
-  # primitive, and it belongs to a terminal package rather than the baseline.
-  # These two are the only basic-cli examples that import it. Excluded like
-  # sqlite-*, and they come back the moment that package exists.
-  [[ $n == tty || $n == terminal-app-snake ]] && continue
   total=$((total+1)); mkdir -p "$X/$n"
   git -C "$REPO" show "${TAG}:${f}" | perl -pe 's|platform "[^"]+"|platform "../../target/trantor/b8-basic-cli/platform/main.roc"|' > "$X/$n/main.roc"
   if cap "$ROC" check "$X/$n/main.roc" >/dev/null 2>&1; then pass=$((pass+1)); else failed="$failed $n"; fi
 done
 # Guard against a vacuous 0/0 pass (wrong tag, moved examples/, detached repo):
 # basic-cli 0.21.0 ships ~26 non-sqlite, non-http examples.
-[[ $total -ge 18 ]] || { echo "FAIL: only $total example(s) found at $TAG (expected >=18); migration proof would be vacuous"; exit 1; }
+[[ $total -ge 20 ]] || { echo "FAIL: only $total example(s) found at $TAG (expected >=20); migration proof would be vacuous"; exit 1; }
+# The floor alone does not prove the two Tty examples are in the count — it held
+# at 24 without them. Name them.
+for n in tty terminal-app-snake; do
+  [[ -f "$X/$n/main.roc" ]] || { echo "FAIL: $n is not among the checked examples"; exit 1; }
+done
 [[ $pass -eq $total ]] || { echo "FAIL: $pass/$total examples check; failing:$failed"; exit 1; }
 echo "ok: $pass/$total basic-cli $TAG non-http examples roc-check with only the platform URL changed"
 
@@ -159,6 +160,23 @@ balance "fs read/write + streams + resources" ./target/trantor/b8-basic-cli/bin/
 # gauge OFF prints nothing (env-gated):
 [[ -z "$( (cd "$B" && GAUGE_SEED=x-well-over-twenty-three-bytes-of-seed-value ./target/trantor/b8-basic-cli/bin/ex-gauge >/dev/null) 2>&1 | grep '^\[alloc-gauge\]' || true)" ]] || { echo "FAIL: gauge printed while disabled"; exit 1; }
 echo "ok: gauge silent unless TRANTOR_ALLOC_GAUGE is set"
+
+# ---- 2c. the Tty examples, run over a real pty (trantor-terminal) ----
+# Checking is not enough for raw mode: a Tty whose leaves do nothing checks
+# fine, and did, for months. So both run on a pty, keys are sent only once a
+# frame has been drawn, and the terminal must be raw while they read and
+# restored once they exit. pty-script comes from trantor-terminal's own harness.
+cap "$ROC" build --output="$B/target/trantor/b8-basic-cli/bin/ex-tty" "$X/tty/main.roc" >/dev/null 2>&1 || { echo "FAIL: build tty"; exit 1; }
+cap "$ROC" build --output="$B/target/trantor/b8-basic-cli/bin/ex-snake" "$X/terminal-app-snake/main.roc" >/dev/null 2>&1 || { echo "FAIL: build terminal-app-snake"; exit 1; }
+CARGO_TARGET_DIR="$PWD/$B/target/pty-harness" cargo build --release -q --manifest-path "$TERMINAL/tests/pty/harness/Cargo.toml" --bin pty-script \
+  || { echo "FAIL: build trantor-terminal's pty-script"; exit 1; }
+PTY="$PWD/$B/target/pty-harness/release/pty-script"
+out=$(cap "$PTY" "$B/target/trantor/b8-basic-cli/bin/ex-tty" "wait=1:Press one key" raw "send=a" "wait=1:Read 1 byte" exit=0 2>&1) \
+  || { echo "FAIL: tty example over a pty: $out"; exit 1; }
+echo "ok: tty example — raw while it reads one key, restored when it exits"
+out=$(cap "$PTY" "$B/target/trantor/b8-basic-cli/bin/ex-snake" "wait=1:Score:" raw "send=d" "wait=2:Score:" "send=q" "wait=1:Game Over" exit=0 2>&1) \
+  || { echo "FAIL: terminal-app-snake over a pty: $out"; exit 1; }
+echo "ok: terminal-app-snake — draws, moves on a key, quits on q, terminal restored"
 
 # ---- 3. publish + tier ----
 ./target/release/trantor publish "$B" >/dev/null 2>&1
