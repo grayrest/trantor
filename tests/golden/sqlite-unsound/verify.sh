@@ -68,9 +68,6 @@ t_tur=$({ nm "$S/target/trantor/sqlite-unsound/bin/sq-turso" 2>/dev/null || true
 [[ "$t_tur" -gt 0 && "$t_rus" -eq 0 ]] || { echo "FAIL: turso app should link turso only (rusqlite=$t_rus turso=$t_tur)"; exit 1; }
 echo "ok: sole-vendor — rusqlite app links rusqlite ($r_rus)/turso(0); turso app links turso ($t_tur)/rusqlite(0)"
 
-# leave the committed default (rusqlite) world composed + built.
-rm -f /tmp/trantor-sq1.db*
-if ! _b=$(./target/release/trantor build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1 (default)" >&2; echo "$_b" >&2; exit 1; fi
 echo "SQ2 PASS"
 
 # ---- SQ3: turso vector (base SQL) + encryption (host-side), no Roc leaf ----
@@ -103,15 +100,25 @@ vr=$(cd "$S" && ./target/trantor/sqlite-unsound/bin/vec-rusqlite 2>/dev/null || 
 [[ "$vr" == "vector: unsupported" ]] || { echo "FAIL: rusqlite should reject vector32 (got: $vr)"; exit 1; }
 echo "ok: vector search runs on turso (near,mid,far), rejected by rusqlite — base SQL, no Roc leaf; encryption env-side"
 
-# leave the default (rusqlite) world composed + built.
-rm -f /tmp/trantor-sq1.db*
-if ! _b=$(./target/release/trantor build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1 (default)" >&2; echo "$_b" >&2; exit 1; fi
 echo "SQ3 PASS"
 
 # ---- SQ4: roc:turso scalar UDF leaf (the turso superset) ----
 # A Roc closure registered as a turso SQL scalar, invoked from a SELECT and a
 # CREATE TRIGGER body. The rusqlite world does not expose roc:turso.
 grep -q 'turso_register_scalar' "$S/interfaces/turso/Turso.roc" || { echo "FAIL: no turso_register_scalar leaf"; exit 1; }
+# The negative half runs FIRST. It needs the rusqlite world, which SQ3 has
+# just left composed, so the turso half below costs one world switch instead
+# of two — worth ~5s, because switching worlds recomposes the workspace with a
+# different engine and cargo rebuilds it (2-5s against 0.6-1.0s for a
+# same-world build). D-H7-38: both variants compose to one directory by
+# design, so the switch cost is inherent and only ordering can avoid it.
+#
+# The rusqlite world is not a turso superset: no Turso module, so udf-app can't build there.
+./target/release/trantor compose "$S" >/dev/null
+grep -q 'Turso' "$S/target/trantor/sqlite-unsound/platform/main.roc" && { echo "FAIL: rusqlite world exposes Turso"; exit 1; } || true
+if ./target/release/trantor build "$S" --app udf-app --out udf-rusqlite >/dev/null 2>&1; then echo "FAIL: udf-app built on rusqlite (roc:turso should be unavailable)"; exit 1; fi
+echo "ok: rusqlite world has no roc:turso — udf-app only builds on the turso superset"
+
 if ! _b=$(./target/release/trantor build "$S" --world world-turso.toml --app udf-app --out udf-turso 2>&1); then echo "FAIL: build udf-app (turso)" >&2; echo "$_b" >&2; exit 1; fi
 uo=$(cd "$S" && ./target/trantor/sqlite-unsound/bin/udf-turso 2>/dev/null || true)
 want_udf=$'triple-sum: 24\ntrigger-val: 30'
@@ -124,28 +131,32 @@ ug=$(cd "$S" && TRANTOR_ALLOC_GAUGE=1 ./target/trantor/sqlite-unsound/bin/udf-tu
 grep -q 'live=1' <<<"$ug" || { echo "FAIL: udf balance expected live=1 (the one registered closure): $ug"; exit 1; }
 echo "ok: exactly the one registered scalar closure is retained ($ug)"
 
-# The rusqlite world is not a turso superset: no Turso module, so udf-app can't build there.
-./target/release/trantor compose "$S" >/dev/null
-grep -q 'Turso' "$S/target/trantor/sqlite-unsound/platform/main.roc" && { echo "FAIL: rusqlite world exposes Turso"; exit 1; } || true
-if ./target/release/trantor build "$S" --app udf-app --out udf-rusqlite >/dev/null 2>&1; then echo "FAIL: udf-app built on rusqlite (roc:turso should be unavailable)"; exit 1; fi
-echo "ok: rusqlite world has no roc:turso — udf-app only builds on the turso superset"
 
-# leave the default (rusqlite) world composed + built.
-rm -f /tmp/trantor-sq1.db*
-if ! _b=$(./target/release/trantor build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1 (default)" >&2; echo "$_b" >&2; exit 1; fi
 echo "SQ4 PASS"
 
 # ---- SQ5: clone-on-incref target (documented) + publish + tier ----
 # The ergonomic record decode type-checks (the API shape supports it) but is NOT
 # run — it retains borrowed cells, unsound until upstream clone-on-incref.
 grep -q 'clone-on-incref' "$S/record-app/main.roc" || { echo "FAIL: record-app not marked the clone-on-incref target"; exit 1; }
-if ! _b=$(./target/release/trantor build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1" >&2; echo "$_b" >&2; exit 1; fi
 cap "$ROC" check "$S/record-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: record decode does not type-check (API shape broken)"; exit 1; }
 echo "ok: record decode type-checks (API shape) — the documented clone-on-incref target, not run"
 
-# Publish the rusqlite world: engine + lock, no test scaffolding; Tier 2.
-./target/release/trantor publish "$S" >/dev/null 2>&1
 D="$S/target/trantor/sqlite-unsound/dist/platform/targets/arm64mac"
+
+# Publish the TURSO world first, so the rusqlite publish below leaves the
+# committed default composed and built as a side effect. Done the other way
+# round this section needed a third build purely to restore that state.
+if ! _b=$(./target/release/trantor build "$S" --world world-turso.toml --app app --out sq-turso 2>&1); then echo "FAIL: build sq-turso" >&2; echo "$_b" >&2; exit 1; fi
+./target/release/trantor publish "$S" >/dev/null 2>&1
+{ [[ -f "$D/libturso_host.a" ]] && [[ ! -f "$D/librusqlite_host.a" ]]; } || { echo "FAIL: turso baseline should ship turso, not rusqlite"; exit 1; }
+[[ -f "$S/target/trantor/sqlite-unsound/dist/platform/Turso.roc" ]] || { echo "FAIL: turso baseline lacks the roc:turso module"; exit 1; }
+echo "ok: turso baseline publishes (turso engine + Turso module, no rusqlite, no test scaffolding)"
+
+# Publish the rusqlite world: engine + lock, no test scaffolding; Tier 2. This
+# is also what leaves the committed default world composed + built.
+rm -f /tmp/trantor-sq1.db*
+if ! _b=$(./target/release/trantor build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1 (default)" >&2; echo "$_b" >&2; exit 1; fi
+./target/release/trantor publish "$S" >/dev/null 2>&1
 { [[ -f "$S/target/trantor/sqlite-unsound/dist/baseline.lock" ]] && grep -q abi_fingerprint "$S/target/trantor/sqlite-unsound/dist/baseline.lock"; } || { echo "FAIL: rusqlite publish produced no baseline.lock"; exit 1; }
 [[ -f "$D/librusqlite_host.a" ]] || { echo "FAIL: rusqlite baseline lacks the engine archive"; exit 1; }
 [[ ! -f "$D/libreport_host.a" ]] || { echo "FAIL: test-only report-host leaked into the baseline"; exit 1; }
@@ -155,16 +166,6 @@ _t=$(./target/release/trantor tier "$S")
 [[ "$_t" == Tier\ 2:* ]] || { echo "FAIL: sqlite world should tier as Tier 2 (host code) — got: $_t"; exit 1; }
 echo "ok: rusqlite baseline publishes (engine + lock, no test scaffolding); Tier 2"
 
-# Publish the turso world: turso engine + Turso module, no rusqlite, no scaffolding.
-if ! _b=$(./target/release/trantor build "$S" --world world-turso.toml --app app --out sq-turso 2>&1); then echo "FAIL: build sq-turso" >&2; echo "$_b" >&2; exit 1; fi
-./target/release/trantor publish "$S" >/dev/null 2>&1
-{ [[ -f "$D/libturso_host.a" ]] && [[ ! -f "$D/librusqlite_host.a" ]]; } || { echo "FAIL: turso baseline should ship turso, not rusqlite"; exit 1; }
-[[ -f "$S/target/trantor/sqlite-unsound/dist/platform/Turso.roc" ]] || { echo "FAIL: turso baseline lacks the roc:turso module"; exit 1; }
-echo "ok: turso baseline publishes (turso engine + Turso module, no rusqlite, no test scaffolding)"
-
 grep -q 'clone-on-incref' notes/2026-09-05-sqlite-unsound-design-log.md || { echo "FAIL: design log missing the clone-on-incref record"; exit 1; }
 
-# leave the committed default (rusqlite) world composed + built.
-rm -f /tmp/trantor-sq1.db*
-if ! _b=$(./target/release/trantor build "$S" --app app --out sq1 2>&1); then echo "FAIL: build sq1 (default)" >&2; echo "$_b" >&2; exit 1; fi
 echo "SQ5 PASS"
