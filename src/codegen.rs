@@ -7,7 +7,7 @@
 //!   - components/<driver>/…        (the driver crate: runtime + main)
 //!   - abi/Cargo.toml, abi/src/lib.rs
 
-use crate::manifest::{component_dir, interfaces_dir, module_path, Driver, World};
+use crate::manifest::{component_dir, module_path, Driver, World};
 use crate::resolve::Resolved;
 use std::path::Path;
 
@@ -31,7 +31,7 @@ pub fn emit(
     // Under a host workspace (cargo_root) the crates already have one; a
     // second, nested workspace claiming them is a cargo error (D-H7-14).
     if world.world.cargo_root.is_none() {
-        w("Cargo.toml", workspace_toml(world, r)?)?;
+        w("Cargo.toml", workspace_toml(world)?)?;
     }
     // A driver living at its own `path` is an authored crate end to end:
     // trantor writes nothing into it (D-H7-4). Otherwise the crate manifest is
@@ -47,8 +47,34 @@ pub fn emit(
     // (`sync-io-core = { path = "../sync-io-core" }`), and a workspace member
     // whose path dependency is missing does not build.
     copy_tree(&src.join("components"), &out.join("components"))?;
+    // A dependency's crates come in the same way, for the same reason: cargo
+    // refuses a workspace member that is not hierarchically below the root, so
+    // referencing them where they were fetched is not an option. Whole tree per
+    // package, once, so a component's sibling support crates arrive with it.
+    // Two packages colliding on a component name is already an error
+    // (D-U1-14), so nothing here can silently overwrite anything.
+    let mut roots: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for c in world.components.values() {
+        if let Some(rt) = &c.pkg_root {
+            roots.insert(rt.as_str());
+        }
+    }
+    for rt in roots {
+        copy_tree(Path::new(rt).join("components").as_path(), &out.join("components"))?;
+    }
     for (name, c) in &world.components {
-        if c.kind == "roc" || c.path.is_some() {
+        if c.kind == "roc" {
+            continue;
+        }
+        // A component with its own home is normally the host workspace's
+        // (D-H7-4) and trantor writes nothing into it. The exception is a
+        // driver that came from a DEPENDENCY: its crate is still generated from
+        // its driver.toml — only the manifest and the Roc modules live in the
+        // package — because otherwise every package shipping a driver would
+        // hand-write the same forty lines trantor already knows how to emit.
+        // A dependency's component was just copied in and is materialized like
+        // any other; only a HOST workspace's crate (cargo_root) is left alone.
+        if c.path.is_some() && c.pkg_root.is_none() {
             continue;
         }
         let from = src.join("components").join(name);
@@ -80,7 +106,7 @@ pub fn emit(
     }
     // A service's event/env modules ship beside its command module.
     for (iface, module) in &r.extra_modules {
-        let from = interfaces_dir(src, world).join(iface).join(format!("{module}.roc"));
+        let from = crate::manifest::iface_dir(src, world, iface).join(format!("{module}.roc"));
         copy(&from, &format!("platform/{module}.roc"))?;
     }
     // The driver's own contract modules (Cmd/Event/Env/…): copied from its
@@ -112,7 +138,7 @@ pub fn emit(
         if roc_modules.contains(module.as_str()) {
             continue; // provided by the shim above
         }
-        let from = interfaces_dir(src, world).join(iface).join(format!("{module}.roc"));
+        let from = crate::manifest::iface_dir(src, world, iface).join(format!("{module}.roc"));
         if from.exists() {
             copy(&from, &format!("platform/{module}.roc"))?;
         }
@@ -329,22 +355,36 @@ fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {
 /// Because the crates are materialized beside the generated `abi`, a component
 /// manifest's `trantor-abi = { path = "../../abi" }` resolves exactly as it
 /// did when the world composed in place.
-fn workspace_toml(world: &World, r: &Resolved) -> Result<String, String> {
+fn workspace_toml(world: &World) -> Result<String, String> {
     let mut members = vec!["\"abi\"".to_string()];
+    let mut foreign = false;
     for (name, c) in &world.components {
         if c.kind == "roc" {
             continue;
         }
-        if c.path.is_some() {
+        if c.path.is_some() && c.pkg_root.is_none() {
             return Err(format!(
-                "component `{name}`: `path` needs `[world] cargo_root` — a crate with its own home cannot be a member of the generated workspace (D-H7-4/38)"
+                "component `{name}`: `path` needs `[world] cargo_root` — a crate with its own \
+                 home cannot be a member of the generated workspace (D-H7-4/38)"
             ));
+        }
+        if c.pkg_root.is_some() {
+            foreign = true;
         }
         members.push(format!("\"components/{name}\""));
     }
-    let _ = r;
+    // A crate that came from a package cannot know where the consumer's abi
+    // will be, so it depends on `trantor-abi = "0.0.0"` — a crates-io name that
+    // does not exist — and the workspace points that at the generated crate.
+    // Emitted only when such a member is present: cargo warns about a patch
+    // nothing uses, and a warning nobody can act on is noise.
+    let patch = if foreign {
+        "\n[patch.crates-io]\ntrantor-abi = { path = \"abi\" }\n"
+    } else {
+        ""
+    };
     Ok(format!(
-        "{GEN}\n[workspace]\nresolver = \"2\"\nmembers = [{}]\n\n[profile.release]\npanic = \"unwind\"\n",
+        "{GEN}\n[workspace]\nresolver = \"2\"\nmembers = [{}]\n{patch}\n[profile.release]\npanic = \"unwind\"\n",
         members.join(", ")
     ))
 }

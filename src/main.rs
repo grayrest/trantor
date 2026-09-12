@@ -29,6 +29,7 @@ mod codegen;
 mod deps;
 mod manifest;
 mod publish;
+mod registry;
 mod resolve;
 mod scan;
 mod services;
@@ -55,10 +56,29 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut it = args.iter().skip(1);
     let cmd = it
         .next()
-        .ok_or("usage: trantor <compose|build|publish|tier|scan|interface-stub> <world-dir> [flags]")?;
+        .ok_or("usage: trantor <compose|build|add|update|remove|publish|tier|scan|interface-stub> <world-dir> [flags]")?;
     let dir = PathBuf::from(it.next().ok_or("missing <world-dir>")?);
 
     match cmd.as_str() {
+        "add" | "update" | "remove" => {
+            // D-U1-3. `dir` is the world dir, as with every other subcommand.
+            let mut world_file = String::from("world.toml");
+            let mut arg: Option<String> = None;
+            let mut as_name: Option<String> = None;
+            while let Some(f) = it.next() {
+                match f.as_str() {
+                    "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
+                    "--as" => as_name = Some(it.next().ok_or("--as: missing name")?.clone()),
+                    other if other.starts_with("--") => return Err(format!("unknown flag {other:?}")),
+                    other => arg = Some(other.to_string()),
+                }
+            }
+            return match cmd.as_str() {
+                "add" => registry::add(&dir, &world_file, &arg.ok_or("add: missing <org>/<repo>")?, as_name.as_deref()),
+                "update" => registry::update(&dir, &world_file, arg.as_deref()),
+                _ => registry::remove(&dir, &world_file, &arg.ok_or("remove: missing <name>")?),
+            };
+        }
         "compose" => {}
         "interface-stub" => {
             // D-U1-7: the Rust signature for a hosted interface, from the Roc

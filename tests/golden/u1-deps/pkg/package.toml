@@ -1,0 +1,23 @@
+# A trantor PACKAGE: the offer (D-U1-2). It says what it provides, which
+# component implements it, and how it wires by default — so a consumer writes
+# one line and none of the three stanzas.
+[package]
+name = "base"
+version = "0.1.0"
+# The consumer inherits this and authors no driver (D-U1-6).
+provides_driver = "drv"
+
+[provides]
+text = "text-host"
+
+[interfaces.text]
+
+[components.drv]
+kind = "driver"
+lang = "rust"
+provides_runtime = true
+
+[components.text-host]
+kind = "host"
+lang = "rust"
+exports = ["text"]

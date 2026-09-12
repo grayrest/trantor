@@ -20,6 +20,17 @@ use crate::manifest::{confined, Dep, DepSource, Package, World};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// Make a path absolute without requiring it to exist. Dependency paths MUST be
+/// absolute by the time they reach `component_dir`, which joins them onto the
+/// world dir: a relative one gets joined twice and resolves to
+/// `<world>/<world>/pkg/...`, which is a "file not found" naming a path that
+/// was never on disk.
+fn absolute(p: &Path) -> PathBuf {
+    std::path::absolute(p).unwrap_or_else(|_| {
+        std::env::current_dir().map_or_else(|_| p.to_path_buf(), |c| c.join(p))
+    })
+}
+
 /// How deep a dependency chain may go before we call it a cycle. Deliberately
 /// small: a package graph this deep is a mistake long before it is a feature,
 /// and the message says which chain hit it.
@@ -39,10 +50,16 @@ fn package_root(world_dir: &Path, name: &str, dep: &Dep) -> Result<PathBuf, Stri
             }
             Ok(root)
         }
-        DepSource::GitHub(slug) => Err(format!(
-            "dep `{name}`: `{slug}` is not fetched. Run `trantor add {slug}` to resolve it to a \
-             tag and record the commit in trantor.lock."
-        )),
+        DepSource::GitHub(slug) => {
+            let root = crate::registry::github_root(world_dir, name, &slug)?;
+            if !root.join("package.toml").is_file() {
+                return Err(format!(
+                    "dep `{name}`: {slug} has no package.toml at its root — it is not a trantor \
+                     package."
+                ));
+            }
+            Ok(root)
+        }
     }
 }
 
@@ -108,12 +125,13 @@ fn expand_into(
         // from a world that has never heard of its layout.
         for (cname, mut c) in pkg.components {
             let rel = c.path.clone().unwrap_or_else(|| format!("components/{cname}"));
-            let abs = confined(&root, &rel, "a component path", &pkg_name)?;
+            let abs = absolute(&confined(&root, &rel, "a component path", &pkg_name)?);
             c.path = Some(abs.to_string_lossy().into_owned());
+            c.pkg_root = Some(absolute(&root).to_string_lossy().into_owned());
             claim(&mut staged.components, &cname, c, &pkg_name, "component")?;
         }
         for (iname, _) in pkg.interfaces {
-            let idir = root.join("interfaces").join(&iname);
+            let idir = absolute(&root.join("interfaces").join(&iname));
             claim(&mut staged.interfaces, &iname, idir, &pkg_name, "interface")?;
         }
         for (iface, expr) in pkg.provides {
@@ -198,12 +216,18 @@ mod tests {
         write(root, &format!("interfaces/{iface}/interface.toml"), "module = \"M\"\n");
     }
 
+    /// A unique scratch directory. Keyed by an atomic counter, NOT by the
+    /// clock: macOS `SystemTime` granularity lets two parallel tests land on
+    /// the same nanosecond, and then one test's cleanup deletes the other's
+    /// fixture. That was flaky 2 runs in 5 before the counter.
     fn tmp() -> PathBuf {
+        static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let p = std::env::temp_dir().join(format!(
-            "trantor-deps-{}-{:?}",
+            "trantor-deps-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
+        let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).unwrap();
         p
     }

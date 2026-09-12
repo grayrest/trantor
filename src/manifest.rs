@@ -216,6 +216,17 @@ pub fn confined(base: &Path, rel: &str, what: &str, pkg: &str) -> Result<PathBuf
     Ok(base.join(rel))
 }
 
+/// Where ONE interface lives: the directory a dependency supplied, else the
+/// world's own `interfaces_dir`. Every lookup of an interface's files goes
+/// through this, or a dependency's modules are invisible to composition even
+/// though its manifest parsed.
+pub fn iface_dir(world_dir: &Path, world: &World, name: &str) -> PathBuf {
+    match world.interfaces.get(name).and_then(|r| r.dir.as_ref()) {
+        Some(d) => d.clone(),
+        None => interfaces_dir(world_dir, world).join(name),
+    }
+}
+
 /// The directory holding `<interface>/interface.toml` for a world.
 pub fn interfaces_dir(world_dir: &Path, world: &World) -> PathBuf {
     world_dir.join(world.world.interfaces_dir.as_deref().unwrap_or("interfaces"))
@@ -282,6 +293,12 @@ pub struct Component {
     /// `#[link(name = "…", kind = "framework")]`. Host components only.
     #[serde(default)]
     pub frameworks: Vec<String>,
+    /// The package this component came from, when a dependency supplied it.
+    /// Not deserialized — `deps::expand` sets it. codegen copies the package's
+    /// whole `components/` tree into the generated workspace, because cargo
+    /// refuses a member that is not hierarchically below the workspace root.
+    #[serde(skip)]
+    pub pkg_root: Option<String>,
     /// Where the component lives, relative to the world dir, when it is not
     /// under `components/<name>/` (D-H7-4: a crate has one home —
     /// `path = "../../crates/svc-notes"`). Its Roc modules are looked up in
@@ -473,6 +490,14 @@ impl Driver {
     }
 }
 
+/// Parse a world without expanding `[deps]`. `trantor update` needs the dep
+/// list before the lock those deps resolve through has been written.
+pub fn load_world_raw(dir: &Path, file: &str) -> Result<World, String> {
+    let p = dir.join(file);
+    let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
+    toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
+}
+
 pub fn load_world(dir: &Path, file: &str) -> Result<World, String> {
     let p = dir.join(file);
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
@@ -522,10 +547,7 @@ fn default_driver_lists(dir: &Path, w: &mut World) -> Result<(), String> {
 }
 
 pub fn load_interface(dir: &Path, world: &World, name: &str) -> Result<Interface, String> {
-    let p = match world.interfaces.get(name).and_then(|r| r.dir.as_ref()) {
-        Some(d) => d.join("interface.toml"),
-        None => interfaces_dir(dir, world).join(name).join("interface.toml"),
-    };
+    let p = iface_dir(dir, world, name).join("interface.toml");
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))
 }

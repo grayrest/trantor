@@ -285,7 +285,7 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
 /// single-field variant), checked against the interface's shipped modules
 /// before roc or glue ever run.
 fn check_service_unions(dir: &Path, world: &World, iface_name: &str, iface: &Interface) -> Result<(), String> {
-    let idir = crate::manifest::interfaces_dir(dir, world).join(iface_name);
+    let idir = crate::manifest::iface_dir(dir, world, iface_name);
     for module in [Some(&iface.module), iface.event_module.as_ref()].into_iter().flatten() {
         let p = idir.join(format!("{module}.roc"));
         let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;

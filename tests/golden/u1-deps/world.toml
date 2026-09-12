@@ -1,0 +1,8 @@
+# The whole consumer manifest. No driver, no [interfaces], no [components], no
+# [wiring] — all four come from the one dependency (D-U1-1, D-U1-6).
+[world]
+name = "u1-deps"
+exports = ["Text"]
+
+[deps]
+base = { path = "pkg" }

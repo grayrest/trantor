@@ -1,0 +1,10 @@
+module = "Text"
+[[hosted]]
+leaf = "shout!"
+symbol_stem = "shout"
+[[hosted]]
+leaf = "count!"
+symbol_stem = "count"
+[[hosted]]
+leaf = "emit!"
+symbol_stem = "emit"

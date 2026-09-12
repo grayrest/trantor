@@ -1,0 +1,9 @@
+[package]
+name = "text-host"
+version = "0.0.0"
+edition = "2021"
+publish = false
+[lib]
+crate-type = ["staticlib", "rlib"]
+[dependencies]
+trantor-abi = "0.0.0"

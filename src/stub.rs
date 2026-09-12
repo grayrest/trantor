@@ -238,9 +238,8 @@ pub fn interface_stub(dir: &Path, world_file: &str, iface_name: &str) -> Result<
     }
 
     // The interface's Roc module, for the authored declarations.
-    let module_file = manifest::interfaces_dir(dir, &world)
-        .join(iface_name)
-        .join(format!("{}.roc", iface.module));
+    let module_file =
+        manifest::iface_dir(dir, &world, iface_name).join(format!("{}.roc", iface.module));
     let module_src = std::fs::read_to_string(&module_file).unwrap_or_default();
 
     let mut out = String::new();

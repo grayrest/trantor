@@ -1,0 +1,18 @@
+# Minimal CLI driver for the HC0 fixture.
+provides_symbol = "roc_main"
+provided_fn = "main_for_host!"
+
+requires = """
+		main! : {} => Try({}, [Exit(I32), ..])
+"""
+
+provided = """
+main_for_host! : () => I32
+main_for_host! = || {
+	match main!({}) {
+		Ok({}) => 0
+		Err(Exit(code)) => code
+		Err(_) => 1
+	}
+}
+"""
