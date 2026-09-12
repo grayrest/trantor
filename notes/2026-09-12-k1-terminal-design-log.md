@@ -111,7 +111,8 @@ The upstream examples still work under B: with stdin not redirected, fd 0 and
 `/dev/tty` are the same device, so a mode set through one applies to the other.
 
 **D-K1-6 — one blocking `read!` with a timeout returns whichever
-happened first.**
+happened first.** *(Wait mechanism amended by D-K1-20; EINTR and SIGWINCH
+registration by D-K1-25.)*
 
 ```roc
 read! : Tty, U64 => Try(Input, [TerminalErr(IOErr), ..])
@@ -134,6 +135,7 @@ Rejected: separate `poll_resize!`/`poll_resumed!` (a missed `Resumed` draws
 into a cooked shell); a driver-owned callback loop (reshapes the CLI driver).
 
 **D-K1-7 — the resource is the fd; drop closes it and never restores.**
+*(A borrowed variant added by D-K1-21; the record's fields by D-K1-22.)*
 `TerminalDevice.Tty` is a `[[resources]]` entry whose destructor is `close`.
 Refcounting drops at *last use*, not end of scope: a drop-restores design would
 put the snake back into cooked mode mid-game once its handle went unused while
@@ -151,6 +153,8 @@ Rejected: no handle at all, with pending escape bytes held host-side behind an
 every call instead of at `open!`.
 
 **D-K1-8 — `Cooked`, `Cbreak`, `Raw`; scopes restore what they found.**
+*(`with_mode!`'s error row as written below does not parse; D-K1-22 has the
+measured form.)*
 
 | Mode | ICANON | ECHO | ISIG | OPOST |
 |---|---|---|---|---|
@@ -224,6 +228,9 @@ different shape.
 
 Rejected: one Roc component for e+f+batteries (nothing below the whole package
 is swappable); standalone with its own error type (every app maps two `IOErr`s).
+
+*(D-K1-11's handler order and "behaves as if absent" claim are superseded by
+D-K1-19; libc's use widens by D-K1-19 and D-K1-23.)*
 
 **D-K1-11 — `rustix` + `signal-hook` + `libc` for `atexit`
 alone, pinned, with a no-`cc` gate.**
@@ -342,7 +349,8 @@ the affected rows to fail — no test-only feature or env var in the shipped hos
 | Type | Where | Cases |
 |---|---|---|
 | Unit (`expect`, step 4 of `trantor test .`) | `terminal-keys` | ~40: each legacy key and ambiguity; kitty incl. `Release`; SGR mouse and the 1→0 conversion; paste split across feeds; ESC+flush → `Esc`; ESC+`x` → Alt; invalid UTF-8 → `Unknown`; each `Reply` |
-| Unit | `terminal-width` | the pinned `GraphemeBreakTest.txt` in full; width samples for CJK, combining, ZWJ, VS16 |
+| Unit | `terminal-width` | width samples for CJK, combining, ZWJ, VS16 |
+| Golden (`main.roc` + `expected`) | `tests/graphemes/` | the pinned `GraphemeBreakTest.txt` in full |
 | Unit | `terminal-ansi` | sequence bytes; downsampling at boundaries |
 | Unit | `terminal-screen` | frame pairs → bytes: identical → empty; one cell; wide over narrow; resize |
 | Integration (pty) | `tests/pty/` (`test.sh`) | modes via harness-side `tcgetattr`; every row of the exit table, each asserting termios restored *and* exit bytes written in order; chaining; `TIOCSWINSZ` → `Resized` → `size!`; `read!(0)` immediate; `NoTerminal` under `setsid`; query answered / unsupported / timed out, with keys mid-query delivered |
@@ -363,9 +371,137 @@ rocjust's `is_terminal!` gets a home); input second; output third, because
 `~/dev/roc/trantor-terminal`, like trantor-net. ID `k1` because `t` is
 temporal's.
 
+## Plan details accepted (2026-09-12)
+
+**D-K1-18 — seven details the plan added beyond the grill, accepted as a set.**
+
+1. A `mode!` leaf: `with_mode!` must read what it will restore to. It reports
+   what the guard last set, not a classification of arbitrary termios.
+2. SIGINT is handled like SIGTERM: Cbreak keeps ISIG on, so without it
+   "Ctrl-C still kills, the guard restores" (D-K1-8) would be false.
+3. A `shared!` leaf holds the `Tty` shim's process-wide handle — the package's
+   one global.
+4. The guard writes teardown bytes to its own never-closed `/dev/tty` fd, so a
+   dropped `Tty` cannot close the fd a handler writes to.
+5. `Event` wraps `Keys.Input` (`[Input(Keys.Input), Resized, Resumed,
+   TimedOut]`) so a replacement decoder does not force a `Terminal` change.
+6. `Terminal` gains the restore stack and a sync-support cache.
+7. The Unicode table generator is a Rust binary, and a missing
+   `emulate_default_handler` is raised rather than hand-written.
+
+## Adversarial review (2026-09-12)
+
+An independent reviewer, told to measure on this Mac rather than reason where it
+could, found 1 blocker, 6 major, 6 minor. Probes are in the session scratchpad
+(`k1-review/probe`, `k1-review/roc`). Every recommendation was accepted.
+
+**D-K1-19 — the guard leaves claimed signals alone.** Measured: with
+`SIG_IGN` on SIGHUP, `raise` survives (rc 0); add `register_unchecked` +
+`emulate_default_handler` and it exits 129. A recording SIGINT handler followed
+by the guard exits 130. signal-hook-registry's `Prev::execute` skips `SIG_IGN`
+(`lib.rs:268`), and emulating the default then kills. That broke `nohup`,
+background jobs in non-interactive shells, and the reason seahaven's `Signal`
+exists ("finish what it is doing before it dies").
+
+So at install the guard queries each fatal signal's disposition read-only with
+`sigaction` and registers only those still at `SIG_DFL`. A claimed or ignored
+signal does not kill the process; whenever it exits, `atexit` restores.
+Registered-but-inactive emulates the default, which is now exactly the absent
+behaviour, because registration only happened where the default was in force.
+This supersedes D-K1-11's "previous handler → teardown → default" for claimed
+signals, and its `_exit`-in-a-prior-handler caveat no longer arises.
+
+The fatal set widens to every catchable signal whose default terminates or
+stops: SIGTERM, SIGHUP, SIGQUIT, SIGINT, SIGPIPE, SIGALRM, SIGUSR1/2, SIGXCPU,
+SIGXFSZ, SIGVTALRM, SIGPROF, SIGTSTP. SIGPIPE matters most: the driver's C
+`main` leaves it at the default, so `tui | head` dies of it. SIGSEGV (a Roc stack
+overflow — no Rust overflow handler is installed under a C `main`) is forbidden
+by the registry and is documented as `reset` territory.
+
+**D-K1-20 — `select` on Apple, `poll` elsewhere.** Measured under a pty with
+the child as session leader: `poll` on the `/dev/tty` fd returns
+`revents=0x20` (POLLNVAL) at once, with or without input; `poll` on fd 0 works;
+`select` on the `/dev/tty` fd works. Polling fd 0 instead would give up D-K1-5's
+piped-stdin case, so the wait is per-platform and `/dev/tty` stays. Whether
+Darwin's `select` accepts an fd ≥ `FD_SETSIZE` is to be measured at
+implementation and recorded here; a pty row forces a high fd.
+
+**D-K1-21 — `Tty` has a borrowed variant.** The resource ABI has `new`, `get`,
+`release`, `with` and no retain (`src/codegen.rs`), and the last Roc drop runs
+the boxed value's destructor. A `shared!` that returned an owning `Tty` would
+close the one shared fd at the first handle's last use, and a later
+`disable_raw_mode!` would `tcsetattr` a closed or reused fd — with the error
+swallowed by the shim's infallible signature. The host value is
+`Owned(OwnedFd) | Shared(RawFd)`; `shared!` returns the process-wide fd (the
+same one the guard writes to, D-K1-18 item 4) as `Shared`.
+
+**D-K1-22 — corrections to the Roc surface, all measured against the roc in
+use.**
+- A nominal record's fields are not readable from another module ("This is not
+  a record … It is: Term"), so `Ansi` and `Screen` could not touch
+  `Terminal.restore` or the sync cache. `Terminal` exports `push_restore!`,
+  `pop_restore!`, `sync_supported`, `with_sync_supported`.
+- `[ModeFailed(IOErr)]e` does not parse, and `[..e]` on the body with a wider
+  result does not unify. The form that checks is `[ModeFailed(IOErr), ..e]` on
+  both the callback and the result.
+- `pending : List(Keys.Input)` could not hold a `Resized` or `Resumed` arriving
+  during the escape wait or a query; it is `List(Event)`.
+
+**D-K1-23 — teardown cannot be skipped by a nested signal; the harness drains
+from spawn.** The registry installs with an empty `sa_mask`, so a different
+signal can interrupt teardown; an "already torn down" flag would then skip
+`tcsetattr` and die raw. Teardown writes the exit bytes at most once per
+activation but calls `tcsetattr(original)` unconditionally; `atexit` teardown
+blocks the fatal set with `pthread_sigmask`; SIGCONT clears the flag after
+re-entering. `libc` now also supplies `sigaction` (query only) and
+`pthread_sigmask` — declarations, no C.
+
+Measured on macOS: a pty child that has written output stays in exit (`?NEs`)
+until the master is read, and a harness blocked in `wait4` hangs. The harness
+drains the master on a thread from spawn.
+
+**D-K1-24 — a `suspend!` leaf.** In `Raw`, ISIG is off, so Ctrl-Z arrives as
+`0x1a` and nothing raises SIGTSTP. `suspend!` raises it through the guard, as
+vim and htop do. If SIGTSTP is claimed or ignored (D-K1-19), it goes to the
+claimant.
+
+**D-K1-25 — SIGWINCH is registered at `open!`, and `read!` retries EINTR.** A
+Cooked app that only reads and asks for the size would otherwise never see
+`Resized`. `poll`/`select` return EINTR under a handler regardless of
+`SA_RESTART`, so `read!` retries with the remaining budget from a monotonic
+clock.
+
+On Linux, socket reads under `SO_RCVTIMEO` return EINTR despite `SA_RESTART`,
+so any installed handler — this package's or anyone's — surfaces a resize as
+`Interrupted` from trantor-net's `Tcp` (`sockets-host/src/lib.rs:183`). That is a
+trantor-net defect and is fixed there, not worked around here.
+
+**D-K1-26 — `TCSANOW` for mode entry, not `TCSAFLUSH`.** Flushing discards keys
+typed during startup (the snake enables Raw before drawing), and made the b8
+snake run racy: keys sent before Raw were thrown away and the loop blocked
+forever. crossterm uses `TCSANOW`. Test harnesses send keys only after a
+readiness marker.
+
+Minor corrections folded into the plan without a decision: rustix's `pipe`
+feature; a nonexistent `Query.DeviceAttributes` reference removed; b8 asserts
+`tty` and `terminal-app-snake` by name because the floor alone does not prove
+inclusion; `GraphemeBreakTest.txt` added to the checked-in UCD files; the
+`inactive` pty row (which a binary without the package also passed) replaced by
+installed-inactive, inherited-ign, prior-handler, read-eintr, resize-cooked,
+suspend, sig-pipe and select-high-fd rows, with positive controls for the
+disposition check and the EINTR retry.
+
+Verified sound by the reviewer: registry order; `cc` only behind
+`extended-siginfo-raw`; ENXIO opening `/dev/tty` with no controlling terminal;
+the driver's exit paths; rustix 1.1.4 providing every termios and pty call
+needed on macOS; `{ super : Bool }` and `() => {}` checking; the `tests/pty/`
+layout as a single-kind T3 directory.
+
 ## Still open (raised, not decided)
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
   of K1.
 - `Stdout` writes interleaved with `Screen` frames on the same device are the
   app's to avoid; whether `Terminal` should warn is not decided.
+- trantor-net's socket reads returning `Interrupted` under any installed signal
+  handler on Linux (D-K1-25) — a trantor-net fix.
