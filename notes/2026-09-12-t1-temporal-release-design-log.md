@@ -529,13 +529,70 @@ tzif data temporal_rs runs the `Previous` branch for `Next` behind a
 `debug_assert`, and hosts are built `--release`. A caller walking transitions
 forward never terminated. A non-advancing answer is now no further transition.
 
+## D-T1-25 — a day's first instant is looked up, not searched for
+
+`start_of_day` bisected for the midnight boundary between midday and 26 hours
+earlier. That assumes the local date is entered exactly once, so the predicate
+"is this instant on that date" is false-then-true. Where a backward transition
+carries local time back across midnight it is false-true-false-true, and a
+bisection settles on whichever boundary its midpoints happen to straddle.
+
+Measured against a ground truth found by scanning every second of the
+surrounding sixty hours, over **all 598 zones tzdb ships, 1900-2100**:
+
+| | zone-days |
+|---|---|
+| checked | 260,453 |
+| local date entered twice (two midnights) | 795 |
+| local date never entered at midnight (a gap) | 4,210 |
+| bisection wrong | **683** |
+| spec algorithm wrong | **0** |
+
+The 683 split 4 / 679. The four are the ones review named
+(`Antarctica/Casey 2010-03-05`, `America/St_Johns` / `Goose_Bay` /
+`Canada/Newfoundland` 1988-10-30). The other 679 are at the two ends of the
+representable range, where the unconditional 26-hour probe is unrepresentable
+and the error propagated — including UTC's own first day, which begins at the
+minimum instant exactly. Asking for it returned `OutOfRange` for an answer that
+is not merely representable but is the boundary itself.
+
+What matters more than the four is that the bisection was right on 791 of the
+795 double-midnight days **by arithmetic luck** — whether a midpoint lands
+inside the sliver of local time before the clocks go back. `America/Goose_Bay`
+is wrong in 1988 and right in 1989 for no reason but where the midpoints fell.
+Moving one transition by a minute redraws that line, so the four were never a
+list of known-bad dates to work around; they were the visible part of an
+algorithm that had no claim to be right anywhere.
+
+So it does what TC39 specifies: the earliest instant that reads back as
+midnight on the date, and where the zone has no midnight there, the transition
+that drops local time into the day. `resolve_wall` already enumerates the
+candidates (D-T1-23), so the first branch is a call to it with `Earlier` plus a
+read-back to tell "the earliest midnight" from "no midnight at all". Both
+branches are exercised in bulk by the sweep above, 0 wrong.
+
+This is a REPLACEMENT, not an addition: the function is the same size it was.
+That is the argument for it — the bisection was not smaller, it was searching
+for something the data structure can be asked for directly.
+
+The gate gained three behaviours (67 -> 70), pinned to the numbers the
+independent Rust scan produced, and they were right on the first run through
+the Roc surface. Two of the three fail if the bisection is restored. The third
+— the gap case — passes either way, because a gap is exactly the shape a
+bisection handles correctly; it pins the new code path rather than catching the
+old defect, and saying so is cheaper than discovering it later.
+
+An honest note on the measurement: a first census counted "transitions that
+cross local midnight" and reported 97 double-midnight dates and 637 gaps. Both
+numbers were wrong — a transition landing exactly ON midnight crosses the date
+line without skipping midnight, and two offsets in the window produce two
+candidate instants that land on the right DATE without either being midnight.
+The numbers above count what actually reads back as midnight, which is the
+question. The wrong census would not have changed the fix, but it would have
+gone into this file as a fact.
+
 ## Still open (raised, not decided)
 
-- **`start_of_day` bisects a non-monotone predicate** in four zone-dates where
-  a backward transition carries local time across midnight (`Antarctica/Casey
-  2010-03-05`, `America/St_Johns`/`Goose_Bay`/`Canada/Newfoundland`
-  1988-10-30), and errors at the minimum representable instant because it
-  probes 26 hours earlier unconditionally. Both found by review, neither fixed.
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
   builds and 9 suite runs; five hypotheses falsified (above). If it recurs, the
   full log is now preserved — start there rather than from a new guess.
@@ -543,11 +600,11 @@ forward never terminated. A non-advancing answer is now no further transition.
   so DST rules do not move until the pin does. 0.2.6 is the newest published
   release (measured, D-T1-13), so the pin is current rather than stale — but it
   will go stale, and a time-zone library needs an answer for what happens then.
-- **The `b7-temporal` fixture still carries a full copy** of the interface and
-  the host, byte-identical apart from `live!`. b8 was converted to consume
-  trantor-cli; b7 was never converted to consume this package. Two sources of
-  truth for a released API, and the fixture is where the destructor-balance
-  gauge lives — the package itself has no proof its resources drop.
+- **The package itself has no proof its resources drop.** b7 now consumes the
+  package rather than copying it, and supplies `live!` from its own `gauge`
+  interface — which is the right place for it, since a drop gauge is test
+  apparatus. But it means the balance is measured by a fixture in another
+  repository, and nothing in trantor-temporal's own gate would notice a leak.
 - **Glue names result types by first declaration** (B7 finding 2):
   `zdt_with_time_zone` reuses `TemporalZdtFromEpochNsResult` because the two
   are structurally identical. Reordering leaves in `interface.toml` renames
