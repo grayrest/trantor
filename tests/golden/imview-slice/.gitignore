@@ -1,8 +1,1 @@
 target/
-bin/
-glue-out/
-abi/src/generated.rs
-platform/Element.roc
-platform/Env.roc
-platform/targets/*/*.a
-platform/targets/macos-sysroot/

@@ -116,12 +116,32 @@ pub fn scan(
 /// shims are first-wins across the link and the driver's archive is linked
 /// first, so any other component's allocator would be silently ignored.
 fn check_global_allocator(dir: &Path, world: &World) -> Result<(), String> {
+    let mut examined = 0usize;
+    let mut hosts = 0usize;
     for (name, c) in &world.components {
         if c.kind != "host" {
             continue;
         }
+        hosts += 1;
         let src = component_dir(dir, name, c).join("src");
-        for file in rust_files(&src) {
+        // `rust_files` returns nothing for a directory it cannot read, and an
+        // empty set reads as "clean" — so a component whose sources are not
+        // where we looked would sail through this guard rather than trip it.
+        // That is the whole silent-check pattern, and it is live now that a
+        // dependency's crates sit outside the world (D-U1-1): if expansion ever
+        // fails to rewrite a path, every dependency's `#[global_allocator]`
+        // becomes invisible instead of rejected.
+        let files = rust_files(&src);
+        if files.is_empty() {
+            return Err(format!(
+                "component `{name}`: no Rust sources under {} — the allocator guard cannot \
+                 examine it, and an unexaminable component must not pass for a clean one \
+                 (D-H7-13).",
+                src.display()
+            ));
+        }
+        examined += files.len();
+        for file in files {
             let text = std::fs::read_to_string(&file).unwrap_or_default();
             if text.contains(GLOBAL_ALLOCATOR_ATTR) {
                 return Err(format!(
@@ -132,6 +152,9 @@ fn check_global_allocator(dir: &Path, world: &World) -> Result<(), String> {
                 ));
             }
         }
+    }
+    if hosts > 0 {
+        eprintln!("trantor: allocator guard examined {examined} file(s) across {hosts} host component(s)");
     }
     Ok(())
 }

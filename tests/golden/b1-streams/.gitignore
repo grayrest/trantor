@@ -1,9 +1,1 @@
 target/
-bin/
-glue-out/
-abi/src/generated.rs
-platform/IOErr.roc
-platform/Streams.roc
-platform/Memory.roc
-platform/FileIo.roc
-platform/targets/*/*.a
