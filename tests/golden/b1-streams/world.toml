@@ -1,31 +1,48 @@
+# B1: one InputStream resource over two backings — memory and a file — through
+# the sync-io Stream trait. The substrate (the `io` and `sync-io` interfaces,
+# the sync-io host, sync-io-core) comes from trantor-cli; B1's own pieces are
+# only what it tests: its two backings and a driver with no CLI in it.
+#
+# It used to vendor that substrate, and the copy drifted — its `Streams.read!`
+# still returned `[StreamErr(IOErr)]` after trantor-cli had moved to
+# `[Io(IOErr)]`, and it had no `read_until!`.
+#
+# The driver stays B1's own — `run!`, no argv, no CLI in it — and it is NAMED
+# `main-driver` on purpose. Selecting it with `driver = "main-driver"` was not enough:
+# the package's unselected `main-driver` was still staged and still set
+# `provides_runtime`, and the composer refuses two runtime providers (they
+# would first-wins duplicate `roc_alloc`, H0c). A world's component of the same
+# name replaces the package's outright — deps.rs: "the world's own entries win,
+# by name" — so there is exactly one.
 [world]
 name = "b1-streams"
-driver = "cli"
+driver = "main-driver"
 exports = ["Streams", "Memory", "FileIo"]
-[interfaces.io]
-[interfaces.sync-io]
+
+[deps]
+trantor-cli = { path = "../../../../trantor-cli" }
+
 [interfaces.memory]
 [interfaces.file]
-[components.sync-io]
-kind = "host"
-lang = "rust"
-exports = ["sync-io"]
+
 [components.memory]
 kind = "host"
 lang = "rust"
 imports = ["sync-io"]
 exports = ["memory"]
+
 [components.file]
 kind = "host"
 lang = "rust"
 imports = ["sync-io"]
 exports = ["file"]
-[components.cli]
+
+[components.main-driver]
 kind = "driver"
 lang = "rust"
 provides_runtime = true
 requires_uses = ["Streams", "Memory", "FileIo"]
+
 [wiring]
-sync-io = "sync-io"
 memory = "memory"
 file = "file"

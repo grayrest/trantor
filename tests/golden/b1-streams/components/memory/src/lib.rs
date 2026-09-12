@@ -13,11 +13,11 @@ pub extern "C-unwind" fn trantor__memory__open(bytes: RocListWith<u8, false>) ->
     sync_io_core::input_stream(Box::new(Cursor::new(owned))) as *mut u64
 }
 
-/// `Memory.report! : U64 => I32` — returns `mem_len` as the exit code iff every
-/// stream resource has been dropped (live == 0), else -1.
+/// `Memory.report! : U64, U64 => I32` — returns `mem_len` as the exit code iff
+/// every stream resource has been dropped (live == 0), else -1.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn trantor__memory__report(mem_len: u64) -> i32 {
+pub extern "C-unwind" fn trantor__memory__report(mem_len: u64, file_len: u64) -> i32 {
     let live = abi::resource::live();
-    eprintln!("[memory] report: mem_len={mem_len} live={live}");
+    eprintln!("[memory] report: mem_len={mem_len} file_len={file_len} live={live}");
     if live == 0 { mem_len as i32 } else { -1 }
 }
