@@ -160,7 +160,11 @@ echo "ok: gauge silent unless TRANTOR_ALLOC_GAUGE is set"
 [[ -f "$B/target/trantor/b8-basic-cli/dist/baseline.lock" ]] && grep -q abi_fingerprint "$B/target/trantor/b8-basic-cli/dist/baseline.lock" || { echo "FAIL: publish produced no baseline.lock"; exit 1; }
 [[ -f "$B/target/trantor/b8-basic-cli/dist/platform/targets/arm64mac/libsubprocess_host.a" ]] || { echo "FAIL: dist lacks archives"; exit 1; }
 [[ ! -f "$B/target/trantor/b8-basic-cli/dist/platform/targets/arm64mac/libtestnet_host.a" ]] || { echo "FAIL: test scaffolding leaked into the published baseline"; exit 1; }
-./target/release/trantor tier "$B/extension" | grep -q "^Tier 1" || { echo "FAIL: pure-Roc extension not classified Tier 1"; exit 1; }
+# Captured, not piped into `grep -q`: grep exits on the first match, and the
+# "(N component(s) examined)" line `tier` prints after it then hits a closed
+# pipe, panics, and `pipefail` turns that into a failure of THIS check.
+_t=$(./target/release/trantor tier "$B/extension")
+[[ "$_t" == Tier\ 1:* ]] || { echo "FAIL: pure-Roc extension not classified Tier 1 — got: $_t"; exit 1; }
 echo "ok: published target/trantor/b8-basic-cli/dist/ with baseline.lock (no test scaffolding); pure-Roc extension is Tier 1"
 
 # ---- 4. confinement swap ----

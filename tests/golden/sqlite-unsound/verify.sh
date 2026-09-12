@@ -149,7 +149,10 @@ D="$S/target/trantor/sqlite-unsound/dist/platform/targets/arm64mac"
 { [[ -f "$S/target/trantor/sqlite-unsound/dist/baseline.lock" ]] && grep -q abi_fingerprint "$S/target/trantor/sqlite-unsound/dist/baseline.lock"; } || { echo "FAIL: rusqlite publish produced no baseline.lock"; exit 1; }
 [[ -f "$D/librusqlite_host.a" ]] || { echo "FAIL: rusqlite baseline lacks the engine archive"; exit 1; }
 [[ ! -f "$D/libreport_host.a" ]] || { echo "FAIL: test-only report-host leaked into the baseline"; exit 1; }
-./target/release/trantor tier "$S" | grep -q '^Tier 2' || { echo "FAIL: sqlite world should tier as Tier 2 (host code)"; exit 1; }
+# Captured, not piped (see b8-basic-cli/verify.sh): `tier` prints a count line
+# after the verdict, and grep -q closing the pipe first makes trantor panic.
+_t=$(./target/release/trantor tier "$S")
+[[ "$_t" == Tier\ 2:* ]] || { echo "FAIL: sqlite world should tier as Tier 2 (host code) — got: $_t"; exit 1; }
 echo "ok: rusqlite baseline publishes (engine + lock, no test scaffolding); Tier 2"
 
 # Publish the turso world: turso engine + Turso module, no rusqlite, no scaffolding.
