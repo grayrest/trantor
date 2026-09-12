@@ -5,24 +5,24 @@ use abi::*;
 
 /// Roc: `Text.shout! : Str => Str`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn trantor__text_host__shout(a: TextShoutArgs) -> RocStr {
-    let loud = a.arg0.as_str().to_uppercase();
+pub extern "C-unwind" fn trantor__text_host__shout(arg0: RocStr) -> RocStr {
+    let loud = arg0.as_str().to_uppercase();
     // Owned argument (B0): released once, after the last read of it.
-    unsafe { a.arg0.decref(abi::host()); }
+    unsafe { arg0.decref(abi::host()); }
     RocStr::from_str(&loud, abi::host())
 }
 
 /// Roc: `Text.count! : Str => U64`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn trantor__text_host__count(a: TextCountArgs) -> u64 {
-    let n = a.arg0.len() as u64;
+pub extern "C-unwind" fn trantor__text_host__count(arg0: RocStr) -> u64 {
+    let n = arg0.len() as u64;
     // Owned argument (B0): released once, after the last read of it.
-    unsafe { a.arg0.decref(abi::host()); }
+    unsafe { arg0.decref(abi::host()); }
     n
 }
 
 /// Roc: `Text.emit! : U64 => {}`
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn trantor__text_host__emit(a: TextEmitArgs) {
-    println!("{}", a.arg0);
+pub extern "C-unwind" fn trantor__text_host__emit(arg0: u64) {
+    println!("{arg0}");
 }
