@@ -100,15 +100,41 @@ fn is_refcounted(glue: &str, ty: &str) -> bool {
 /// whole-struct `decref` when it emitted one, else one call per refcounted
 /// field, else nothing — and "nothing" has to be earned, because a missed
 /// release is a leak the type system will not mention.
-fn release_plan(glue: &str, args_ty: &str, binding: &str) -> Vec<String> {
-    if has_decref(glue, args_ty) {
-        return vec![format!("unsafe {{ {binding}.decref(abi::host()); }}")];
+///
+/// `binding` is `Some(name)` when the arguments arrived as one struct, and
+/// `None` when they arrived flat and each field is a parameter of its own.
+/// Flat cannot use the whole-struct `decref`: there is no struct to call it on.
+fn release_plan(glue: &str, args_ty: &str, binding: Option<&str>) -> Vec<String> {
+    match binding {
+        Some(b) if has_decref(glue, args_ty) => {
+            vec![format!("unsafe {{ {b}.decref(abi::host()); }}")]
+        }
+        _ => fields_of(glue, args_ty)
+            .into_iter()
+            .filter(|(_, t)| is_refcounted(glue, t))
+            .map(|(f, _)| match binding {
+                Some(b) => format!("unsafe {{ {b}.{f}.decref(abi::host()); }}"),
+                None => format!("unsafe {{ {f}.decref(abi::host()); }}"),
+            })
+            .collect(),
     }
-    fields_of(glue, args_ty)
-        .into_iter()
-        .filter(|(_, t)| is_refcounted(glue, t))
-        .map(|(f, _)| format!("unsafe {{ {binding}.{f}.decref(abi::host()); }}"))
-        .collect()
+}
+
+/// What to discard so rustc does not warn about a parameter nobody read. One
+/// binding when the arguments came as a struct, else the flat parameters as a
+/// tuple — with the single case spelled bare, since `(x,)` reads like a typo.
+fn discard(fields: &[(String, String)], binding: Option<&str>) -> String {
+    match binding {
+        Some(b) => b.to_string(),
+        None => match fields {
+            [] => "()".to_string(),
+            [(one, _)] => one.clone(),
+            many => format!(
+                "({})",
+                many.iter().map(|(f, _)| f.as_str()).collect::<Vec<_>>().join(", ")
+            ),
+        },
+    }
 }
 
 /// Map a Roc type to its Rust spelling for the cases glue does not name a type
@@ -188,6 +214,29 @@ fn args_of(sig: &str) -> Option<String> {
         i += 1;
     }
     None
+}
+
+/// How many arguments a leaf takes, counting depth-zero commas so a record's
+/// or a tag union's own commas do not inflate it. `{}` is no arguments.
+///
+/// This is the difference between one parameter and several, which is the
+/// difference between a working host and a segfaulting one — see the emit site.
+fn arity(args: &str) -> usize {
+    let a = args.trim();
+    if a.is_empty() || a == "{}" {
+        return 0;
+    }
+    let b = a.as_bytes();
+    let (mut depth, mut n) = (0i32, 1usize);
+    for &c in b {
+        match c {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => n += 1,
+            _ => {}
+        }
+    }
+    n
 }
 
 /// The return side of `args => ret` / `args -> ret`, at depth zero so an arrow
@@ -325,12 +374,49 @@ pub fn interface_stub(dir: &Path, world_file: &str, iface_name: &str) -> Result<
             out.push_str(&format!("/// Roc: `{}.{} : {d}`\n", iface.module, leaf.leaf));
         }
 
-        // Argument: glue's struct when it made one (it does for every non-unit
-        // argument, single scalars included — `CellPutArgs { arg0: RocStr }`).
-        let (param, arg_expr) = if defines(&glue, &args_ty) {
-            ("a: ".to_string() + &args_ty, Some("a"))
+        // Argument. Glue emits an `…Args` struct for every non-unit argument,
+        // but that struct is the ACTUAL parameter only when the leaf takes ONE
+        // of them. `exec_output! : Cmd => …` really is passed one record, and
+        // glue names the struct's fields after the record's (`program`, `args`,
+        // `envs`). For two or more arguments the struct is a DESCRIPTION of the
+        // argument list — `arg0 … argN-1` — and the C ABI passes them
+        // separately, which is why every host in the wild is written flat.
+        //
+        // Taking the struct there compiles, links, and SEGFAULTS at run time
+        // (measured: a 4-argument leaf carrying a 10-field record, exit 139).
+        // A stub that emits it is worse than no stub, because the one failure
+        // mode this command exists to prevent is exactly this one.
+        // Glue's own field NAMES say which it is. `arg0 … argN-1` is an
+        // argument list; anything else means the single argument is a record
+        // and glue named the record's fields, so the struct really is the
+        // parameter (`exec_output! : Cmd` -> `program`, `args`, `envs`).
+        let n = decl.as_deref().and_then(args_of).map_or(0, |a| arity(&a));
+        let fields = if defines(&glue, &args_ty) {
+            fields_of(&glue, &args_ty)
         } else {
+            Vec::new()
+        };
+        let positional = !fields.is_empty()
+            && fields.iter().enumerate().all(|(i, (f, _))| *f == format!("arg{i}"));
+        // The arity is the second opinion, and it is the one that matters for a
+        // record whose own fields happen to be called `arg0`, `arg1`: one Roc
+        // argument is one parameter however glue spelled it. With a single
+        // field the two forms are the same parameter anyway (measured), so the
+        // bare spelling wins for matching what every host in the tree writes.
+        let flat = positional && (n >= 2 || fields.len() == 1);
+        let (param, arg_expr) = if fields.is_empty() {
             (String::new(), None)
+        } else if flat {
+            (
+                fields
+                    .iter()
+                    .map(|(f, t)| format!("{f}: {t}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                Some(None),
+            )
+        } else {
+            ("a: ".to_string() + &args_ty, Some(Some("a")))
         };
 
         // Return: glue's struct when it made one, else the primitive mapping.
@@ -364,16 +450,39 @@ pub fn interface_stub(dir: &Path, world_file: &str, iface_name: &str) -> Result<
         // refcounted to release.
         if let Some(a) = arg_expr {
             let plan = release_plan(&glue, &args_ty, a);
+            if flat && has_decref(&glue, &args_ty) {
+                // Glue released this argument list as a whole, which can mean a
+                // container whose ELEMENTS are refcounted too — a per-field
+                // `decref` would then under-release. Flat parameters cannot
+                // call the whole-struct helper, so say so rather than emit a
+                // leak that looks finished.
+                out.push_str(&format!(
+                    "    // FIXME(trantor): the glue gives `{args_ty}` its own `decref`, and these\n    \
+                     // arguments arrive flat, so it cannot be called. Check each release below\n    \
+                     // against that impl in the generated glue before trusting it.\n"
+                ));
+            }
             if plan.is_empty() {
                 out.push_str(&format!(
-                    "    let _ = {a}; // no refcounted field: nothing to release\n"
+                    "    let _ = {}; // no refcounted field: nothing to release\n",
+                    discard(&fields, a)
                 ));
             } else {
                 out.push_str(
                     "    // Owned argument (B0): released once, after the last read of it.\n",
                 );
-                for call in plan {
+                for call in &plan {
                     out.push_str(&format!("    {call}\n"));
+                }
+                // Every parameter has to be mentioned or rustc warns; the
+                // refcounted ones were just mentioned by their release.
+                let rest: Vec<(String, String)> = fields
+                    .iter()
+                    .filter(|(_, t)| !is_refcounted(&glue, t))
+                    .cloned()
+                    .collect();
+                if a.is_none() && !rest.is_empty() {
+                    out.push_str(&format!("    let _ = {};\n", discard(&rest, None)));
                 }
             }
         }
@@ -457,7 +566,7 @@ mod tests {
         // wrong emits "nothing to release" over a leak.
         let g = "\npub struct TextShoutArgs {\n    pub arg0: RocStr,\n}\n";
         assert_eq!(
-            release_plan(g, "TextShoutArgs", "a"),
+            release_plan(g, "TextShoutArgs", Some("a")),
             vec!["unsafe { a.arg0.decref(abi::host()); }".to_string()]
         );
     }
@@ -465,13 +574,44 @@ mod tests {
     #[test]
     fn a_whole_struct_decref_wins_over_per_field() {
         let g = "\npub struct M {\n    pub x: RocStr,\n    pub y: RocStr,\n}\n\nimpl M {\n    pub unsafe fn decref(self) {}\n}\n";
-        assert_eq!(release_plan(g, "M", "a"), vec!["unsafe { a.decref(abi::host()); }".to_string()]);
+        assert_eq!(release_plan(g, "M", Some("a")), vec!["unsafe { a.decref(abi::host()); }".to_string()]);
     }
 
     #[test]
     fn an_all_scalar_struct_releases_nothing() {
         let g = "\npub struct ClocksSleepMillisArgs {\n    pub arg0: u64,\n}\n";
-        assert!(release_plan(g, "ClocksSleepMillisArgs", "a").is_empty());
+        assert!(release_plan(g, "ClocksSleepMillisArgs", Some("a")).is_empty());
+    }
+
+    #[test]
+    fn flat_arguments_release_themselves_and_ignore_the_struct_decref() {
+        // There is no struct to call a whole-struct decref on when each field
+        // arrived as its own parameter, so it must fall through to per-field.
+        let g = "\npub struct M {\n    pub arg0: RocStr,\n    pub arg1: u64,\n}\n\nimpl M {\n    pub unsafe fn decref(self) {}\n}\n";
+        assert_eq!(
+            release_plan(g, "M", None),
+            vec!["unsafe { arg0.decref(abi::host()); }".to_string()],
+            "the u64 owns nothing and the RocStr is addressed bare, not through `a.`"
+        );
+    }
+
+    #[test]
+    fn arity_counts_top_level_arguments_only() {
+        assert_eq!(arity("{}"), 0, "a unit argument is not an argument");
+        assert_eq!(arity("Cmd"), 1);
+        assert_eq!(arity("{ a : Str, b : U64 }"), 1, "a record's commas are its own");
+        assert_eq!(arity("PlainDate, Duration, Calendar, Overflow"), 4);
+        assert_eq!(arity("Str, [Year, Month, Day]"), 2, "a tag union's commas are its own");
+        assert_eq!(arity("List(U8), { x : I32, y : I32 }"), 2);
+    }
+
+    #[test]
+    fn discard_spells_one_parameter_bare_and_several_as_a_tuple() {
+        let one = vec![("arg0".to_string(), "u64".to_string())];
+        let two = vec![("arg0".to_string(), "u64".to_string()), ("arg1".to_string(), "u8".to_string())];
+        assert_eq!(discard(&one, None), "arg0");
+        assert_eq!(discard(&two, None), "(arg0, arg1)");
+        assert_eq!(discard(&two, Some("a")), "a", "a struct is one binding however many fields");
     }
 
     #[test]
