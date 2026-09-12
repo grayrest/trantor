@@ -254,6 +254,32 @@ alternatives. A constructor that silently returns the wrong instant — and hand
 back a value whose answer depends on which accessor you call — is the kind of
 bug that becomes someone's incident.
 
+**D-T1-14 — and the same defect on the arithmetic path, corrected by its own
+invariant.** Found while verifying M2: `zdt_subtract!` did not round-trip.
+2026-03-08T10:40-04:00 minus P1D lands on 09:40 rather than 10:40, going
+backwards over a spring-forward. Forward arithmetic is fine. Measured over
+2026: 3 wrong for America/New_York, 26 for Europe/Berlin.
+
+Two things this settled. `subtract(P1D)` and `add(-P1D)` agree *exactly*,
+including on the wrong answer — so D-T1-3's claim that subtract is free in the
+shim holds, and no leaf is owed. And `corrected` cannot see this one: the
+result is self-consistent, a real instant with the right offset for it, just
+not the instant that was asked for.
+
+The correction is the operation's own invariant. A duration with no time parts
+moves the date in wall-clock time, so the time of day does not change — that is
+precisely what makes `+P1D` across a transition 23 hours instead of 24. When it
+does change, keep the date the arithmetic chose, put the original time of day
+back, and resolve that wall clock. Mixed durations are untouched, since theirs
+is supposed to move. Measured 0 wrong across 5 zones x 12 months x 28 days x
+{+1d, -1d, +1m}, with `+P1DT2H` still moving 10:40 to 12:40.
+
+Two upstream defects in one release is worth saying plainly: temporal_rs 0.2.6
+is the newest published version, and wall-clock resolution near a DST
+transition is unreliable in it on both the construction and the arithmetic
+path. Both corrections are conditional on detecting the wrong answer, so both
+retire themselves when upstream fixes this.
+
 ## Still open (raised, not decided)
 
 - **The tzdb is frozen at the `=0.2.6` pin.** `sys-local` bundles the database,

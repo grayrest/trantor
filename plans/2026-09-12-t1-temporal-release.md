@@ -1,7 +1,7 @@
 # T1 — trantor-temporal for release
 
 **Design log:** [`notes/2026-09-12-t1-temporal-release-design-log.md`](../notes/2026-09-12-t1-temporal-release-design-log.md).
-Decisions are D-T1-1 … D-T1-13; this file does not re-argue them.
+Decisions are D-T1-1 … D-T1-14; this file does not re-argue them.
 
 Repo: `../trantor-temporal` (sibling checkout, one commit, clean tree).
 
@@ -168,20 +168,46 @@ Original M1 scope: `interface.toml`, `TemporalHost.roc`,
 - `duration_rec`'s `i128 → i64` casts: `i64::try_from(…).map_err(…)?` rather
   than `as`, surfacing the truncation as an `Err` instead of wrapping.
 
-**M2 — shim layer.** `components/temporal-lib/Temporal.roc`, new `[components.temporal-lib]`
+**M2 — shim layer. DONE, verified.** `Temporal` (public) and `Strftime` (engine,
+component-exported but not package-exported, as basic-lib does with
+`InternalDateTime`). Typechecks with zero errors and zero warnings; a 25-case
+exercise confirms `1970-01-01` padding, the directive table, strict parsing
+(trailing input, literal mismatch, weekday validated against the date, POSIX
+`%y`, `%j`, no defaulting of an unnamed year), the TC39 defaults (`until!` 359d
+vs `until_in!(Year)` P11M24D, `zdt_until!` PT23H vs in-days P1D), `zdt_format!`
+with `%z %:z %Z`, and a `zdt_subtract!` round-trip that closes exactly. Plus
+D-T1-14, found here.
+
+Compiler notes for whoever edits this next: no record-update syntax, narrowing
+is `X.to_y_wrap`, `Try` has `map_ok` not `map` and `??` not `unwrap_or`, `Bool`
+has no `to_str`, and `Str.join_with` is a static call rather than a method.
+
+Original M2 scope: `components/temporal-lib/Temporal.roc`, new `[components.temporal-lib]`
 (`kind = "roc"`, `exports = ["Temporal"]`) in `package.toml`, and
 `exports = ["Temporal", "TemporalHost"]` under `[package]`.
 
 Formatter and parser are the bulk of it and are pure — unit-testable without
 composing a world.
 
-**M3 — docs.** README: the two surfaces and why (mirror trantor-cli's README
+**M3 — docs. DONE.** Every README example was run before being written down,
+including the `Clocks` bridge — whose two error types cannot meet under one
+`?`, which the example shows rather than hides. No LICENSE was added: none of
+trantor, trantor-cli or trantor-net carries one, and choosing one is the
+author's call, not this work's. Still open below.
+
+Original M3 scope: README: the two surfaces and why (mirror trantor-cli's README
 shape), the strftime table, the D-T1-11 note that there is no `PlainDateTime`,
 how to get from `Clocks` to a `ZonedDateTime` since "now" lives in the
 baseline, and an `https://` link to this package's own repo rather than
 `http://` to trantor's. Add a LICENSE file.
 
-**M4 — gate.** `verify.sh` keeps its three existing checks and drops the
+**M4 — gate. DONE, and self-checked.** 29 behaviours pinned, one per decision;
+build and run output go to files so a failure states its cause. Proven to have
+teeth by regressing `corrected` on purpose — the gate fails and names it
+(09:40 against 10:40, 86400000000000 against 82800000000000). The positive
+control checks both exported modules now.
+
+Original M4 scope: `verify.sh` keeps its three existing checks and drops the
 `2>/dev/null` on the build so a failure states its cause. Add:
 
 - error paths: `calendar_from_id!("nosuchcal")` → `OutOfRange`, and a bad zone
@@ -196,6 +222,8 @@ baseline, and an `https://` link to this package's own repo rather than
 
 ## Open, and deliberately not decided here
 
+- **A LICENSE.** None of trantor, trantor-cli or trantor-net has one either, so
+  this is an ecosystem-wide decision and a legal one. Nothing was invented here.
 - **Resource-drop coverage.** Dropping `live!` was right for the public
   surface, but the package now has no proof its destructors run; the gauge
   lives only in `tests/golden/b7-temporal`. trantor-cli's `TempTest` is
