@@ -1,9 +1,0 @@
-[package]
-name = "clocks-host"
-version = "0.0.0"
-edition = "2021"
-publish = false
-[lib]
-crate-type = ["staticlib", "rlib"]
-[dependencies]
-trantor-abi = { path = "../../abi" }

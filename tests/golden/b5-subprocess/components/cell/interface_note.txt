@@ -1,5 +1,0 @@
-cell provides one process-global mutable Str cell (fixture-minimal, handle-free):
-  Cell.put! : Str => {}     stores a value
-  Cell.get! : {} => Str     reads the last stored value (or "")
-A real cell is typed and handle-based (Cell.new!/get!/set!); this proves the
-mechanism -- host-backed mutable state reachable from Roc -- with one slot.
