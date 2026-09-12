@@ -258,6 +258,22 @@ fn return_of(sig: &str) -> Option<String> {
     None
 }
 
+/// Is this `src/lib.rs` still the placeholder `new-interface` wrote?
+///
+/// Scaffolding is a doc comment and nothing else — it exists only so that a
+/// `[lib]` with no source does not become a manifest cargo cannot parse. So
+/// anything that could compile to a symbol, by any route, says the file is
+/// someone's work: a `no_mangle` fn written out, a macro invocation that
+/// expands to one (`fs_core::exports!(..)`), a `mod`, a `use`.
+///
+/// Deliberately asked this way round. A new way to implement a leaf then
+/// reads as real work by default and is left alone; the cost of being wrong
+/// is a stub printed to stdout instead of written, which the caller already
+/// handles.
+fn is_scaffolding(text: &str) -> bool {
+    text.lines().map(str::trim).all(|l| l.is_empty() || l.starts_with("//"))
+}
+
 pub fn interface_stub(dir: &Path, world_file: &str, iface_name: &str) -> Result<(), String> {
     let world: World = manifest::load_world(dir, world_file)?;
     let iface = manifest::load_interface(dir, &world, iface_name)?;
@@ -500,10 +516,12 @@ pub fn interface_stub(dir: &Path, world_file: &str, iface_name: &str) -> Result<
     .join("src/lib.rs");
 
     // Refuse to clobber real work; replace a placeholder without ceremony.
-    // "Real work" is a hosted function — a scaffolded lib.rs is a comment and
-    // a manifest that would not otherwise parse.
-    let has_impl = std::fs::read_to_string(&target)
-        .is_ok_and(|t| t.contains("extern \"C-unwind\""));
+    // The question asked is "is this still scaffolding?", not "did someone
+    // write `extern "C-unwind"` by hand?" — the second one is answerable only
+    // for the hosts whose symbols are spelled out in the file, and it deleted
+    // a real one (`fs_core::exports!(..)`, whose symbols come from a macro)
+    // by calling it empty.
+    let has_impl = std::fs::read_to_string(&target).is_ok_and(|t| !is_scaffolding(&t));
     if has_impl {
         print!("{out}");
         eprintln!(
@@ -660,6 +678,37 @@ mod tests {
             "SubprocessHostExecExitCodeResult"
         );
         assert!(!by_ret.contains_key(&return_of("Cmd => Try(A, B)").unwrap()));
+    }
+
+    #[test]
+    fn a_macro_generated_host_is_real_work() {
+        // The shape that got overwritten: fs-unconfined's whole implementation
+        // is one macro call, so the file names no `extern "C-unwind"` anywhere
+        // and the old text search called it empty.
+        let real = "//! roc:filesystem, UNCONFINED: the preopen is `/`.\n\
+                    fs_core::exports!(fs_unconfined, fs_core::Root { confined: false });\n";
+        assert!(!is_scaffolding(real));
+    }
+
+    #[test]
+    fn the_scaffolded_placeholder_is_still_scaffolding() {
+        // What `new-interface` writes — and the only thing safe to overwrite.
+        let placeholder = "//! Host implementation of interface `text`.\n\
+                           //! Run `trantor interface-stub text` to replace this with the\n\
+                           //! signatures generated from interfaces/text/Text.roc.\n";
+        assert!(is_scaffolding(placeholder));
+        assert!(is_scaffolding(""), "a missing body is not someone's work either");
+    }
+
+    #[test]
+    fn a_generated_stub_is_real_work_too() {
+        // Re-running over a previous stub prints rather than writes, so an
+        // edited body is never silently replaced by `todo!()`.
+        let stub = "//! Host implementation of interface `text`.\n\
+                    use trantor_abi as abi;\n\n\
+                    #[unsafe(no_mangle)]\n\
+                    pub extern \"C-unwind\" fn trantor__text_host__shout() {}\n";
+        assert!(!is_scaffolding(stub));
     }
 
     #[test]

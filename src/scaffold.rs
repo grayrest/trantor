@@ -158,8 +158,9 @@ pub fn new_interface(dir: &Path, world_file: &str, name: &str) -> Result<(), Str
     )?;
     // A [lib] with no source is a manifest cargo cannot even parse, so `cargo
     // add` and `cargo metadata` fail here before the user has done anything
-    // wrong. `interface-stub` replaces this file wholesale — it only refuses to
-    // overwrite one that already has hosted functions in it.
+    // wrong. `interface-stub` replaces this file wholesale — comments and
+    // nothing else is exactly what it recognises as safe to overwrite, so
+    // keep it that way (`stub::is_scaffolding`).
     write_new(
         &cdir.join("src/lib.rs"),
         &format!(
