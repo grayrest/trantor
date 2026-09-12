@@ -14,7 +14,7 @@ main! = |_args| {
 	ny = Temporal.time_zone_from_id!("America/New_York") ?? return(Err(Exit(3)))
 	tokyo = Temporal.time_zone_from_id!("Asia/Tokyo") ?? return(Err(Exit(4)))
 
-	one_month = Temporal.duration_of({ ..Temporal.duration, months: 1 })
+	one_month = { ..Temporal.duration, months: 1 }
 	jan31 = Temporal.plain_date({ year: 2024, month: 1, day: 31 })
 	added = jan31.add!(one_month, iso) ?? return(Err(Exit(5)))
 	Stdout.line!(Str.concat("date-add: ", added.to_str())) ?? {}
