@@ -17,6 +17,25 @@ t2=$(./target/release/trantor tier "$FIX" --world extensions/tier2.toml)
 [[ "$t2" == Tier\ 2:* ]] || { echo "FAIL: host ext not Tier 2: $t2"; exit 1; }
 echo "ok: pure-Roc extension -> Tier 1; host extension -> Tier 2"
 
+# A reader that goes away closes the pipe under trantor. Rust ignores SIGPIPE
+# by default, so the next `println!` used to panic and print a backtrace note
+# where `cat` prints nothing; main.rs restores the default disposition.
+#
+# The reader is `(exit 0)`, not `head -1`: a pipe buffers 64KB, so `head`
+# takes both of tier's lines and closes only after trantor is done writing —
+# it loses the race almost every time and the check passes either way. A
+# reader that exits before trantor has parsed a manifest never does.
+# `|| true` because the fix's own success is a nonzero status: trantor is now
+# killed by SIGPIPE, the pipeline reports 141 under `pipefail`, and `set -e`
+# would take the script down at this assignment.
+piped_err=$( { ./target/release/trantor tier "$FIX" --world extensions/tier1.toml | (exit 0); } 2>&1 >/dev/null ) || true
+[[ -z "$piped_err" ]] || { echo "FAIL: trantor wrote to stderr when its reader went away: ${piped_err:0:120}"; exit 1; }
+# ...and the verdict still reaches a reader that stays. Without this, a trantor
+# that printed nothing at all would satisfy the assertion above.
+first=$(./target/release/trantor tier "$FIX" --world extensions/tier1.toml | head -1)
+[[ "$first" == Tier\ 1:* ]] || { echo "FAIL: nothing reached a reader through the pipe — got: $first"; exit 1; }
+echo "ok: a reader that goes away gets no panic; one that stays gets the verdict"
+
 # Tier-1 build from the PUBLISHED dist, no cargo/glue.
 T=$(mktemp -d)
 cp -r "$FIX/target/trantor/two-component/dist" "$T/baseline"   # D-H7-38 moved this; line 11 was updated and this one was not

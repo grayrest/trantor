@@ -42,7 +42,25 @@ mod wasm;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+/// Rust sets SIGPIPE to SIG_IGN before `main`, so a write to a closed pipe
+/// returns EPIPE and `println!` panics on it — `trantor tier | head -1` printed
+/// a panic and a backtrace note where `cat` and `grep` print nothing. Restore
+/// the default disposition, which is what every other CLI in a pipeline does.
+///
+/// This does not make `| grep -q` succeed under `set -o pipefail`: the process
+/// is then killed by the signal and the shell reports 141, exactly as it would
+/// for `sort | head`. A script that wants the output must capture it.
+#[cfg(unix)]
+fn restore_sigpipe_default() {
+    // SAFETY: called once, before any thread is spawned; SIG_DFL is the
+    // disposition the process started with before Rust's runtime changed it.
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL); }
+}
+#[cfg(not(unix))]
+fn restore_sigpipe_default() {}
+
 fn main() -> ExitCode {
+    restore_sigpipe_default();
     let args: Vec<String> = std::env::args().collect();
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,

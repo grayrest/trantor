@@ -14,6 +14,11 @@ toml = "0.8"
 # Already in the tree beneath `toml`; named directly so world.toml can be
 # edited without reformatting a file the user hand-writes.
 toml_edit = "0.22"
+# One call: restore the default SIGPIPE disposition (see main.rs). Worth a
+# dependency rather than a hand-declared `extern "C" { fn signal(..) }` with a
+# hardcoded signal number, which would fail silently if the number were wrong.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.185"
 
 # This tool is its own workspace; the fixtures under tests/ have their own.
 [workspace]
