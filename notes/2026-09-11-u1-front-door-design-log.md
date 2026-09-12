@@ -292,11 +292,37 @@ by: every command in the walkthrough exits zero and prints no error text, and
 the hand-written `world.toml` diff at each step is recorded. Those measure the
 experience; a file count measures the template.
 
-**D-U1-16 — basic-cli is a package, and its offer is generated from its gated
-world.** `~/dev/roc/basic-cli` (a sibling of trantor and roc-solid; not to be
-confused with `~/Repositories/roc-basic-cli`, the upstream clone b8 ports its
-examples from). 16 interfaces, 24 components, 15 wiring entries, 24 exports,
-520K of source.
+**D-U1-16 — the CLI platform is a package named `trantor-cli`, and its offer is
+generated from its gated world.** `~/dev/roc/trantor-cli`, a sibling of trantor
+and roc-solid. Named for what it is rather than what it ports: upstream Roc's
+`basic-cli` is a different thing at a different URL, and
+`~/Repositories/roc-basic-cli` — the upstream clone whose examples b8 is gated
+against — is on this machine already. 16 interfaces, 24 components, 15 wiring
+entries, 34 exports, 520K of source.
+
+**D-U1-17 — it exposes both surfaces, not just the shim.** The WASI-derived
+capability layer (14 modules: `CliEnv`, `CliIn`, `CliOut`, `CliTty`, `Clocks`,
+`Fs`, `HttpHost`, `IOErr`, `LocaleHost`, `RandomHost`, `Sockets`, `Streams`,
+`SubprocessHost`, `Temporal`) alongside the basic-cli shim written over it (20).
+An app may use either or both.
+
+Nothing had to be renamed for this: the hosted modules already carried `Host`
+and `Cli` names, so `Stdout`/`CliOut` and `Random`/`RandomHost` coexist. The
+split is computed by PROVENANCE — an interface's module is hosted, a roc
+component's is shim — rather than by which list a name sat in, because the
+world's own export list already mixed the two (`Streams`, `Sockets`, `Temporal`
+and `IOErr` are hosted). Describing the surfaces any other way would have put a
+falsehood in the README.
+
+`Cell` and `TestNet` stay unexposed: the userland cwd slot two components share,
+and a test peer whose host is `test_only` and therefore absent from any
+published baseline. Exposing a module whose implementation does not ship is a
+trap, not a feature.
+
+One fact the raw layer surfaces and the shim hides, now documented: hosted
+errors are CLOSED unions, so an app's `[Exit(I32), ..]` will not absorb a
+`StreamErr` — the propagated tags have to be named. Found by writing the
+raw-layer app rather than by reading the types.
 
 `package.toml` is GENERATED from `tests/golden/b8-basic-cli/world.toml` rather
 than transcribed, and the package's `verify.sh` re-checks the two whenever a
