@@ -22,7 +22,7 @@ variant() {
 variant pass ':'
 if ! "$TR" test "$T/pass" > "$T/pass.out" 2>&1; then echo "FAIL: the clean package does not pass"; tail -30 "$T/pass.out"; exit 1; fi
 for claim in "alone it says it has no driver" "composes with its dev-deps" "none of its 1 exported modules" \
-	"1 of them this package's own" "README.md — 1 blocks compile and run, 1 stated values match" \
+	"1 of them this package's own" "README.md — 2 blocks compile and run (1 whole apps), 1 stated values match" \
 	"tests/hello — 1 lines exact" "the script got TRANTOR, ROC, PKG, DEPS, DEV_DEPS and TMP" "trantor test: greet PASS"; do
 	grep -qF "$claim" "$T/pass.out" || { echo "FAIL: a passing run did not report: $claim"; cat "$T/pass.out"; exit 1; }
 done
@@ -39,6 +39,8 @@ breaks expects-unreached 'sed -i "" "s/^exports = \[\"Greet\"\]/exports = []/" p
 	"contributed none of the"
 breaks readme-value 'sed -i "" "s/# \"hello world\"/# \"hello there\"/" README.md' \
 	"README.md says one thing and the package does another"
+breaks readme-app 'sed -i "" "s/Greet.hello(\"reader\")/Greet.nope(\"reader\")/" README.md' \
+	"the README.md app at line"
 breaks app-expected 'printf "hello nobody\n" > tests/hello/expected' \
 	"tests/hello: output differs"
 breaks script-fails 'printf "exit 3\n" >> tests/script/test.sh' \
@@ -47,5 +49,5 @@ breaks empty-suite 'mkdir tests/empty' \
 	"tests/empty/ is none of"
 breaks two-kinds 'cp tests/script/test.sh tests/hello/' \
 	"tests/hello/ is more than one kind of suite"
-echo "ok: a package owning a baseline module, unreached expects, a wrong README value, a wrong expected line, a failing script, an empty suite and a two-kind suite each fail, and say so"
+echo "ok: a package owning a baseline module, unreached expects, a wrong README value, a README app that no longer builds, a wrong expected line, a failing script, an empty suite and a two-kind suite each fail, and say so"
 echo "T3 PASS"

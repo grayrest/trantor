@@ -10,26 +10,61 @@ use crate::package_test::{platform_dir, s, trantor_output, Steps, APP_WORLD};
 
 pub fn check(steps: &Steps, with: &Path) -> Result<(), String> {
     let Ok(readme) = std::fs::read_to_string(steps.root.join("README.md")) else { return Ok(()) };
-    let blocks = blocks(&readme);
-    if blocks.is_empty() {
-        return Ok(());
+    let all = blocks(&readme);
+    // A block that is a whole app is built and run as written; the rest are
+    // fragments, stitched into one generated app.
+    let (apps, fragments): (Vec<_>, Vec<_>) = all.into_iter().partition(|b| is_whole_app(b));
+    for app in &apps {
+        let source = retarget(&app.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n"));
+        run_app(with, &source, &format!("the README.md app at line {}", app.first().map_or(0, |l| l.0)))?;
     }
-    let prelude = std::fs::read_to_string(steps.root.join("tests/readme-prelude.roc")).unwrap_or_default();
-    let platform = std::fs::read_to_string(platform_dir(with, APP_WORLD).join("main.roc"))
-        .map_err(|e| format!("read the composed platform: {e}"))?;
-    let generated = generate(&blocks, &bindings(&prelude), &platform)?;
-    std::fs::write(with.join("app/main.roc"), &generated.app).map_err(|e| format!("write README app: {e}"))?;
-    let out = trantor_output(&["run", s(with)], with)?;
-    let got = String::from_utf8_lossy(&out.stdout);
-    if !out.status.success() {
-        return Err(format!("a README.md example does not build:\n{}", String::from_utf8_lossy(&out.stderr)));
+    let mut stated = 0;
+    if !fragments.is_empty() {
+        let prelude = std::fs::read_to_string(steps.root.join("tests/readme-prelude.roc")).unwrap_or_default();
+        let platform = std::fs::read_to_string(platform_dir(with, APP_WORLD).join("main.roc"))
+            .map_err(|e| format!("read the composed platform: {e}"))?;
+        let generated = generate(&fragments, &bindings(&prelude), &platform)?;
+        let got = run_app(with, &generated.app, "a README.md example")?;
+        if got != generated.expected {
+            return Err(format!("README.md says one thing and the package does another\n  stated:\n{}\n  actual:\n{}",
+                indent(&generated.expected), indent(&got)));
+        }
+        stated = generated.expected.lines().count();
     }
-    if got != generated.expected {
-        return Err(format!("README.md says one thing and the package does another\n  stated:\n{}\n  actual:\n{}",
-            indent(&generated.expected), indent(&got)));
+    if apps.len() + fragments.len() > 0 {
+        println!("ok: README.md — {} blocks compile and run ({} whole apps), {stated} stated values match",
+            apps.len() + fragments.len(), apps.len());
     }
-    println!("ok: README.md — {} blocks compile and run, {} stated values match", blocks.len(), generated.expected.lines().count());
     Ok(())
+}
+
+/// Build and run `source` as the scratch world's app; its stdout.
+fn run_app(with: &Path, source: &str, what: &str) -> Result<String, String> {
+    std::fs::write(with.join("app/main.roc"), source).map_err(|e| format!("write {what}: {e}"))?;
+    let out = trantor_output(&["run", s(with)], with)?;
+    if !out.status.success() {
+        return Err(format!("{what} does not build or run:\n{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+pub fn is_whole_app(block: &[(usize, String)]) -> bool {
+    block.iter().map(|(_, l)| l.trim()).find(|l| !l.is_empty() && !l.starts_with('#')).is_some_and(|l| l.starts_with("app ["))
+}
+
+/// A README app names its reader's world; point it at the test world instead.
+pub fn retarget(source: &str) -> String {
+    let mut out = String::new();
+    for (i, line) in source.lines().enumerate() {
+        match (i, line.split_once("platform \"")) {
+            (_, Some((head, rest))) if line.trim_start().starts_with("app [") => {
+                let tail = rest.split_once('"').map_or("", |(_, t)| t);
+                out.push_str(&format!("{head}platform \"../target/trantor/{APP_WORLD}/platform/main.roc\"{tail}\n"));
+            }
+            _ => out.push_str(&format!("{line}\n")),
+        }
+    }
+    out
 }
 
 fn indent(text: &str) -> String {
@@ -242,6 +277,16 @@ mod tests {
         assert!(!g.app.contains("jan31 = D.a"), "a block's own binding must not be shadowed by the prelude");
         assert!(g.app.contains("ny = Z.b"), "a used, undefined name gets the prelude binding");
         assert_eq!(g.expected, "line 3: 1\nline 6: 2\n");
+    }
+
+    #[test]
+    fn a_block_opening_with_an_app_header_is_a_whole_app() {
+        let b = blocks("```roc\n# the whole thing\napp [main!] { pf: platform \"../target/trantor/myapp/platform/main.roc\" }\nmain! = |_| Ok({})\n```\n```roc\nx.y()   # 1\n```\n");
+        assert!(is_whole_app(&b[0]) && !is_whole_app(&b[1]));
+        assert_eq!(
+            retarget("app [main!] { pf: platform \"../target/trantor/myapp/platform/main.roc\" }\nimport pf.Cli"),
+            "app [main!] { pf: platform \"../target/trantor/app/platform/main.roc\" }\nimport pf.Cli\n"
+        );
     }
 
     #[test]
