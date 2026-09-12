@@ -430,8 +430,53 @@ exercises error tags, out-of-range input to every pure function, and a value
 checked against itself — and it is verified to FAIL when the old correction is
 reinstated.
 
+## The b8 flake, and five hypotheses that were wrong (2026-09-12)
+
+Running the full golden suite as the last release check turned up a failure in
+`b8-basic-cli` — the only fixture that consumes two packages. It is recorded
+here because the investigation produced exactly one durable thing, and it was
+not an explanation.
+
+**What was seen.** Two failures, in the first two suite runs, with two
+DIFFERENT symptoms: a roc panic (`hosted extern "trantor__cli_host__args" was
+specialized at type c5423ec4dfe627b4 instead of ... 5da93e1a9fafc143`), then a
+later step failing with nothing useful on the console. Since then: 5
+consecutive suite runs green (115 fixture runs), b8 passing standalone, under
+the runner alone, and through 10 clean-tree builds. It has not recurred.
+
+**Every explanation offered was falsified by a direct test.** Kept because the
+list is the actual result:
+
+| hypothesis | test | outcome |
+|---|---|---|
+| A real type mismatch after trantor-cli's refactors | compared glue's type against the host's signature | matched — not a mismatch |
+| Stale generated platform | wiped `target/trantor`, rebuilt | reproduced once, then never again |
+| trantor-cli itself broken | ran its gate alone | PASSES, 227 expects — the earlier failure was MY concurrent rebuild competing with it |
+| The suite runner's environment | `just verify b8-basic-cli` | passes under the runner when it is the only fixture |
+| First build after a dependency's interface changes | isolated copies of trantor-cli/net/b8; renamed a hosted leaf's tag; rebuilt with no wipe | **passes first build** — refuted |
+| Toolchain nondeterminism | 10 clean builds, hashing `abi/src/generated.rs` and the composed platform | **1 distinct hash each, 0 panics** — the toolchain is deterministic |
+
+**D-T1-22 — the suite runner keeps every fixture's full log.** The one change
+worth making. It printed `tail -12` of a failure and discarded the rest, so the
+second occurrence taught us nothing: the cause was outside the tail and the
+evidence went with the runner's return. Complete output now goes to
+`target/verify-logs/` for every fixture, pass or fail; a failure's log is also
+copied aside under a timestamp so the next run cannot clobber the one
+occurrence of a rare fault; and it is written as the script runs, not captured
+into a variable, so it survives a killed or hung run. `target/` is gitignored,
+so it cannot dirty the tree the suite checks.
+
+The honest state: two failures that cannot be reproduced and are no longer
+explained. Nothing implicates the temporal work — b7 passed in every run as a
+package consumer, and the package gate passed throughout. Five falsified
+hypotheses on two unreproducible events is the point at which more guessing
+costs more than waiting for better evidence, which is what D-T1-22 buys.
+
 ## Still open (raised, not decided)
 
+- **b8's intermittent failure is unexplained.** Not reproducible after ~20
+  builds and 9 suite runs; five hypotheses falsified (above). If it recurs, the
+  full log is now preserved — start there rather than from a new guess.
 - **The tzdb is frozen at the `=0.2.6` pin.** `sys-local` bundles the database,
   so DST rules do not move until the pin does. 0.2.6 is the newest published
   release (measured, D-T1-13), so the pin is current rather than stale — but it

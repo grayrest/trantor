@@ -1,7 +1,7 @@
 # T1 — trantor-temporal for release
 
 **Design log:** [`notes/2026-09-12-t1-temporal-release-design-log.md`](../notes/2026-09-12-t1-temporal-release-design-log.md).
-Decisions are D-T1-1 … D-T1-21; this file does not re-argue them.
+Decisions are D-T1-1 … D-T1-22; this file does not re-argue them.
 
 Repo: `../trantor-temporal` (sibling checkout, one commit, clean tree).
 
