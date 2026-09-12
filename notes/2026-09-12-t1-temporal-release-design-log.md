@@ -97,7 +97,8 @@ reading the spec.
   exists because `Type` lowercases to a Rust keyword the glue does not escape
   with `r#`.
 
-- **The package's gate is red, through the baseline.** `verify.sh` exits 1 at
+- **The package's gate was red when this work started, through the baseline.**
+  (Since resolved: trantor-cli's net split landed.) `verify.sh` exits 1 at
   step (2) with `platform/Sockets.roc: FileNotFound` — trantor-cli is mid-split
   to trantor-net (uncommitted: `Host.roc` still `import Sockets`, `net-lib` /
   `sockets-host` / `http-host` still present, `TempTest.roc` deleted). Nothing
@@ -242,8 +243,13 @@ transition), so the requested wall clock sits at `i + (cached - actual)`. The
 correction applies only when the two disagree — dead code the day upstream
 fixes this, rather than double-applying — and only when the corrected instant
 keeps that offset, leaving a genuine gap or overlap to `Disambiguation`.
-Measured 0 wrong and 0 self-inconsistent over 5 zones x 365 days x 3 hours,
-with the gap cases still obeying Compatible/Earlier/Later.
+**SUPERSEDED by D-T1-18 — this decision was wrong, and its measurement was
+worse.** "0 wrong and 0 self-inconsistent over 5 zones x 365 days x 3 hours"
+was true and worthless: the three hours sampled were 00, 10 and 23, and the
+regression it shipped lives at 02:30. Comparing a cached offset against the
+true one is a PROXY for "this instant is wrong", and temporal_rs sometimes
+returns the right instant carrying a stale cache — so this moved correct
+answers in 144 zones.
 
 `zdt_from_str!` needs it too: a string naming a zone but no offset resolves a
 wall clock, and `2026-03-07T10:40:00[America/New_York]` parsed to 09:40 without
@@ -259,6 +265,13 @@ invariant.** Found while verifying M2: `zdt_subtract!` did not round-trip.
 2026-03-08T10:40-04:00 minus P1D lands on 09:40 rather than 10:40, going
 backwards over a spring-forward. Forward arithmetic is fine. Measured over
 2026: 3 wrong for America/New_York, 26 for Europe/Berlin.
+
+**Correction: "Forward arithmetic is unaffected" is WRONG.** Measured at 10:40
+across 2026, raw `add(+P1D)` loses the wall clock on exactly as many days as
+`subtract`: New York 1 and 1, Berlin 9 and 9, Auckland 1 and 1.
+`preserve_wall_clock` is direction-agnostic and repairs both, so the package
+was right — the finding recorded here was not. It generalised from the one
+direction the original example happened to fail in.
 
 Two things this settled. `subtract(P1D)` and `add(-P1D)` agree *exactly*,
 including on the wrong answer — so D-T1-3's claim that subtract is free in the
@@ -372,6 +385,71 @@ corrupting, which is the assertion doing its job. Both leaves now carry
 payload-less error tags, matching `Clocks.wall_now!`'s proven shape; both
 failures mean a misconfigured machine, which a tag says as well as a sentence.
 
+## Adversarial review (2026-09-12), and what it cost
+
+Three independent reviews, run after the package was declared ready. Every
+severe finding was re-verified before being acted on. They found, in the
+shipped package: three process aborts reachable from ordinary calls, two
+resource leaks, a correction that made correct answers wrong, a documented
+function that could not do its job, and silently wrong durations.
+
+**The single cause is one habit, not fifteen bugs.** Every defect lived on an
+input that had not been thought to try — and every verification built for this
+work was constructed from the cases already in mind. The 49-behaviour gate, the
+drop-balance probe and D-T1-13's sweep all came back green because green meant
+"consistent with my assumptions", and that was reported as "correct". Two
+measurements in this very document were falsified by sampling that excluded the
+hour and the direction where the failures lived.
+
+**D-T1-18 — a wall clock is corrected by its invariant, not by a proxy for it.**
+Replaces D-T1-13's `corrected`. The question a resolution has to answer is
+"does this instant read back, in this zone, as the wall clock that was asked
+for?" — so that is now the test. Accept what temporal_rs produced when it
+satisfies the invariant; otherwise try the offset-difference shift, which
+repairs the real defect; accept THAT only if it satisfies the invariant too. If
+neither does, the wall clock does not exist and `Disambiguation` has already
+chosen. Every path returns a `try_new` value, so a result can no longer
+disagree with itself.
+
+Measured over 23 zones x 3 years x **all 24 hours**, 604,875 unambiguous wall
+clocks: the old correction is wrong 37 times, the new one 0. The hour count is
+the point — the old sweep's three hours per day is what hid the regression.
+
+The string path gets the same treatment: what a string asked for is what it
+says, so it is parsed again as a plain date-time and handed to the same test.
+
+**D-T1-19 — `start_of_day` is searched, not corrected.** Where a zone SKIPS
+midnight, the wall clock asked for does not exist, so no candidate can satisfy
+D-T1-18's invariant and it rightly declines to choose; asking for the start of
+2026-09-06 in Santiago returned the previous day. Midday always exists and 26
+hours earlier is always outside the day, so bisect between them for the
+boundary where the local date flips. ~47 halvings, exact in every zone.
+Verified against an independent linear scan over 16,440 days in 15 zones x 3
+years: 0 mismatches, and every year's day lengths sum to the year.
+
+**D-T1-20 — a Roc record has no constructor, so the check moves to the use.**
+TC39 refuses to construct a mixed-sign `Duration` (`RangeError`, measured); our
+`Duration` is a plain record and cannot refuse, so `duration_to_str` returns
+`Err(MixedSigns)` rather than inventing a value. It had been inventing:
+`{days:1, hours:-2}` printed `P1DT2H`. The same principle explains the pure
+formatters, which are total over unvalidated records and must therefore answer
+for `{month: 0}` rather than abort: out-of-range values print whole, unknown
+names render `?`, and `day_of_week` answers 0 for a record that names no date.
+
+**D-T1-21 — a missing year is the current year, and that makes it an effect.**
+`Now.date_parse!` fills it from the clock, because `"%d/%m"` means one date in
+December and another in January. `Temporal.date_parse_in` takes the year
+explicitly and stays pure, which is what a test can pin. `time_parse` requires
+neither: a time has no date, and demanding one is why it could not parse a time
+at all.
+
+**The gate now leaves New York.** Every DST number in this document was
+measured in Berlin, Sydney or Santiago and none of them was protected, which is
+exactly how a correction that broke Berlin passed a green gate. It also
+exercises error tags, out-of-range input to every pure function, and a value
+checked against itself — and it is verified to FAIL when the old correction is
+reinstated.
+
 ## Still open (raised, not decided)
 
 - **The tzdb is frozen at the `=0.2.6` pin.** `sys-local` bundles the database,
@@ -383,8 +461,6 @@ failures mean a misconfigured machine, which a tag says as well as a sentence.
   trantor-cli; b7 was never converted to consume this package. Two sources of
   truth for a released API, and the fixture is where the destructor-balance
   gauge lives — the package itself has no proof its resources drop.
-- **`duration_rec` truncates `i128 → i64`** with a bare `as` for micro- and
-  nanoseconds. Unreachable while `date_until!` answers in days, but unguarded.
 - **Glue names result types by first declaration** (B7 finding 2):
   `zdt_with_time_zone` reuses `TemporalZdtFromEpochNsResult` because the two
   are structurally identical. Reordering leaves in `interface.toml` renames

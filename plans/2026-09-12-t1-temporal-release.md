@@ -1,7 +1,7 @@
 # T1 — trantor-temporal for release
 
 **Design log:** [`notes/2026-09-12-t1-temporal-release-design-log.md`](../notes/2026-09-12-t1-temporal-release-design-log.md).
-Decisions are D-T1-1 … D-T1-17; this file does not re-argue them.
+Decisions are D-T1-1 … D-T1-21; this file does not re-argue them.
 
 Repo: `../trantor-temporal` (sibling checkout, one commit, clean tree).
 
@@ -219,6 +219,22 @@ Original M4 scope: `verify.sh` keeps its three existing checks and drops the
   over the whole directive table, `zdt_to_str!` → `zdt_from_str!`.
 - the `1970-1-1` assertion becomes `1970-01-01` — the padding bug the current
   gate enshrines.
+
+## Post-review state (2026-09-12)
+
+Three adversarial reviews ran after M1–M7 were declared done. M8 landed their
+findings: the underflow sweep and two resource leaks; `corrected` replaced by
+D-T1-18's invariant test; `start_of_day` replaced by D-T1-19's bisection;
+mixed-sign durations and the parse semantics of D-T1-20/21. The gate went from
+49 behaviours in one DST zone to 60 across four, plus error tags and
+out-of-range input, and is verified to fail when the old correction is
+reinstated.
+
+Resolved from the list below: the `as` narrowing (checked `try_from`), the gate
+being red (trantor-cli's split landed), and `/dev/null` hiding failures. The
+resource-drop gauge has an answer that needs no `live!` in the package — a test
+world can supply its own gauge component, measured balanced across every
+handle-creating leaf — but it is not yet folded into `verify.sh`.
 
 ## Open, and deliberately not decided here
 
