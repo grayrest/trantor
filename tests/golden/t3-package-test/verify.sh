@@ -23,7 +23,7 @@ variant pass ':'
 if ! "$TR" test "$T/pass" > "$T/pass.out" 2>&1; then echo "FAIL: the clean package does not pass"; tail -30 "$T/pass.out"; exit 1; fi
 for claim in "alone it says it has no driver" "composes with its dev-deps" "none of its 1 exported modules" \
 	"1 of them this package's own" "README.md — 1 blocks compile and run, 1 stated values match" \
-	"tests/hello — 1 lines exact" "the script got TRANTOR, ROC, PKG, DEPS and TMP" "trantor test: greet PASS"; do
+	"tests/hello — 1 lines exact" "the script got TRANTOR, ROC, PKG, DEPS, DEV_DEPS and TMP" "trantor test: greet PASS"; do
 	grep -qF "$claim" "$T/pass.out" || { echo "FAIL: a passing run did not report: $claim"; cat "$T/pass.out"; exit 1; }
 done
 echo "ok: the clean package passes, reporting every step"

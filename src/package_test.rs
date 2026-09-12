@@ -95,21 +95,24 @@ impl Steps<'_> {
         Ok(dir)
     }
 
-    /// An add-on names no driver, so composing it alone must fail and say so.
-    /// A baseline must compose alone.
+    /// A package with a driver in reach — its own, or one of its `[deps]`'s —
+    /// must compose alone. One without must fail, and say it has no driver.
     fn driver(&self) -> Result<(), String> {
-        let solo = self.world("solo", true)?;
-        let solo_toml = format!("[world]\nname = \"solo\"\n\n[deps]\n{} = {{ path = {:?} }}\n",
+        let solo = self.scratch.join("solo");
+        std::fs::create_dir_all(solo.join("app")).map_err(|e| format!("create {}: {e}", solo.display()))?;
+        let toml = format!("[world]\nname = \"solo\"\n\n[deps]\n{} = {{ path = {:?} }}\n",
             self.pkg.package.name, self.root.display().to_string());
-        std::fs::write(solo.join("world.toml"), solo_toml).map_err(|e| format!("write: {e}"))?;
+        std::fs::write(solo.join("world.toml"), toml).map_err(|e| format!("write: {e}"))?;
         let out = trantor_output(&["compose", s(&solo)], self.root)?;
         let said = String::from_utf8_lossy(&out.stderr).into_owned() + &String::from_utf8_lossy(&out.stdout);
-        match (self.is_add_on(), out.status.success()) {
-            (true, true) => Err("an add-on package (no provides_driver) composed with no driver at all".into()),
-            (true, false) if !said.contains("names no driver") => Err(format!("alone, it fails for the wrong reason:\n{said}")),
-            (true, false) => Ok(println!("ok: alone it says it has no driver")),
-            (false, true) => Ok(println!("ok: a baseline, it composes on its own driver")),
-            (false, false) => Err(format!("a baseline that does not compose alone:\n{said}")),
+        match (driver_in_reach(self.root, self.pkg, 0), out.status.success()) {
+            (Some(true), true) => Ok(println!("ok: it composes alone, on the driver its dependencies provide")),
+            (Some(true), false) => Err(format!("a driver is in reach, but it does not compose alone:\n{said}")),
+            (Some(false), true) => Err("no driver is in reach, yet it composed alone".into()),
+            (Some(false), false) if !said.contains("names no driver") => Err(format!("alone, it fails for the wrong reason:\n{said}")),
+            (Some(false), false) => Ok(println!("ok: alone it says it has no driver")),
+            (None, true) => Ok(println!("ok: it composes alone")),
+            (None, false) => Err(format!("it does not compose alone, and a github dependency means trantor cannot tell whether it should:\n{said}")),
         }
     }
 
@@ -145,6 +148,30 @@ impl Steps<'_> {
         println!("ok: {both} expects run, {mine} of them this package's own");
         Ok(())
     }
+}
+
+/// Whether the package or anything in its `[deps]` provides a driver. `None`
+/// when a github dependency is in the chain and cannot be read without
+/// fetching it.
+fn driver_in_reach(root: &Path, pkg: &Package, depth: usize) -> Option<bool> {
+    if pkg.package.provides_driver.is_some() {
+        return Some(true);
+    }
+    if depth > 16 {
+        return Some(false);
+    }
+    let mut unknown = false;
+    for (name, dep) in &pkg.deps {
+        let Ok(DepSource::Path(p)) = dep.source(name) else { unknown = true; continue };
+        let dir = root.join(p);
+        let parsed = std::fs::read_to_string(dir.join("package.toml")).ok().and_then(|t| toml::from_str::<Package>(&t).ok());
+        match parsed.map(|d| driver_in_reach(&dir, &d, depth + 1)) {
+            Some(Some(true)) => return Some(true),
+            Some(Some(false)) => {}
+            _ => unknown = true,
+        }
+    }
+    if unknown { None } else { Some(false) }
 }
 
 pub fn s(p: &Path) -> &str {

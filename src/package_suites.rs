@@ -3,7 +3,8 @@
 //! - `main.roc` + `expected`: an app built on the package, stdout diffed.
 //! - `Cargo.toml`: a Rust crate, `cargo test --release`.
 //! - `test.sh`: anything a diff cannot express — exit codes, raw argv, peer
-//!   processes, timing — given `TRANTOR`, `ROC`, `PKG`, `DEPS` and `TMP`.
+//!   processes, timing — given `TRANTOR`, `ROC`, `PKG`, `TMP`, and the
+//!   `[deps]` body of a world with the package (`DEPS`) and without (`DEV_DEPS`).
 use std::path::Path;
 use std::process::Command;
 
@@ -71,6 +72,7 @@ fn script(steps: &Steps, suite: &Path, name: &str) -> Result<(), String> {
         .env("ROC", crate::build::roc_bin())
         .env("PKG", steps.root)
         .env("DEPS", steps.deps_body(true)?)
+        .env("DEV_DEPS", steps.deps_body(false)?)
         .env("TMP", &tmp)
         .output()
         .map_err(|e| format!("tests/{name}: spawn bash: {e}"))?;
