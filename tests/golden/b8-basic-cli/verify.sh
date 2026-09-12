@@ -148,7 +148,7 @@ balance() { # label ; env/args... (binary run from $B under the gauge)
   [[ "$live" == "0" ]] || { echo "FAIL: $label leaked Roc heap allocations: $g"; exit 1; }
   echo "ok: $label drop-balanced ($g)"
 }
-balance "owned RocStr host arg (set_cwd/cell)" env GAUGE_SEED="a-heap-seed-string-well-over-twenty-three-bytes-long-for-sure" ./target/trantor/b8-basic-cli/bin/ex-gauge
+balance "owned RocStr host arg (set_cwd/Cwd)" env GAUGE_SEED="a-heap-seed-string-well-over-twenty-three-bytes-long-for-sure" ./target/trantor/b8-basic-cli/bin/ex-gauge
 balance "fs read/write + streams + resources" ./target/trantor/b8-basic-cli/bin/ex-file-read-write
 # gauge OFF prints nothing (env-gated):
 [[ -z "$( (cd "$B" && GAUGE_SEED=x-well-over-twenty-three-bytes-of-seed-value ./target/trantor/b8-basic-cli/bin/ex-gauge >/dev/null) 2>&1 | grep '^\[alloc-gauge\]' || true)" ]] || { echo "FAIL: gauge printed while disabled"; exit 1; }
