@@ -38,7 +38,7 @@ verify *filter:
     # it for. target/ is gitignored, so this cannot dirty the tree.
     logs=target/verify-logs
     rm -rf "$logs"; mkdir -p "$logs"
-    ran=0; failed=()
+    ran=0; failed=(); skipped=()
     for s in "${scripts[@]}"; do
         [[ -n "$filter" && "$s" != *"$filter"* ]] && continue
         ran=$((ran+1))
@@ -46,7 +46,13 @@ verify *filter:
         printf '%-46s' "$name"
         log="$logs/${name//\//__}.log"
         if bash "$s" > "$log" 2>&1; then
-            echo "PASS"
+            # A fixture that could not run exits 0 printing SKIP. That is not a
+            # pass, and printing PASS for it hid a missing sibling checkout.
+            if grep -q '^SKIP' "$log"; then
+                echo "SKIP"; skipped+=("$s"); sed -n 's/^SKIP/      | SKIP/p' "$log"
+            else
+                echo "PASS"
+            fi
         else
             echo "FAIL"
             failed+=("$s")
@@ -61,7 +67,7 @@ verify *filter:
     [[ $ran -gt 0 ]] || { echo "verify: filter '$filter' matched no fixture"; exit 1; }
     dirty=$(git status --porcelain | wc -l | tr -d ' ')
     echo "----"
-    echo "verify: $ran script(s) run, ${#failed[@]} failed, working tree $dirty file(s) dirty"
+    echo "verify: $ran script(s) run, ${#failed[@]} failed, ${#skipped[@]} skipped, working tree $dirty file(s) dirty"
     echo "verify: full logs in $logs/"
     if [[ ${#failed[@]} -gt 0 ]]; then printf 'FAILED: %s\n' "${failed[@]}"; exit 1; fi
     [[ "$dirty" == 0 ]] || { echo "FAIL: the suite dirtied the working tree"; git status --short; exit 1; }

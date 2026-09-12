@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# `trantor add <org>/<repo> [<dir>]`: adds to the project here — a world or a
+# `trantor new --from` writes an app that typechecks, and
+# `trantor add <org>/<repo> [<dir>]` adds to the project here — a world or a
 # package — pins it, composes, and changes NOTHING when that composition fails.
 #
 # No network: git's `url.<base>.insteadOf`, set through GIT_CONFIG_* for this
@@ -47,6 +48,11 @@ sum() { shasum "$@" 2>/dev/null | cut -d' ' -f1 | tr '\n' ' '; }
 
 # (1) A world, from here, with no <dir>.
 "$TR" new "$T/app" --cli --from "$CLI" >/dev/null 2>&1
+# The scaffold is typechecked untouched against trantor-cli, whose driver does
+# not take the signature the scaffold used to hardcode. u1-front-door's own
+# baseline does, so only a real baseline can catch that regression.
+"$TR" check "$T/app" > "$T/check.out" 2>&1 || { echo "FAIL: the app trantor new wrote does not typecheck against trantor-cli"; tail -15 "$T/check.out"; exit 1; }
+echo "ok: the app trantor new --from trantor-cli writes typechecks untouched"
 (cd "$T/app" && "$TR" add org/greet) > "$T/add1.out" 2>&1 || { echo "FAIL: add to a world"; cat "$T/add1.out"; exit 1; }
 grep -q '^greet = { github = "org/greet" }' "$T/app/world.toml" || { echo "FAIL: world.toml has no greet line"; cat "$T/app/world.toml"; exit 1; }
 grep -q 'tag = "v0.1.1"' "$T/app/trantor.lock" || { echo "FAIL: not pinned to the newest tag"; cat "$T/app/trantor.lock"; exit 1; }
