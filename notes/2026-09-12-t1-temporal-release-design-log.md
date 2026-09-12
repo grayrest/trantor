@@ -630,6 +630,52 @@ Costs, measured: trantor-temporal 37 s, trantor-cli 64 s, trantor-net 100 s —
 net's scripts each build their own world where the old gate reused one.
 Printing the sweeps' counts is lost; cargo reports pass or fail.
 
+## D-T3b — the review of `trantor test`
+
+Four independent reviewers, each required to reproduce a finding before
+reporting it, found that `trantor test` could PASS packages it had not
+tested. Decisions taken on their findings (user, 2026-09-13):
+
+- **D-T3-6 `trantor add <org>/<repo> [<dir>]`, as U1 specified.** It had
+  drifted to `add <dir> <org/repo>`, edited world.toml only, and never
+  composed. It now adds to the world.toml or package.toml in `<dir>`
+  (default `.`), pins in that directory's lock, composes, and restores the
+  manifest and lock byte for byte if composition fails. The post-add hook that
+  scaffolded an app is gone: it built and wrote apps for `--app` and
+  cargo_root layouts where no `app/main.roc` is the intent. `new --from` is the
+  one place an app is written.
+- **D-T3-7 Expects run with every shipped module exposed.** A separate
+  `expects` world exposes all modules a package's components export (renames
+  resolved) and its interfaces declare; app suites and README examples keep the
+  consumer's exposure. A `.roc` file with an expect that belongs to no shipped
+  module fails by name. This replaces the delta-only reasoning, which a package
+  with one reachable expect cleared no matter how many were unreachable.
+- **D-T3-8 README comments are strict.** A comment that looks like a stated
+  value must be "text", a single token, or Ok(...)/Err(...) (compared against
+  `Str.inspect`), with prose after ` — `; otherwise the run fails naming the
+  line. A clock-dependent line may not state one. A ```text block after a whole
+  app is its output, ```roc exit=N its status. The report says what was
+  compared and that module-level blocks compile but do not run.
+- **D-T3-9 A baseline is everything a package stands on**: dev-deps and its own
+  [deps]. **package.toml wins** over a stray world.toml unless --world is given.
+- **D-T3-10 Every subprocess is bounded**: its own process group, output to
+  files, killed at TRANTOR_TEST_TIMEOUT (900 s), leftovers killed on exit.
+
+Measured along the way: 12 GB of scratch worlds from failed runs; three
+trantor-net test peers alive an hour after the commit-time run (a PID recorded
+inside `$(...)`); `calendar_from_id!` resolving every id to ISO passing the
+temporal behaviours after a cleanup removed the only check. All fixed, each with
+a test that fails when the fix is reverted.
+
+Not fixed, by decision or scope:
+- A stated plain value on an expression whose `to_str` does not exist (a Try
+  without `?`) is a compile error, not a diff. It fails; it does not pass.
+- A consumer does not pin a package's transitive github dependencies: they
+  resolve through the consuming world's lock. `add` writes a package's own lock
+  and `trantor test` copies it, which covers testing the package, not using it.
+- The removed expect floors (140, 5, 200) stay removed (D-T3-3); D-T3-7 is what
+  now catches unreachable expects.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20

@@ -91,3 +91,12 @@ shown to FAIL when broken.
   directory name.
 - Phase 2 and 3 landed in one commit: the README step is part of the core
   sequence, so they do not build apart.
+
+## Review round (T3b)
+
+Findings and decisions are D-T3-6 … D-T3-10 in the design log. Code: `add.rs`,
+`bounded.rs`, `package_worlds.rs`, `readme_lex.rs` are new; `package_test.rs`,
+`package_suites.rs`, `readme_examples.rs`, `scaffold.rs` rewritten in part.
+Gates: `t3-package-test` (17 breaks, 3 no-hang passes), `u1-add` (no network,
+git insteadOf), plus `trantor test .` on all three packages. `just verify`
+reports SKIP separately from PASS.
