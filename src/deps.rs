@@ -307,6 +307,21 @@ mod tests {
     }
 
     #[test]
+    fn a_packages_dev_deps_never_reach_its_consumer() {
+        let t = tmp();
+        pkg(&t.join("base"), "base", "text", "text-host", Some("drv"));
+        // A dev-dep that does not even exist: if a consumer expanded it, the
+        // load would fail reading its package.toml.
+        let mut body = std::fs::read_to_string(t.join("base/package.toml")).unwrap();
+        body.push_str("\n[dev-deps]\nharness = { path = \"../nowhere\" }\n");
+        write(&t.join("base"), "package.toml", &body);
+        write(&t.join("app"), "world.toml", "[world]\nname = \"a\"\n\n[deps]\nbase = { path = \"../base\" }\n");
+        let w = load_world(&t.join("app"), "world.toml").expect("dev-deps must not be expanded for a consumer");
+        assert!(w.components.contains_key("text-host"));
+        std::fs::remove_dir_all(&t).ok();
+    }
+
+    #[test]
     fn the_world_overrides_a_deps_wiring_by_name() {
         let t = tmp();
         pkg(&t.join("base"), "base", "fs", "fs-unconfined", None);

@@ -163,6 +163,13 @@ pub struct Package {
     pub components: BTreeMap<String, Component>,
     #[serde(default)]
     pub deps: BTreeMap<String, Dep>,
+    /// What `trantor test` composes this package against, and nothing else
+    /// reads (D-T3-1). An add-on package cannot compose alone, so its tests
+    /// name the baseline they run on here rather than every script hunting for
+    /// a sibling checkout. It is never expanded for a consumer: a package's
+    /// test baseline is not a dependency of the apps that use it.
+    #[serde(default, rename = "dev-deps")]
+    pub dev_deps: BTreeMap<String, Dep>,
     /// External Roc packages the package's own modules import by alias, merged
     /// into the consumer's `[packages]`. A platform that vendors a Roc library
     /// (basic-cli's `http`) cannot compose without it.
