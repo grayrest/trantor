@@ -20,7 +20,8 @@ main! = |_args| {
 	Stdout.line!(Str.concat("date-add: ", added.to_str())) ?? {}
 
 	# half an hour before the 2024-03-10 US jump, so the offset is standard -05:00
-	at = Temporal.plain_time({ hour: 1, minute: 30 })
+	at : Temporal.PlainTime
+	at = { hour: 1, minute: 30 }
 	zdt = Temporal.zoned!(Temporal.plain_date({ year: 2024, month: 3, day: 10 }), at, ny, iso) ?? return(Err(Exit(6)))
 	ny_str = zdt.to_str!() ?? return(Err(Exit(7)))
 	Stdout.line!(Str.concat("zdt-ny: ", ny_str)) ?? {}
