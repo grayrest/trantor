@@ -1,131 +1,16 @@
-# roc:basic-cli — the all-in-one migration world (P14/P15): basic-cli 0.21's
-# surface minus Sqlite, plus Udp/Sockets/Streams/Temporal and the two
-# WASI-shaped path packages under their own names. Apps port by URL.
+# roc:basic-cli, composed from the trantor-cli PACKAGE.
+#
+# This world used to carry its own copy of every interface and component. It
+# does not any more: trantor-cli is the definitive source and this is a
+# consumer of it, which is also what makes this fixture a real test of package
+# consumption at scale — ~150 upstream basic-cli examples building against a
+# platform that arrives through one [deps] line.
+#
+# The path is a sibling checkout. verify.sh says so plainly when it is missing,
+# because "no such file" on a generated path is not a diagnosis.
+
 [world]
 name = "basic-cli"
-driver = "main-driver"
-exports = ["Cmd", "Env", "File", "Http", "IOErr", "Locale", "OsStr", "Path", "Random", "Sleep", "Stdin", "Stdout", "Stderr", "Tcp", "Tty", "Url", "Utc", "Udp", "Sockets", "Streams", "Temporal", "StrPath", "OsPath", "TempTest"]
-[components.main-driver]
-kind = "driver"
-lang = "rust"
-provides_runtime = true
-requires_uses = ["Stdout", "Stderr", "Stdin", "Env"]
-[interfaces.io]
-[interfaces.sync-io]
-[interfaces.cli-stdout]
-[interfaces.cli-stdin]
-[interfaces.cli-env]
-[interfaces.cli-tty]
-[interfaces.fs]
-[interfaces.cell]
-[interfaces.clocks]
-[interfaces.random]
-[interfaces.locale]
-[interfaces.subprocess]
-[interfaces.sync-sockets]
-[interfaces.sync-http]
-[interfaces.temporal]
-[interfaces.testnet]
-[components.sync-io]
-kind = "host"
-lang = "rust"
-exports = ["sync-io"]
-[components.cli-host]
-kind = "host"
-lang = "rust"
-imports = ["sync-io"]
-exports = ["cli-stdout", "cli-stdin", "cli-env", "cli-tty"]
-[components.cell]
-kind = "host"
-lang = "rust"
-exports = ["cell"]
-[components.fs-unconfined]
-kind = "host"
-lang = "rust"
-imports = ["sync-io"]
-exports = ["fs"]
-[components.clocks-host]
-kind = "host"
-lang = "rust"
-exports = ["clocks"]
-[components.random-host]
-kind = "host"
-lang = "rust"
-exports = ["random"]
-[components.locale-host]
-kind = "host"
-lang = "rust"
-exports = ["locale"]
-[components.subprocess-host]
-kind = "host"
-lang = "rust"
-exports = ["subprocess"]
-[components.sockets-host]
-kind = "host"
-lang = "rust"
-imports = ["sync-io"]
-exports = ["sync-sockets"]
-[components.http-host]
-kind = "host"
-lang = "rust"
-exports = ["sync-http"]
-features = ["tls"]
-[components.temporal-host]
-kind = "host"
-lang = "rust"
-exports = ["temporal"]
-[components.testnet-host]
-kind = "host"
-lang = "rust"
-exports = ["testnet"]
-test_only = true          # linked into apps, but excluded from the published baseline
-[components.host-shim]
-kind = "roc"
-exports = ["Host"]
-[components.temptest]
-kind = "roc"
-exports = ["TempTest"]
-[components.basic-cli-lib]
-kind = "roc"
-exports = ["Path", "File", "Env"]
-[components.cmd-lib]
-kind = "roc"
-exports = ["Cmd", "OsStr"]
-[components.net-lib]
-kind = "roc"
-exports = ["Tcp", "Http", "InternalHttp", "Udp"]
-[components.basic-lib]
-kind = "roc"
-exports = ["Utc", "Sleep", "Random", "Locale", "Url", "InternalDateTime"]
-[components.fs-ops]
-kind = "roc"
-imports = ["fs", "cell"]
-exports = ["FsOps"]
-[components.path]
-kind = "roc"
-exports = ["Path as StrPath"]
-[components.os-path]
-kind = "roc"
-exports = ["OsPath"]
-[components.stdio-lib]
-kind = "roc"
-exports = ["Stdout", "Stderr", "Stdin", "Tty"]
-[wiring]
-sync-io = "sync-io"
-cli-stdout = "cli-host"
-cli-stdin = "cli-host"
-cli-env = "cli-host"
-cli-tty = "cli-host"
-cell = "cell"
-fs = "fs-unconfined"
-clocks = "clocks-host"
-random = "random-host"
-locale = "locale-host"
-subprocess = "subprocess-host"
-sync-sockets = "sockets-host"
-sync-http = "http-host"
-temporal = "temporal-host"
-testnet = "testnet-host"
 
-[packages]
-http = "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst"
+[deps]
+trantor-cli = { path = "../../../../trantor-cli" }

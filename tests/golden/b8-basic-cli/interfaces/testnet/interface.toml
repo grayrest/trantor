@@ -1,7 +1,0 @@
-# roc:testnet — TEST-ONLY scaffolding (not in the published baseline). One
-# hosted leaf that starts an in-process HTTP server on :9000 serving the
-# basic-cli http-client / http-simple example endpoints.
-module = "TestNet"
-[[hosted]]
-leaf = "start_test_server!"
-symbol_stem = "start_test_server"

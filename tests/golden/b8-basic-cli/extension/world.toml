@@ -1,6 +1,6 @@
-# A Tier-1 extension of the published roc:basic-cli baseline (D10/D11): one
-# pure-Roc module added over the prebuilt archives — no host code, no glue,
-# no Rust toolchain. `trantor tier` classifies it from this manifest.
+# A Tier-1 extension of the roc:basic-cli baseline (D10/D11): one pure-Roc
+# module added over the prebuilt archives — no host code, no glue, no Rust
+# toolchain. `trantor tier` classifies it from this manifest.
 [world]
 name = "basic-cli-plus-greeting"
 driver = "main-driver"
