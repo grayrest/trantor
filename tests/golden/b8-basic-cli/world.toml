@@ -14,3 +14,5 @@ name = "basic-cli"
 
 [deps]
 trantor-cli = { path = "../../../../trantor-cli" }
+# The http examples need sockets and the test server, which left the baseline.
+trantor-net = { path = "../../../../trantor-net" }

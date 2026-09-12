@@ -101,6 +101,7 @@ fn expand_into(
     deps: &BTreeMap<String, Dep>,
     staged: &mut Staged,
     chain: &mut Vec<String>,
+    seen: &mut BTreeMap<String, PathBuf>,
 ) -> Result<(), String> {
     if chain.len() > MAX_DEPTH {
         return Err(format!(
@@ -122,6 +123,34 @@ fn expand_into(
         let pkg: Package = toml::from_str(&text)
             .map_err(|e| format!("parse {}: {e}", pkg_file.display()))?;
         let pkg_name = pkg.package.name.clone();
+
+        // A DIAMOND is not a collision. An app depending on trantor-cli and on
+        // trantor-net, which itself depends on trantor-cli, reaches the same
+        // package twice — and without this it was reported as "two
+        // dependencies provide the component cli-host", naming that package on
+        // both sides of its own conflict. Expanded once, keyed by where it
+        // actually is.
+        // Canonical, not merely absolute: a diamond reaches the same directory
+        // by two spellings (`app/../base` and `app/../mid/../base`), and this
+        // is an identity test on a directory that certainly exists — we just
+        // read its package.toml. (Contrast codegen's path deps, which must be
+        // read lexically because they are cargo's to interpret, not ours.)
+        let here = std::fs::canonicalize(&root).unwrap_or_else(|_| absolute(&root));
+        match seen.get(&pkg_name) {
+            Some(first) if *first == here => continue,
+            Some(first) => {
+                return Err(format!(
+                    "package `{pkg_name}` comes from two places: {} and {}. Two copies of one \
+                     package cannot be composed together — their components collide by name and \
+                     nothing can choose between them.",
+                    first.display(),
+                    here.display()
+                ))
+            }
+            None => {
+                seen.insert(pkg_name.clone(), here);
+            }
+        }
 
         // Components: their paths are the PACKAGE's, so rewrite each to an
         // absolute one. `component_dir` joins against the world dir, and an
@@ -170,7 +199,7 @@ fn expand_into(
         }
 
         chain.push(name.clone());
-        expand_into(&root, &pkg.deps, staged, chain)?;
+        expand_into(&root, &pkg.deps, staged, chain, seen)?;
         chain.pop();
     }
     Ok(())
@@ -184,8 +213,9 @@ pub fn expand(world_dir: &Path, world: &mut World) -> Result<(), String> {
     }
     let mut staged = Staged::default();
     let mut chain = Vec::new();
+    let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
     let deps = std::mem::take(&mut world.deps);
-    let result = expand_into(world_dir, &deps, &mut staged, &mut chain);
+    let result = expand_into(world_dir, &deps, &mut staged, &mut chain, &mut seen);
     world.deps = deps;
     result?;
 
@@ -292,6 +322,43 @@ mod tests {
             "fs-confined",
             "the world's own wiring must beat the dependency's default"
         );
+        std::fs::remove_dir_all(&t).ok();
+    }
+
+    #[test]
+    fn a_diamond_expands_the_shared_package_once() {
+        // app -> base, and app -> mid -> base. The same package reached twice
+        // is not two packages.
+        let t = tmp();
+        pkg(&t.join("base"), "base", "text", "text-host", Some("drv"));
+        write(
+            &t.join("mid"),
+            "package.toml",
+            "[package]\nname = \"mid\"\n\n[deps]\nbase = { path = \"../base\" }\n",
+        );
+        write(
+            &t.join("app"),
+            "world.toml",
+            "[world]\nname = \"a\"\n\n[deps]\nbase = { path = \"../base\" }\nmid = { path = \"../mid\" }\n",
+        );
+        let w = load_world(&t.join("app"), "world.toml").unwrap();
+        assert_eq!(w.driver().unwrap(), "drv");
+        assert!(w.components.contains_key("text-host"));
+        std::fs::remove_dir_all(&t).ok();
+    }
+
+    #[test]
+    fn one_package_from_two_places_is_an_error_naming_both() {
+        let t = tmp();
+        pkg(&t.join("one"), "base", "a", "ca", None);
+        pkg(&t.join("two"), "base", "b", "cb", None);   // same package NAME
+        write(
+            &t.join("app"),
+            "world.toml",
+            "[world]\nname = \"a\"\ndriver = \"d\"\n\n[deps]\nx = { path = \"../one\" }\ny = { path = \"../two\" }\n",
+        );
+        let e = load_world(&t.join("app"), "world.toml").unwrap_err();
+        assert!(e.contains("two places"), "{e}");
         std::fs::remove_dir_all(&t).ok();
     }
 

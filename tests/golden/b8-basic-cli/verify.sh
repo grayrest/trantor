@@ -13,9 +13,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 B=tests/golden/b8-basic-cli
 PKG=$PWD/../trantor-cli
-[[ -f "$PKG/package.toml" ]] || {
+NET=$PWD/../trantor-net
+[[ -f "$PKG/package.toml" && -f "$NET/package.toml" ]] || {
 	echo "SKIP: this fixture consumes the trantor-cli package, which is not checked out"
-	echo "      beside this repo (looked for $PKG/package.toml)."
+	echo "      beside this repo (looked for $PKG/package.toml and $NET/package.toml)."
 	exit 0
 }
 REPO=/Users/grayrest/Repositories/roc-basic-cli
@@ -90,10 +91,10 @@ echo "ok: 21 examples run with basic-cli's output (argv[0], stdin, env, files, d
 # eager Response. The two http examples adapt with a handful of streaming lines
 # (server start + streaming accessors) and run against the testnet HTTP server
 # (basic-cli's ci endpoints, in-process on :9000).
-grep -q 'ureq' "$PKG/components/http-host/Cargo.toml" || { echo "FAIL: b8 http-host is not over ureq"; exit 1; }
-grep -q 'body_stream' "$PKG/interfaces/sync-http/HttpHost.roc" || { echo "FAIL: HttpHost.Response is not streaming"; exit 1; }
-grep -q 'read_body_to_end!' "$PKG/components/net-lib/Http.roc" || { echo "FAIL: Http lacks read_body_to_end!"; exit 1; }
-grep -q 'to_http_response' "$PKG/components/net-lib/Http.roc" || { echo "FAIL: Http lacks the to_http_response! bridge"; exit 1; }
+grep -q 'ureq' "$NET/components/http-host/Cargo.toml" || { echo "FAIL: b8 http-host is not over ureq"; exit 1; }
+grep -q 'body_stream' "$NET/interfaces/sync-http/HttpHost.roc" || { echo "FAIL: HttpHost.Response is not streaming"; exit 1; }
+grep -q 'read_body_to_end!' "$NET/components/net-lib/Http.roc" || { echo "FAIL: Http lacks read_body_to_end!"; exit 1; }
+grep -q 'to_http_response' "$NET/components/net-lib/Http.roc" || { echo "FAIL: Http lacks the to_http_response! bridge"; exit 1; }
 # The adaptation vs the upstream example is a handful of streaming lines only.
 swap() { git -C "$REPO" show "${TAG}:examples/$1.roc" | perl -pe 's|platform "[^"]+"|platform "../target/trantor/b8-basic-cli/platform/main.roc"|'; }
 for pair in "http-simple 6" "http-client 9"; do
