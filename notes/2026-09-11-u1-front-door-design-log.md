@@ -292,6 +292,35 @@ by: every command in the walkthrough exits zero and prints no error text, and
 the hand-written `world.toml` diff at each step is recorded. Those measure the
 experience; a file count measures the template.
 
+**D-U1-16 — basic-cli is a package, and its offer is generated from its gated
+world.** `~/dev/roc/basic-cli` (a sibling of trantor and roc-solid; not to be
+confused with `~/Repositories/roc-basic-cli`, the upstream clone b8 ports its
+examples from). 16 interfaces, 24 components, 15 wiring entries, 24 exports,
+520K of source.
+
+`package.toml` is GENERATED from `tests/golden/b8-basic-cli/world.toml` rather
+than transcribed, and the package's `verify.sh` re-checks the two whenever a
+trantor checkout sits beside it. The reason is that the b8 world is the
+composition actually gated against the upstream basic-cli examples; a
+hand-copied offer would drift from it, and the drift would surface in a
+consumer's tree for reasons nothing in either repo had tested.
+
+Two format gaps it exposed, both fatal to distributing a real platform:
+`[package] exports` (codegen writes `exposes [...]` from the world's list, and
+an app importing a module missing from it SEGFAULTS `roc build` — D-H7-35's
+finding) and `[packages]` (basic-cli vendors the Roc `http` package and cannot
+compose without the alias).
+
+`fs-confined` ships declared but unwired, which turns `world-confined.toml`
+from a variant of one repo's world into a swap any consumer can make. The gate
+asserts it where it is decided — `trantor__fs_unconfined__` becomes
+`trantor__fs_confined__` in the composed platform — rather than on the
+behaviour of an app that stays inside its sandbox either way.
+
+**Not pushed to GitHub.** The package is a local git repo; publishing it is the
+user's call, and `{ github = … }` resolution is unexercised against it until
+then. `{ path = … }` works today and is what the gate uses.
+
 ## Still open (raised, not decided)
 
 - **`out_dir` keys on the world DIRECTORY name while the app hardcodes that
