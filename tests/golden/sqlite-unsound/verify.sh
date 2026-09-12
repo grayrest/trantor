@@ -106,18 +106,6 @@ echo "SQ3 PASS"
 # A Roc closure registered as a turso SQL scalar, invoked from a SELECT and a
 # CREATE TRIGGER body. The rusqlite world does not expose roc:turso.
 grep -q 'turso_register_scalar' "$S/interfaces/turso/Turso.roc" || { echo "FAIL: no turso_register_scalar leaf"; exit 1; }
-# The negative half runs FIRST. It needs the rusqlite world, which SQ3 has
-# just left composed, so the turso half below costs one world switch instead
-# of two — worth ~5s, because switching worlds recomposes the workspace with a
-# different engine and cargo rebuilds it (2-5s against 0.6-1.0s for a
-# same-world build). D-H7-38: both variants compose to one directory by
-# design, so the switch cost is inherent and only ordering can avoid it.
-#
-# The rusqlite world is not a turso superset: no Turso module, so udf-app can't build there.
-./target/release/trantor compose "$S" >/dev/null
-grep -q 'Turso' "$S/target/trantor/sqlite-unsound/platform/main.roc" && { echo "FAIL: rusqlite world exposes Turso"; exit 1; } || true
-if ./target/release/trantor build "$S" --app udf-app --out udf-rusqlite >/dev/null 2>&1; then echo "FAIL: udf-app built on rusqlite (roc:turso should be unavailable)"; exit 1; fi
-echo "ok: rusqlite world has no roc:turso — udf-app only builds on the turso superset"
 
 if ! _b=$(./target/release/trantor build "$S" --world world-turso.toml --app udf-app --out udf-turso 2>&1); then echo "FAIL: build udf-app (turso)" >&2; echo "$_b" >&2; exit 1; fi
 uo=$(cd "$S" && ./target/trantor/sqlite-unsound/bin/udf-turso 2>/dev/null || true)
@@ -131,6 +119,11 @@ ug=$(cd "$S" && TRANTOR_ALLOC_GAUGE=1 ./target/trantor/sqlite-unsound/bin/udf-tu
 grep -q 'live=1' <<<"$ug" || { echo "FAIL: udf balance expected live=1 (the one registered closure): $ug"; exit 1; }
 echo "ok: exactly the one registered scalar closure is retained ($ug)"
 
+# The rusqlite world is not a turso superset: no Turso module, so udf-app can't build there.
+./target/release/trantor compose "$S" >/dev/null
+grep -q 'Turso' "$S/target/trantor/sqlite-unsound/platform/main.roc" && { echo "FAIL: rusqlite world exposes Turso"; exit 1; } || true
+if ./target/release/trantor build "$S" --app udf-app --out udf-rusqlite >/dev/null 2>&1; then echo "FAIL: udf-app built on rusqlite (roc:turso should be unavailable)"; exit 1; fi
+echo "ok: rusqlite world has no roc:turso — udf-app only builds on the turso superset"
 
 echo "SQ4 PASS"
 
