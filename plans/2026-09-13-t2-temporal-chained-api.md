@@ -151,6 +151,42 @@ otherwise.
 The gate is the oracle throughout; it is currently green and every step must
 leave it green before the next starts.
 
+**Correction, found while implementing §1:** the order above cannot be run as
+written. Glue generation typechecks the Roc platform BEFORE emitting
+`generated.rs`, so the shim has to compile against the new interface before the
+new ABI exists to write the host against. The order that works is
+interface → shim (enough to typecheck) → glue → host → gate.
+
+## What implementing it changed
+
+- **`§3` nominal types must live INSIDE the module block.** Declared at file
+  top level they resolve as constructors (`Temporal.PlainDate.new(..)` works)
+  but NOT in type annotations, so `Now.roc` could not name its own return
+  types. One file may hold several.
+- **Two types cross the ABI carrying values.** `RelativeTo` holds a
+  `PlainDate` and `Transition` holds a `ZonedDateTime`, so each needs a
+  shim-side type over the package's own values plus an explicit lower/lift.
+  Getting this wrong is NOT a type error: it panics the compiler at
+  specialisation ("hosted extern ... was specialized at type X instead of the
+  type Y its host ABI declares"), which is the same shape as the unexplained
+  b8 failure.
+- **`zdt_time_zone!` is fallible.** The first draft answered `"UTC"` when
+  `identifier()` failed, which is the invented-plausible-answer mistake the
+  old `time_zone_id!` leaf existed to avoid. Every zone shape measured does
+  answer, but that is a property of 0.2.6, not of the type.
+- **§5 is done and §4 stayed honest:** the gate was CONVERTED, not rewritten,
+  so all 70 expected values are unchanged. That is the evidence the rework is
+  behaviour-preserving.
+
+## Still open
+
+- The README no longer documents `TemporalHost` at all — the "Two surfaces"
+  section went with the rewrite. The package still exposes it and D-T1-1 still
+  says why, so either the section comes back or that decision needs revisiting.
+- The README's examples are verified by hand (a scratch app, run once) rather
+  than by the gate. They are the package's most-read claims and nothing stops
+  them rotting.
+
 ## Risks
 
 - **Leaf order.** Renaming a host result type silently breaks glue. Diff the
