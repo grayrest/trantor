@@ -76,8 +76,9 @@ reading the spec.
   decomposing to PlainDate/PlainTime and reconstructing double-applies the
   offset for mixed durations. Adding 86400e9 ns is wrong twice a year.
 
-- **All four disambiguation modes work.** Across the 2026 New York gap and
-  overlap:
+- **All four disambiguation modes behave in New York.** Across the 2026 gap and
+  overlap — and only there, which is the measurement's weakness: D-T1-23 later
+  found them wrong in 16 of 51 zones:
 
   ```
   GAP  02:30   Compatible 03:30-04:00  Earlier 01:30-05:00  Later 03:30-04:00  Reject RangeError
@@ -234,7 +235,7 @@ transition: the instant lands an hour off, and the value disagrees with itself,
 because `to_plain_time` reads the stale cached offset while `to_ixdtf_string`
 recomputes it. Measured over 2026 at every hour: 24 wrong values for
 America/New_York, 213 for Europe/Berlin, 214 for Europe/London, 24 for
-Pacific/Auckland, none for Sydney, Santiago or Tokyo. It reproduces through
+Pacific/Auckland, 1 for America/Santiago, none for Sydney or Tokyo. It reproduces through
 `PlainDate::to_zoned_date_time` as well as `from_partial`, and with no
 disambiguation argument at all, so it is not ours and not the option.
 
@@ -405,7 +406,12 @@ D-T1-18's invariant and it rightly declines to choose; asking for the start of
 hours earlier is always outside the day, so bisect between them for the
 boundary where the local date flips. ~47 halvings, exact in every zone.
 Verified against an independent linear scan over 16,440 days in 15 zones x 3
-years: 0 mismatches, and every year's day lengths sum to the year.
+years (1988-2026 spot-checked since): 0 mismatches over that range, and every
+year's day lengths sum to the year. NOT exact everywhere: where a backward
+transition carries local time across midnight into the previous date, the
+predicate it bisects is not monotone and it converges on the second boundary —
+`Antarctica/Casey 2010-03-05` and `America/St_Johns 1988-10-30` are 3 and 2
+hours late. Four zone-dates over every tzdb transition; still open.
 
 **D-T1-20 — a Roc record has no constructor, so the check moves to the use.**
 TC39 refuses to construct a mixed-sign `Duration` (`RangeError`, measured); our
@@ -472,8 +478,64 @@ package consumer, and the package gate passed throughout. Five falsified
 hypotheses on two unreproducible events is the point at which more guessing
 costs more than waiting for better evidence, which is what D-T1-22 buys.
 
+**D-T1-23 — resolve a wall clock; do not correct someone else's answer.**
+Replaces D-T1-18. Taking temporal_rs's instant and repairing it cannot work at
+an overlap: BOTH instants satisfy the invariant, so nothing downstream can tell
+which side `Disambiguation` asked for. Measured across every tzdb transition,
+that version was wrong on 14,961 overlaps across 174 zones and 17,081 gap
+resolutions, and `Reject` returned a value 60 times — while the README promised
+it was there "to be told rather than guessed for".
+
+So the candidates are computed here, which is what the spec describes. A wall
+clock sits at `naive - offset` for each offset the zone uses nearby; those that
+read back are the instants that exist. One: the answer. Two: `Earlier` and
+`Compatible` take the first, `Later` the last, `Reject` errors. None — a gap —
+the candidates straddle it, `Earlier` takes the instant before and
+`Later`/`Compatible` the one after, which is the spec's rule, and `Reject`
+errors.
+
+`zdt_add!` implements its operation the same way: date parts in wall-clock
+time, then time parts in exact time. Correcting upstream was worse than
+useless there — its hour-sized error can cross local midnight, so the repair
+read the wrong DATE and rebuilt there, turning one hour of error into
+twenty-four. `+P1D` could return the instant it started from (Africa/Cairo,
+2024-04-20T00:30), and `hours_in_day` then called that day zero hours long.
+
+Both defects came from trusting a value's own accessors, which read through the
+cached offset that is the entire upstream problem. D-T1-19 had already fixed
+exactly that in `start_of_day` and the lesson was not carried one function
+across.
+
+Measured over 20 zones x 3 years x all 24 hours x 4 disambiguations:
+**2,104,320 resolutions, 0 wrong; 1,051,954 add/subtract operations, 0 wrong
+dates** — against ground truth computed from real offset lookups.
+
+**D-T1-24 — totality means totality, and a parser must require what it
+claims.** `iso_day_of_week` aborted above year ~1.7e9 (I32 overflow) and
+`duration_to_str` aborted near I64::MAX (the carry rewrite removed the
+multiplication overflow and left the addition) — both in functions whose doc
+comments promised otherwise. Dates outside Temporal's own -271821..275760 range
+now answer 0, and an unrenderable duration reports `TooLarge`.
+
+`time_parse` had been fixed by DELETING its requirement rather than narrowing
+it, so it accepted any pattern at all — `time_parse("hello", "hello")` returned
+midnight. It requires a time, as `date_parse_in` requires a date. And a pattern
+naming both `%j` and `%m`/`%d` is an error rather than silently discarding one:
+`%a` is validated against the date precisely because a line claiming Monday for
+a Tuesday is wrong, and this was the same defect one directive over.
+
+`zdt_transition!(Next)` could return the instant it was asked about — past the
+tzif data temporal_rs runs the `Previous` branch for `Next` behind a
+`debug_assert`, and hosts are built `--release`. A caller walking transitions
+forward never terminated. A non-advancing answer is now no further transition.
+
 ## Still open (raised, not decided)
 
+- **`start_of_day` bisects a non-monotone predicate** in four zone-dates where
+  a backward transition carries local time across midnight (`Antarctica/Casey
+  2010-03-05`, `America/St_Johns`/`Goose_Bay`/`Canada/Newfoundland`
+  1988-10-30), and errors at the minimum representable instant because it
+  probes 26 hours earlier unconditionally. Both found by review, neither fixed.
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
   builds and 9 suite runs; five hypotheses falsified (above). If it recurs, the
   full log is now preserved — start there rather than from a new guess.
