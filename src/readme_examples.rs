@@ -140,7 +140,7 @@ pub struct Generated {
 }
 
 pub fn generate(fragments: &[&Block], modules: &[&Block], module_names: &BTreeMap<String, usize>, prelude: &[Stmt], platform: &str) -> Result<Generated, String> {
-    let contract = crate::scaffold::main_contract(platform)?;
+    let contract = crate::main_contract::main_contract(platform)?;
     let mut imports: BTreeSet<String> = contract.imports.iter().cloned().collect();
     imports.insert("pf.Stdout".into());
     let (mut top, mut fns, mut calls) = (vec![], vec![], vec![]);

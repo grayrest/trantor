@@ -30,7 +30,9 @@ mod codegen;
 mod deps;
 mod help;
 mod journal;
+mod main_contract;
 mod manifest;
+mod new_interface;
 mod bounded;
 mod package_modules;
 mod package_suites;
@@ -170,7 +172,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     other => return Err(format!("unknown flag {other:?}")),
                 }
             }
-            return scaffold::new_interface(&dir, &world_file, &name);
+            return new_interface::new_interface(&dir, &world_file, &name);
         }
         "compose" => {}
         "interface-stub" => {
