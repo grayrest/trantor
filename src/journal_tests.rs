@@ -84,6 +84,26 @@ fn a_live_editor_blocks_recovery_and_a_dead_one_does_not() {
 }
 
 #[test]
+fn a_journal_without_its_file_list_is_kept_not_discarded() {
+    let d = project("legacy");
+    std::fs::create_dir_all(d.join(JOURNAL_DIR)).unwrap();
+    std::fs::write(d.join(JOURNAL_DIR).join("world.toml"), "old").unwrap();
+    assert!(matches!(recover(&d).unwrap(), Recovery::Conflict(_)));
+    assert!(d.join(JOURNAL_DIR).exists());
+}
+
+#[test]
+fn a_live_staging_directory_is_not_swept() {
+    let d = project("sweep");
+    let live = d.join(format!("{JOURNAL_DIR}.tmp-1")); // launchd: alive, never us
+    std::fs::create_dir_all(&live).unwrap();
+    let dead = d.join(format!("{JOURNAL_DIR}.tmp-999999999"));
+    std::fs::create_dir_all(&dead).unwrap();
+    sweep(&d);
+    assert!(live.exists() && !dead.exists());
+}
+
+#[test]
 fn a_symlinked_manifest_is_written_through_its_link() {
     let d = project("link");
     std::fs::write(d.join("shared.toml"), "old").unwrap();

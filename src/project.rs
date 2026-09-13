@@ -53,49 +53,78 @@ impl Target {
         }
     }
 
-    /// Names every OTHER manifest in the directory depends on: they share the
-    /// lock, so a pin one of them uses is not this edit's to drop.
+    /// Names every OTHER manifest sharing this lock depends on, so a pin one
+    /// of them uses is not this edit's to drop. A world that does not parse
+    /// still counts: its `[deps]` are read as plain TOML.
     pub fn names_used_elsewhere(&self, dir: &Path) -> BTreeSet<String> {
         let mut names = BTreeSet::new();
-        for (file, deps) in world_variants(dir) {
+        for file in world_files(dir) {
             if !matches!(self, Target::World(w) if same_manifest(dir, w, &file)) {
-                names.extend(deps.into_keys());
+                names.extend(dep_names(&dir.join(&file)));
             }
         }
         if !matches!(self, Target::Package) {
-            if let Ok(deps) = Target::Package.deps(dir) {
-                names.extend(deps.into_keys());
-            }
+            names.extend(dep_names(&dir.join("package.toml")));
         }
         names
     }
 
-    /// The edited world composes, and so does every other world variant in the
-    /// directory that has github deps — they share the lock this edit changed.
-    fn validate(&self, dir: &Path) -> Result<(), String> {
-        let Target::World(w) = self else { return validate_package(dir) };
-        crate::build::compose(dir, w, None)?;
-        for (file, deps) in world_variants(dir) {
-            let pinned = deps.iter().any(|(n, d)| matches!(d.source(n), Ok(crate::manifest::DepSource::GitHub(_))));
-            if pinned && !same_manifest(dir, w, &file) {
-                crate::build::compose(dir, &file, None).map_err(|e| format!("{file} shares {LOCK_FILE} and no longer composes: {e}"))?;
+    /// The edited project composes, and so does every world sharing the lock
+    /// that depends on a name whose pin this edit changed. Those are composed
+    /// into scratch output: composing a variant in place overwrote the edited
+    /// world's platform under `target/`.
+    fn validate(&self, dir: &Path, changed: &BTreeSet<String>) -> Result<(), String> {
+        match self {
+            Target::World(w) => crate::build::compose(dir, w, None)?,
+            Target::Package => validate_package(dir)?,
+        }
+        for file in world_files(dir) {
+            let uses: Vec<String> = dep_names(&dir.join(&file)).intersection(changed).cloned().collect();
+            if uses.is_empty() || matches!(self, Target::World(w) if same_manifest(dir, w, &file)) {
+                continue;
             }
+            let out = Scratch(package_worlds::fresh_scratch_named("trantor-variant", &file.replace('/', "_"))?);
+            crate::build::compose(dir, &file, Some(out.0.clone())).map_err(|e| {
+                format!("{file} shares {LOCK_FILE}, depends on `{}` whose pin this changes, and does not compose with it \
+                         (commands for that world take `--world {file}`): {e}", uses.join("`, `"))
+            })?;
         }
         Ok(())
     }
 }
 
-/// Every world manifest directly in `dir`, with its dependencies.
-fn world_variants(dir: &Path) -> Vec<(String, BTreeMap<String, Dep>)> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
-    let mut out: Vec<(String, BTreeMap<String, Dep>)> = entries
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.ends_with(".toml") && !matches!(n.as_str(), "package.toml" | "Cargo.toml"))
-        .filter_map(|n| crate::manifest::load_world_raw(dir, &n).ok().map(|w| (n, w.deps)))
-        .collect();
-    out.sort_by(|a, b| a.0.cmp(&b.0));
+/// World manifests sharing `dir`'s lock: every `*.toml` under it that has a
+/// `[world]` table, outside `target/`, dot-directories, and directories that
+/// are projects of their own (a `trantor.lock` or `package.toml` of theirs).
+fn world_files(dir: &Path) -> Vec<String> {
+    fn walk(root: &Path, at: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(at) else { return };
+        for e in entries.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            if path.is_dir() {
+                let own_project = path.join(LOCK_FILE).exists() || path.join("package.toml").exists();
+                if !(name.starts_with('.') || name == "target" || own_project) {
+                    walk(root, &path, out);
+                }
+            } else if name.ends_with(".toml") && !matches!(name.as_str(), "package.toml" | "Cargo.toml") {
+                let is_world = std::fs::read_to_string(&path).ok().and_then(|t| t.parse::<toml::Table>().ok()).is_some_and(|t| t.contains_key("world"));
+                if is_world {
+                    out.push(path.strip_prefix(root).unwrap_or(&path).to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+    let mut out = vec![];
+    walk(dir, dir, &mut out);
+    out.sort();
     out
+}
+
+/// The names under `[deps]` and `[dev-deps]`, read as plain TOML.
+fn dep_names(manifest: &Path) -> BTreeSet<String> {
+    let Some(table) = std::fs::read_to_string(manifest).ok().and_then(|t| t.parse::<toml::Table>().ok()) else { return BTreeSet::new() };
+    ["deps", "dev-deps"].iter().filter_map(|k| table.get(*k).and_then(|v| v.as_table())).flat_map(|t| t.keys().cloned()).collect()
 }
 
 fn same_manifest(dir: &Path, a: &str, b: &str) -> bool {
@@ -106,9 +135,15 @@ fn same_manifest(dir: &Path, a: &str, b: &str) -> bool {
 /// anything changed, then compose. Anything short of success restores both.
 pub fn transact(dir: &Path, target: &Target, edit: impl FnOnce() -> Result<bool, String>) -> Result<bool, String> {
     let journal = Journal::begin(dir, &[target.manifest(), LOCK_FILE])?;
+    let pins_before = crate::registry::Lock::load(dir)?.packages;
     let checked = edit().and_then(|changed| {
         journal.written()?;
-        if changed { target.validate(dir).map(|()| true) } else { Ok(false) }
+        if !changed {
+            return Ok(false);
+        }
+        let after = crate::registry::Lock::load(dir)?.packages;
+        let moved: BTreeSet<String> = pins_before.iter().filter(|e| !after.contains(e)).chain(after.iter().filter(|e| !pins_before.contains(e))).map(|e| e.name.clone()).collect();
+        target.validate(dir, &moved).map(|()| true)
     });
     match checked {
         Ok(changed) => {

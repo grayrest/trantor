@@ -51,8 +51,10 @@ pub struct Journal {
 impl Journal {
     /// Save `files` (relative to `project`, or absolute) before they are edited.
     pub fn begin(project: &Path, files: &[&str]) -> Result<Journal, String> {
-        if let Recovery::Conflict(why) = recover(project)? {
-            return Err(why);
+        match recover(project)? {
+            Recovery::Conflict(why) => return Err(why),
+            Recovery::Restored(note) => eprintln!("trantor: {note}"),
+            Recovery::Nothing => {}
         }
         let dir = project.join(JOURNAL_DIR);
         let staging = Staging(project.join(format!("{JOURNAL_DIR}.tmp-{}", std::process::id())));
@@ -66,7 +68,13 @@ impl Journal {
         for (i, f) in files.iter().enumerate() {
             save(&staging.0, &format!("{i}.before"), &project.join(f))?;
         }
-        std::fs::rename(&staging.0, &dir).map_err(|e| format!("start the edit journal {}: {e}", dir.display()))?;
+        std::fs::rename(&staging.0, &dir).map_err(|e| {
+            if dir.exists() {
+                format!("another trantor is editing {} — wait for it to finish", project.display())
+            } else {
+                format!("start the edit journal {}: {e}", dir.display())
+            }
+        })?;
         std::mem::forget(staging);
         Ok(Journal { dir, project: project.to_path_buf(), files: files.iter().map(|f| f.to_string()).collect(), _owner: owner })
     }
@@ -112,7 +120,17 @@ pub fn recover(project: &Path) -> Result<Recovery, String> {
     if owner.as_ref().is_some_and(|o| !try_lock(o)) {
         return Err(format!("another trantor is editing {} — wait for it to finish", project.display()));
     }
-    let files: Vec<String> = std::fs::read_to_string(dir.join(PATHS)).unwrap_or_default().lines().map(str::to_string).collect();
+    // A journal without its list of files — one an older trantor wrote, or a
+    // damaged one — says nothing recovery can trust; it used to be deleted
+    // without restoring anything.
+    let Ok(listed) = std::fs::read_to_string(dir.join(PATHS)) else {
+        return Ok(Recovery::Conflict(format!(
+            "{} is an edit journal this trantor cannot read (an older trantor's, or damaged). Compare the files \
+             saved in it with yours, then delete it",
+            dir.display()
+        )));
+    };
+    let files: Vec<String> = listed.lines().map(str::to_string).collect();
     let (mut restore_these, mut changed) = (vec![], vec![]);
     for (i, f) in files.iter().enumerate() {
         let target = project.join(f);
@@ -127,12 +145,16 @@ pub fn recover(project: &Path) -> Result<Recovery, String> {
         }
     }
     if !changed.is_empty() {
+        let saved_as: Vec<String> = files.iter().enumerate().map(|(i, f)| {
+            if dir.join(format!("{i}.before.absent")).exists() { format!("{f} did not exist") } else { format!("{i}.before is {f}") }
+        }).collect();
         return Ok(Recovery::Conflict(format!(
             "an interrupted `trantor add`/`update`/`remove` left {}, but {} changed since, so nothing was restored. \
-             Delete {} to keep the files as they are, or copy back the saved `*.before` files from it",
+             Delete {} to keep the files as they are, or restore them from it by hand ({})",
             dir.display(),
             changed.join(" and "),
-            dir.display()
+            dir.display(),
+            saved_as.join("; ")
         )));
     }
     let names: Vec<String> = restore_these.iter().map(|(t, _)| t.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).collect();
@@ -205,13 +227,20 @@ fn discard(dir: &Path) {
     }
 }
 
-/// Staging and discarded journals whose owner is gone.
+/// Staging and discarded journals whose owner is gone: its pid (in the name)
+/// is not running and its lock is free. The pid check comes first — a live
+/// `begin` has created its staging directory before its lock file, and a
+/// sweep that went by the lock alone deleted it mid-write.
 fn sweep(project: &Path) {
     let Ok(entries) = std::fs::read_dir(project) else { return };
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        let stale = name.starts_with(&format!("{JOURNAL_DIR}.tmp-")) || name.starts_with(&format!("{JOURNAL_DIR}.done-"));
-        if stale && File::open(e.path().join(OWNER)).map_or(true, |o| try_lock(&o)) {
+        let pid = name.strip_prefix(&format!("{JOURNAL_DIR}.tmp-")).or_else(|| name.strip_prefix(&format!("{JOURNAL_DIR}.done-")));
+        let Some(pid) = pid.and_then(|p| p.parse::<u32>().ok()) else { continue };
+        if pid == std::process::id() || crate::bounded::alive(pid) {
+            continue;
+        }
+        if File::open(e.path().join(OWNER)).map_or(true, |o| try_lock(&o)) {
             std::fs::remove_dir_all(e.path()).ok();
         }
     }

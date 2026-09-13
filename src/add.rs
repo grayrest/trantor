@@ -13,7 +13,6 @@ use crate::registry::{self, Lock, LOCK_FILE};
 const USAGE: &str = "usage: trantor add <org>/<repo> [<dir>] [--as <name>] [--world <file>]";
 
 pub fn add(dir: &Path, world_flag: Option<&str>, slug: &str, as_name: Option<&str>) -> Result<(), String> {
-    crate::journal::recover_noting(dir)?;
     let target = Target::of(dir, world_flag)?;
     let place = place(dir, world_flag);
     // Already a dependency: `add` does not move its pin — that is `update`.
