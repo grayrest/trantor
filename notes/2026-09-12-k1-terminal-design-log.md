@@ -708,9 +708,13 @@ Bare `Err(TimedOut)` and `Err(Unsupported)`, which keep both losses.
 `with_kitty_keyboard!` and `Screen`'s synchronized-output check treat both
 errors as unsupported (trantor-terminal `d02f67f`, `2f3139d`).
 
+**D-K1-33 — `Terminal` does not warn about `Stdout` writes interleaved with
+`Screen` frames.** Decided by the user. Keeping `Stdout` and `Screen` from
+writing to the same device at once stays the app's job. `Terminal` has no view
+of those writes: `Stdout` is trantor-cli's stream, a separate fd that
+`Terminal` never wraps.
+
 ## Still open (raised, not decided)
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
   of K1.
-- `Stdout` writes interleaved with `Screen` frames on the same device are the
-  app's to avoid; whether `Terminal` should warn is not decided.
