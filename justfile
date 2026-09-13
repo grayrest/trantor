@@ -71,3 +71,6 @@ verify *filter:
     echo "verify: full logs in $logs/"
     if [[ ${#failed[@]} -gt 0 ]]; then printf 'FAILED: %s\n' "${failed[@]}"; exit 1; fi
     [[ "$dirty" == 0 ]] || { echo "FAIL: the suite dirtied the working tree"; git status --short; exit 1; }
+    # A skip checked nothing, so it is not a pass: a gate reading only the exit
+    # status stayed green with no sibling checkout at all.
+    if [[ ${#skipped[@]} -gt 0 ]]; then printf 'SKIPPED: %s\n' "${skipped[@]}"; echo "verify: not a full pass"; exit 1; fi

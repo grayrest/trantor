@@ -670,11 +670,48 @@ a test that fails when the fix is reverted.
 Not fixed, by decision or scope:
 - A stated plain value on an expression whose `to_str` does not exist (a Try
   without `?`) is a compile error, not a diff. It fails; it does not pass.
-- A consumer does not pin a package's transitive github dependencies: they
-  resolve through the consuming world's lock. `add` writes a package's own lock
-  and `trantor test` copies it, which covers testing the package, not using it.
+- A package's own github dependencies resolve through the package's lock, not
+  the consuming world's (`deps::expand_into` recurses with the package root);
+  a consumer gets them pinned only if the package commits its lock.
 - The removed expect floors (140, 5, 200) stay removed (D-T3-3); D-T3-7 is what
   now catches unreachable expects.
+
+## D-T3c — the review of the T3b fixes
+
+A second round of four reviewers on the fixes found 45 defects, among them
+three new ways to pass untested code: a dev-dependency's module silently
+replacing the package's own (so its only, failing, expect never ran), an orphan
+expect behind a symlinked component, and README claims that looked like prose
+to the classifier (`LT`, `-P1D`, `True`). Decisions (user, 2026-09-13):
+
+- **D-T3-11 `update` and `remove` take `add`'s form and work on packages:**
+  `update [<name>] [<dir>]` (`--all [<dir>]`), `remove <name> [<dir>]`; the old
+  `<dir> <name>` order is refused naming the new one. All three compose after
+  the edit and keep it only if that succeeds. A package's lock could not be
+  repaired by any command before.
+- **D-T3-12 Edits are journaled.** The old manifest and lock are saved to
+  `.trantor-edit/` and each file replaced by rename; an `add` killed mid-compose
+  used to leave its edit. The next trantor command in that directory undoes an
+  interrupted edit, unless its owner is still alive.
+- **D-T3-13 Interrupts reach child process groups.** `trantor test` forwards
+  SIGINT/SIGTERM/SIGHUP to every running group, and ends a group with SIGTERM
+  then SIGKILL after 5 s, so a nested `trantor test` ends its own groups too. A
+  child that calls `setsid` has left the group; stopping it is its suite's job.
+- **D-T3-14 A platform module has one source, for every world.** Two
+  components (or an interface and a component) shipping the same
+  `platform/<Module>.roc`, or a component exporting a module it does not have,
+  is a compose error naming both. Write order used to decide silently.
+
+Also decided in the fixing, within those: a package with no [dev-deps] and no
+driver in reach refuses `add`/`update`/`remove` (it cannot be composed, and
+expanding its dependencies let a broken one in); `add` refuses a name already
+taken — by a different source, by the same package under another name, or in
+the lock by another world variant; a README claim is "text", a number, a Bool,
+a tag name, text a value renders as, or `Name(...)`, and README values that
+read the machine are found through aliases, `exposing`, module-level functions
+and prelude bindings over a fixed module list (`Now`, `Utc`, `Clocks`, `Env`,
+`Random`, `Locale`, `Cli`, `Stdin`, `File`, `Fs`, `Cmd`, `Subprocess`) — a
+package whose machine-reading module has another name is not covered.
 
 ## Still open (raised, not decided)
 

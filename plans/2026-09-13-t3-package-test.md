@@ -100,3 +100,19 @@ Findings and decisions are D-T3-6 … D-T3-10 in the design log. Code: `add.rs`,
 Gates: `t3-package-test` (17 breaks, 3 no-hang passes), `u1-add` (no network,
 git insteadOf), plus `trantor test .` on all three packages. `just verify`
 reports SKIP separately from PASS.
+
+## Review round 2 (T3c)
+
+Decisions are D-T3-11 … D-T3-14. New modules: `journal.rs` (edit journal,
+atomic writes), `project.rs` (target + transact), `pins.rs` (update/remove
+commands), `shipped_modules.rs` (one source per platform module),
+`package_modules.rs` (shipped modules, symlink-following expect walk),
+`main_contract.rs` (requires parsing), `new_interface.rs` (split from
+scaffold), `readme_claims.rs`, `readme_generate.rs`, `readme_taint.rs` (split
+from readme_lex/readme_examples). `registry::ensure_cached` fetches beside the
+cache entry and renames it in. Gates: `t3-package-test` 22 breaks, 3 no-hang
+passes, an interrupted run; `u1-add` adds name refusal, package update/remove,
+a killed add undone, a package with no baseline refused, missing and clashing
+modules. `just verify` fails when anything is skipped. trantor-net's `peer`
+uses a watcher instead of an EXIT trap (bash 3.2 exits 0 through a trap after a
+`set -u` error).
