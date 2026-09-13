@@ -34,6 +34,7 @@ mod journal;
 mod main_contract;
 mod manifest;
 mod new_interface;
+mod new_marker;
 mod bounded;
 mod package_modules;
 mod package_suites;

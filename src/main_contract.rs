@@ -135,17 +135,12 @@ fn top_level_commas(s: &str) -> usize {
 pub fn app_main(name: &str, contract: &MainContract) -> String {
     format!(
         "app [main!] {{ pf: platform \"../target/trantor/{}/platform/main.roc\" }}\n\n{}\n\n{}\nmain! = |{}| {{\n\t{}\n}}\n",
-        roc_str_body(name),
+        name,
         contract.imports.iter().map(|i| format!("import {i}")).collect::<Vec<_>>().join("\n"),
         contract.signature,
         contract.param,
         contract.body,
     )
-}
-
-/// Text for inside a Roc string literal.
-fn roc_str_body(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$")
 }
 
 #[cfg(test)]
@@ -167,7 +162,6 @@ mod tests {
         let int = contract("\t\tmain! : {} => I32").unwrap();
         assert_eq!((int.param.as_str(), int.body.starts_with("crash")), ("{}", true));
         assert_eq!(contract("\t\tmain! : () => Try({}, _)").unwrap().param, "", "no argument at all");
-        assert!(app_main("q\"x$", &contract("\t\tmain! : {} => Try({}, _)").unwrap()).contains("target/trantor/q\\\"x\\$/platform"));
         let two = contract("\t\tmain! : Str, List(Str) => Try({}, _)").unwrap();
         assert_eq!(two.param, "_arg1, _arg2");
         assert!(contract("\t\trun! : {} => {}").unwrap_err().contains("requires no `main!`"));
