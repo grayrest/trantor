@@ -41,8 +41,9 @@ pub fn claim(comment: &str) -> Claim {
     }
     // `Bool.true`, `Some(x`: capitalised and value-shaped. `Note:` is prose.
     let capital_value = one_token && head.starts_with(|c: char| c.is_ascii_uppercase()) && head.contains(['(', '.']);
-    // `Ok("bye"), decoded from bytes`: a tag with prose after it but no ` — `.
-    let tag_then_prose = first.split_once('(').is_some_and(|(name, _)| is_tag_name(name));
+    // `Ok("bye"), decoded from bytes`: a result with prose after it but no ` — `.
+    // Only Ok/Err: `TODO(grayrest): ...` and `See(below)` are ordinary comments.
+    let tag_then_prose = first.starts_with("Ok(") || first.starts_with("Err(");
     if looks_like_value(first) || capital_value || tag_then_prose {
         return Claim::Unrecognised(head.to_string());
     }
@@ -230,6 +231,7 @@ mod tests {
         assert_eq!(claim_below("False"), Claim::Token("False".into()), "a Bool below is still a claim");
         assert!(matches!(claim("Ok(\"bye\"), decoded from bytes"), Claim::Unrecognised(_)));
         assert!(matches!(claim("Err(NotFound) when missing"), Claim::Unrecognised(_)));
+        assert_eq!(claim("TODO(grayrest): greet by name"), Claim::Prose);
         for near in ["-> 3", "⇒ 3", "~3", "2024-02-29, constrained", "359 days", "999 (paren after)", "[1, 2]", r##""x" and more"##, "3,000",
                      "→ 3", "= 3", "=> 3", "'a'", "３", ".5", "Bool.true", "True, as it happens", "\"x\"."] {
             assert!(matches!(claim(near), Claim::Unrecognised(_)), "{near} should be unrecognised, got {:?}", claim(near));

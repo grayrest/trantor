@@ -36,7 +36,9 @@ pub fn blocks(readme: &str) -> Result<Vec<Block>, String> {
         let Some((indent, fence, info)) = fence_open(lines[i]) else {
             // A setext heading is its underline under a paragraph line.
             let underline = !lines[i].starts_with("    ") && { let t = lines[i].trim(); !t.is_empty() && (t.chars().all(|c| c == '=') || t.chars().all(|c| c == '-')) };
-            let setext = underline && i > 0 && !lines[i - 1].trim().is_empty();
+            // Only under a paragraph line: `---` under a fence, a list item or a
+            // heading is a thematic break.
+            let setext = underline && i > 0 && is_paragraph_line(lines[i - 1]) && last_close != Some(i - 1);
             if is_heading(lines[i]) || setext {
                 last_heading = Some(i);
             }
@@ -107,6 +109,12 @@ fn is_fence_close(line: &str, fence: &str) -> bool {
     t.len() >= fence.len() && t.chars().all(|x| x == c)
 }
 
+fn is_paragraph_line(line: &str) -> bool {
+    let t = line.trim_start();
+    let list_item = ["- ", "* ", "+ "].iter().any(|p| t.starts_with(p)) || t.split_once(". ").is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+    !t.is_empty() && !list_item && !is_heading(line) && !t.starts_with("```") && !t.starts_with("~~~") && !t.starts_with('>')
+}
+
 /// An ATX heading: up to three spaces, then 1–6 `#`. Indented further it is
 /// code, not a heading.
 fn is_heading(line: &str) -> bool {
@@ -129,16 +137,16 @@ pub struct Scan {
 }
 
 pub fn scan(line: &str) -> Scan {
-    // A `\\` line is a multi-line string's content, all of it.
-    if line.trim_start().starts_with("\\\\") {
-        return Scan { comment_at: None, depth: 0, blanked: " ".repeat(line.len()) };
-    }
-    #[derive(PartialEq)]
-    enum S { Code, Str, Char }
+    #[derive(PartialEq, Clone, Copy)]
+    enum S { Code, Str, Multi, Char }
     let chars: Vec<(usize, char)> = line.char_indices().collect();
-    let (mut state, mut depth, mut interp) = (S::Code, 0i32, Vec::<i32>::new());
-    let mut blanked = String::with_capacity(line.len());
-    let mut k = 0;
+    // A `\\` line is a multi-line string's content; its `${...}` is still code.
+    let lead = line.len() - line.trim_start().len();
+    let (mut state, mut k) = if line[lead..].starts_with("\\\\") { (S::Multi, chars.iter().position(|(i, _)| *i == lead + 2).unwrap_or(chars.len())) } else { (S::Code, 0) };
+    let mut depth = 0i32;
+    // Each open interpolation: the depth it opened at, and the string it returns to.
+    let mut interp: Vec<(i32, S)> = vec![];
+    let mut blanked = " ".repeat(line[..chars.get(k).map_or(line.len(), |c| c.0)].chars().count());
     while k < chars.len() {
         let (at, c) = chars[k];
         match state {
@@ -147,17 +155,17 @@ pub fn scan(line: &str) -> Scan {
                 // `x = \\text`: a multi-line string starting mid-line runs to
                 // the end of it, brackets and all.
                 '\\' if chars.get(k + 1).map(|x| x.1) == Some('\\') => {
-                    blanked.push_str(&" ".repeat(line.len() - at));
-                    return Scan { comment_at: None, depth, blanked };
+                    state = S::Multi;
+                    blanked.push_str("  ");
+                    k += 1;
                 }
                 '"' => { state = S::Str; blanked.push('"') }
                 '\'' => { state = S::Char; blanked.push('\'') }
                 '(' | '[' | '{' => { depth += 1; blanked.push(c) }
                 ')' | ']' => { depth -= 1; blanked.push(c) }
                 '}' => {
-                    if interp.last() == Some(&depth) {
-                        interp.pop();
-                        state = S::Str;
+                    if interp.last().is_some_and(|(d, _)| *d == depth) {
+                        state = interp.pop().map_or(S::Str, |(_, back)| back);
                         blanked.push(' ');
                     } else {
                         depth -= 1;
@@ -166,11 +174,11 @@ pub fn scan(line: &str) -> Scan {
                 }
                 _ => blanked.push(c),
             },
-            S::Str => match c {
-                '\\' => { blanked.push_str("  "); k += 1 }
-                '"' => { state = S::Code; blanked.push('"') }
+            S::Str | S::Multi => match c {
+                '\\' if state == S::Str => { blanked.push_str("  "); k += 1 }
+                '"' if state == S::Str => { state = S::Code; blanked.push('"') }
                 '$' if chars.get(k + 1).map(|x| x.1) == Some('{') => {
-                    interp.push(depth);
+                    interp.push((depth, state));
                     state = S::Code;
                     blanked.push_str("  ");
                     k += 1;
@@ -228,6 +236,15 @@ pub fn statements(lines: &[(usize, String)]) -> (Vec<Stmt>, Vec<(usize, String)>
         if continues {
             open = stmts.pop();
             depth = 0;
+            // Comment-only lines it passed over stay as empty lines, so the
+            // statement's code keeps one line per README line — build errors
+            // are mapped back by that count.
+            if let Some(st) = open.as_mut() {
+                let last = st.line + st.code.lines().count().saturating_sub(1);
+                for _ in last + 1..*n {
+                    st.code.push('\n');
+                }
+            }
         }
         if let Some(st) = open.as_mut() {
             st.inner.append(&mut st.comments);

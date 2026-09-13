@@ -54,8 +54,7 @@ pub fn check(steps: &Steps, with: &Path) -> Result<(), String> {
         let prelude = statements(&prelude_lines).0;
         let platform = std::fs::read_to_string(platform_dir(with, APP_WORLD).join("main.roc"))
             .map_err(|e| format!("read the composed platform: {e}"))?;
-        let own: std::collections::BTreeSet<String> = crate::package_modules::shipped(steps.root, steps.pkg).into_keys().collect();
-        let g = generate(&fragments, &modules, &module_names, &prelude, &platform, &own)?;
+        let g = generate(&fragments, &modules, &module_names, &prelude, &platform)?;
         let got = run_source(steps, with, &g.app, "the README.md examples", 0, &readme, None)?;
         compared = compare(&g.expected, &got)?;
     }

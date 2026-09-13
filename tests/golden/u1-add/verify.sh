@@ -173,8 +173,9 @@ echo "ok: a missing exported module and a module from two places each fail the a
 # composed in target/ afterwards.
 mkdir -p "$T/app/variants"
 sed 's/^name = .*/name = "variant"/' "$T/app/world.toml" > "$T/app/variants/w.toml"
-perl -pi -e 's|path = "(?!/)|path = "../|' "$T/app/variants/w.toml"
-(cd "$T/app" && "$TR" remove greet) > "$T/rm2.out" 2>&1 || { echo "FAIL: remove with a variant"; cat "$T/rm2.out"; exit 1; }
+# Two links back to the project: variant discovery must not walk them forever.
+mkdir -p "$T/app/docs" && ln -s . "$T/app/docs/a" && ln -s . "$T/app/docs/b"
+(cd "$T/app" && perl -e 'alarm shift; exec @ARGV' 120 "$TR" remove greet) > "$T/rm2.out" 2>&1 || { echo "FAIL: remove with a variant (or it did not finish)"; cat "$T/rm2.out"; exit 1; }
 grep -q "its pin stays" "$T/rm2.out" || { echo "FAIL: remove did not keep the pin a variant uses"; cat "$T/rm2.out"; exit 1; }
 grep -q 'name = "greet"' "$T/app/trantor.lock" || { echo "FAIL: the variant's pin was dropped"; exit 1; }
 ! grep -q 'Greet' "$T/app/target/trantor/app/platform/main.roc" || { echo "FAIL: target/ holds a platform other than world.toml's"; exit 1; }
@@ -195,6 +196,14 @@ printf 'mine\n' > "$T/half/NOTES.md"
 grep -q "was cleaned up" "$T/new2.out" || { echo "FAIL: the rerun did not say it cleaned up"; cat "$T/new2.out"; exit 1; }
 [[ -f "$T/half/NOTES.md" && -f "$T/half/app/main.roc" && ! -e "$T/half/.trantor-new" ]] || { echo "FAIL: the rerun lost the user's file or did not finish"; ls -la "$T/half"; exit 1; }
 echo "ok: a killed new is cleaned up by the next one, and a file the user added survives"
+
+# A marker cloned from elsewhere, naming another directory, is refused, not
+# followed: nothing outside the project is touched.
+mkdir -p "$T/cloned" && printf 'keep\n' > "$T/victim.txt"
+printf 'project\t/elsewhere\nfile\t../victim.txt\t0000000000000000\n' > "$T/cloned/.trantor-new"
+if "$TR" new "$T/cloned" > "$T/new3.out" 2>&1; then echo "FAIL: new followed a foreign marker"; exit 1; fi
+grep -q "another directory\|did not write" "$T/new3.out" && [[ -f "$T/victim.txt" ]] || { echo "FAIL: a foreign marker was not refused by name"; cat "$T/new3.out"; exit 1; }
+echo "ok: a marker from another directory is refused and nothing outside the project is touched"
 
 # (13) new without a baseline writes no app and says how to get one.
 "$TR" new "$T/bare" > "$T/new.out" 2>&1

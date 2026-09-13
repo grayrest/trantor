@@ -50,7 +50,7 @@ pub fn import_of(line: &str) -> Option<String> {
     code.strip_prefix("import ").map(|m| m.trim().to_string())
 }
 
-pub fn generate(fragments: &[&Block], modules: &[&Block], module_names: &BTreeMap<String, usize>, prelude: &[Stmt], platform: &str, own: &BTreeSet<String>) -> Result<Generated, String> {
+pub fn generate(fragments: &[&Block], modules: &[&Block], module_names: &BTreeMap<String, usize>, prelude: &[Stmt], platform: &str) -> Result<Generated, String> {
     let contract = crate::main_contract::main_contract(platform)?;
     if contract.body != "Ok({})" {
         return Err(format!("README.md examples run inside a generated main!, which must be able to finish; this baseline's is `{}`", contract.signature));
@@ -58,7 +58,7 @@ pub fn generate(fragments: &[&Block], modules: &[&Block], module_names: &BTreeMa
     let mut imports: BTreeSet<String> = contract.imports.iter().cloned().collect();
     imports.insert("pf.Stdout".into());
     imports.extend(modules.iter().chain(fragments).flat_map(|b| b.lines.iter().filter_map(|(_, l)| import_of(l))));
-    let taint = Taint::of(&imports, own, modules, prelude);
+    let taint = Taint::of(&imports, modules, prelude);
     let mut top = vec![];
     for b in modules {
         for (n, l) in &b.lines {

@@ -49,11 +49,26 @@ fn an_indented_hash_line_is_not_a_heading_but_a_setext_one_is() {
     assert!(b[0].output.is_some(), "an indented # line is code");
     let b = blocks("```roc\napp [main!] {}\n```\nInstalling\n----------\n```text\ntrantor add org/greet\n```\n").unwrap();
     assert!(b[0].output.is_none(), "a setext heading ends the app's output");
+    let b = blocks("```roc\napp [main!] {}\n```\n---\n\n```text\nhi\n```\n").unwrap();
+    assert!(b[0].output.is_some(), "`---` under a fence is a thematic break, not a heading");
 }
 
 #[test]
-fn a_multi_line_string_starting_mid_line_hides_its_brackets() {
+fn a_multi_line_string_hides_its_text_but_not_its_interpolation() {
     assert_eq!(scan("x = \\\\usage (see below").depth, 0);
+    assert!(scan("msg = \\\\home is ${Env.var_str!(\"HOME\")}").blanked.contains("Env.var_str!"));
+    assert!(scan("\t\\\\home is ${Env.var!(\"HOME\")}").blanked.contains("Env.var!"));
+    assert!(!scan("\t\\\\say \"Path.x!\" # not a comment").blanked.contains("Path"));
+    assert_eq!(scan("\t\\\\say # not a comment").comment_at, None);
+}
+
+#[test]
+fn a_comment_line_inside_a_chain_keeps_its_line() {
+    let lines: Vec<(usize, String)> = ["x = Greet.hello(who)", "  # a note about the chain", "  .nope()"]
+        .iter().enumerate().map(|(i, l)| (i + 1, l.to_string())).collect();
+    let (stmts, _) = statements(&lines);
+    assert_eq!(stmts.len(), 1);
+    assert_eq!(stmts[0].code.lines().count(), 3, "{:?}", stmts[0].code);
 }
 
 #[test]
