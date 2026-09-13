@@ -182,28 +182,30 @@ grep -q 'name = "greet"' "$T/app/trantor.lock" || { echo "FAIL: the variant's pi
 "$TR" compose "$T/app" --world variants/w.toml --out "$T/variant-out" > "$T/var.out" 2>&1 || { echo "FAIL: the variant no longer composes"; cat "$T/var.out"; exit 1; }
 echo "ok: a variant in a subdirectory keeps its pin through a remove, and target/ is the edited world's"
 
-# (12) A killed `new` is cleaned up by the next one, keeping what the user added.
-# A baseline whose driver.toml is a FIFO: composing it blocks, so the kill
-# lands after new has written its files.
+# (12) A killed `new` is explained by the next one, which removes nothing
+# (D-T3-22). A baseline whose driver.toml is a FIFO: composing it blocks, so
+# the kill lands after new has written its files.
 mkdir -p "$T/fifobase/components/drv" && cp "$PWD/tests/golden/u1-front-door/base/package.toml" "$T/fifobase/"
 mkfifo "$T/fifobase/components/drv/driver.toml"
 "$TR" new "$T/half" --from "$T/fifobase" > "$T/new1.out" 2>&1 & newer=$!
 for _ in $(seq 100); do [[ -f "$T/half/.gitignore" ]] && break; sleep 0.1; done
 sleep 0.5; kill -KILL "$newer"; wait "$newer" 2>/dev/null || true
-[[ -f "$T/half/world.toml" && -f "$T/half/.trantor-new" ]] || { echo "FAIL: the killed new left no half project to clean up"; ls -la "$T/half"; exit 1; }
-printf 'mine\n' > "$T/half/NOTES.md"
-"$TR" new "$T/half" --from "$CLI" > "$T/new2.out" 2>&1 || { echo "FAIL: new after a killed new"; tail -5 "$T/new2.out"; exit 1; }
-grep -q "was cleaned up" "$T/new2.out" || { echo "FAIL: the rerun did not say it cleaned up"; cat "$T/new2.out"; exit 1; }
-[[ -f "$T/half/NOTES.md" && -f "$T/half/app/main.roc" && ! -e "$T/half/.trantor-new" ]] || { echo "FAIL: the rerun lost the user's file or did not finish"; ls -la "$T/half"; exit 1; }
-echo "ok: a killed new is cleaned up by the next one, and a file the user added survives"
+[[ -f "$T/half/world.toml" && -f "$T/half/.trantor-new" ]] || { echo "FAIL: the killed new left no half project"; ls -la "$T/half"; exit 1; }
+printf '# mine\n' >> "$T/half/Cargo.toml"
+if "$TR" new "$T/half" --from "$CLI" > "$T/new2.out" 2>&1; then echo "FAIL: new ran over a killed new's half project"; exit 1; fi
+grep -q "world.toml (as it wrote it)" "$T/new2.out" && grep -q "Cargo.toml (changed since)" "$T/new2.out" \
+	|| { echo "FAIL: the refusal did not say what the killed new left"; cat "$T/new2.out"; exit 1; }
+[[ -f "$T/half/world.toml" && -f "$T/half/Cargo.toml" && -f "$T/half/.trantor-new" ]] || { echo "FAIL: the refusal removed something"; ls -la "$T/half"; exit 1; }
+rm -rf "$T/half" && "$TR" new "$T/half" --from "$CLI" > "$T/new3.out" 2>&1 || { echo "FAIL: new after the user cleared the half project"; tail -5 "$T/new3.out"; exit 1; }
+echo "ok: a killed new is explained by the next one, file by file, and nothing is removed"
 
-# A marker cloned from elsewhere, naming another directory, is refused, not
-# followed: nothing outside the project is touched.
+# A marker from elsewhere, with a path out of the project, is only explained:
+# nothing outside the project is touched.
 mkdir -p "$T/cloned" && printf 'keep\n' > "$T/victim.txt"
 printf 'project\t/elsewhere\nfile\t../victim.txt\t0000000000000000\n' > "$T/cloned/.trantor-new"
-if "$TR" new "$T/cloned" > "$T/new3.out" 2>&1; then echo "FAIL: new followed a foreign marker"; exit 1; fi
-grep -q "another directory\|did not write" "$T/new3.out" && [[ -f "$T/victim.txt" ]] || { echo "FAIL: a foreign marker was not refused by name"; cat "$T/new3.out"; exit 1; }
-echo "ok: a marker from another directory is refused and nothing outside the project is touched"
+if "$TR" new "$T/cloned" > "$T/new4.out" 2>&1; then echo "FAIL: new ran over a foreign marker"; exit 1; fi
+grep -q "an interrupted \`trantor new\` left" "$T/new4.out" && [[ -f "$T/victim.txt" ]] || { echo "FAIL: a foreign marker was not explained, or something outside was touched"; cat "$T/new4.out"; exit 1; }
+echo "ok: a foreign marker is explained and nothing outside the project is touched"
 
 # (13) new without a baseline writes no app and says how to get one.
 "$TR" new "$T/bare" > "$T/new.out" 2>&1

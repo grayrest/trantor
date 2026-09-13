@@ -811,6 +811,13 @@ chained statement keeps build errors on the right line.
   claim-comment conventions in trantor-temporal's README stay as prose;
   `tests/readme-prelude.roc` is gone. The Roc line scanner survives as
   `roc_scan.rs`, for finding module-level expects.
+- **D-T3-22 After a killed `new`, the next one explains and removes nothing.**
+  Supersedes D-T3-18. Cleaning up after a kill needed fixing in three review
+  rounds — a symlink inside the project let a marker entry delete outside it,
+  two reruns raced to delete each other's files, an unnormalised path refused
+  its own marker. The marker still records what `new` wrote; a run that fails
+  undoes its own files while it is running, and a rerun after a kill refuses,
+  listing each file as written, changed since, or gone (user, 2026-09-13).
 
 ## Still open (raised, not decided)
 
