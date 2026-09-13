@@ -527,6 +527,7 @@ Two findings from implementing, both in the plan's record: rustix 1.1.4's Apple
 foreground process group, where `tcsetattr` is answered with SIGTTOU.
 
 **D-K1-28 — every guard signal, SIGWINCH included, keeps `SA_RESTART`.**
+*(For SIGWINCH, made moot by D-K1-29: no thread that blocks ever receives it.)*
 `signal_hook_registry::register_sigaction` installs with `SA_RESTART` (1.4.8,
 `src/lib.rs:187`): one process-wide handler per signal, shared by every
 registrant. `guard.rs` registers SIGWINCH through it, and that stays. The macOS
@@ -568,14 +569,75 @@ the length of a leaf call and waits in `poll` against the call's deadline.
 the previous `SO_RCVTIMEO` code, macOS's TCP read, read_until and UDP recv under
 `SA_RESTART` fail those tests at ~3.0s.
 
+**D-K1-29 — SIGWINCH is received on a thread of its own, and blocked on the
+thread that opens the terminal.** D-K1-25 and D-K1-28 left every blocking call
+in the process to cope with a resize: sockets-host got a retry and was then
+rewritten around `poll` for macOS (`2e463bb`), and http-host needed its own TCP
+transport under ureq. That list only grows. The signal should not reach those
+calls at all.
+
+At `open!`, `listen_for_resize` blocks SIGWINCH on the calling thread and starts
+one thread that blocks every signal except SIGWINCH and parks for the life of
+the process. The registry's handler runs there and writes `W` to the self-pipe,
+so `read!` wakes as before. The receiver blocks everything else so it never
+takes a signal the app thread would have taken; SIGTERM and SIGCONT land where
+they did.
+
+Measured with `spikes/k1-sigwinch-thread` on macOS (Darwin 25.3) and Linux 6.8
+(colima). One SIGWINCH sent with `kill(getpid())`, as a resize is, 1s into a 2s
+budget; every case counted one delivery:
+
+| Call | Handler | Nothing blocked, macOS | Nothing blocked, Linux | Blocked, receiver thread, both |
+|---|---|---|---|---|
+| ureq 3.4.0 GET, server never answers | `SA_RESTART` | `Timeout` at **3.00s** | **`Interrupted`** at 1.00s | `Timeout` at 2.00s (Linux 2.06s) |
+| the same | none | **`Interrupted`** at 1.00s | **`Interrupted`** at 1.00s | `Timeout` at 2.00s |
+| std `read` under `SO_RCVTIMEO` | `SA_RESTART` | `WouldBlock` at **3.01s** | **`Interrupted`** at 1.01s | `WouldBlock` at 2.00s |
+| the same | none | **`Interrupted`** at 1.00s | **`Interrupted`** at 1.01s | `WouldBlock` at 2.00s |
+| pipe `read`, no timeout, byte at 1.5s | `SA_RESTART` | `Ok` at 1.50s | `Ok` at 1.50s | `Ok` at 1.50s |
+| the same | none | **`Interrupted`** at 1.00s | **`Interrupted`** at 1.00s | `Ok` at 1.50s |
+
+The handler ran on the receiver every time. A thread that existed before the
+block and made the call instead took the signal in 20 of 20 runs per row on
+both platforms, with the unblocked results.
+
+The block is at `open!`, not at driver startup. No shipped host starts a thread
+(trantor-cli, trantor-net, trantor-terminal and trantor-temporal searched; only
+the test-only `testnet-host` does), and the app runs on the driver's main
+thread, so at `open!` that thread is normally the only one. Driver startup would
+cover a thread started earlier, but it would block SIGWINCH in every trantor
+app and every child those apps start, most of which never open a terminal, and
+the driver has no hook a package can use. The rule this leaves: a host that
+starts a long-lived thread before `open!` and blocks on it must block SIGWINCH
+there.
+
+Children inherit the mask. std's `Command` keeps it on purpose
+(`library/std/src/sys/process/unix/unix.rs`), and a child started from the
+blocked thread reported SIGWINCH blocked on both platforms; with a `pre_exec`
+that unblocks, it reported it unblocked. Linux's `/bin/sh` showed an empty mask,
+but dash clears its own at startup, which says nothing about vim. So trantor-cli's
+subprocess-host gives every child an empty signal mask. A Roc app cannot block
+a signal, so whatever is blocked is some host's own business. `pre_exec` moves
+std from `posix_spawn` to fork and exec. A child started by code other than
+subprocess-host still inherits the block.
+
+What this changes elsewhere:
+- http-host needs no transport of its own for resizes.
+- sockets-host's `poll` deadlines (`2e463bb`, which replaced `f2c71eb`'s retry)
+  stay. Any other handled signal still reaches the app thread.
+- SIGWINCH keeps `SA_RESTART`, since the registry sets it, and it no longer
+  matters: the receiver makes no call a signal could interrupt.
+
+Rejected: blocking at driver startup, for the reasons above. Unblocking only
+SIGWINCH in children: it leaves every other host-blocked signal to leak into
+programs that never asked for it.
+
 ## Still open (raised, not decided)
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
   of K1.
 - `Stdout` writes interleaved with `Screen` frames on the same device are the
   app's to avoid; whether `Terminal` should warn is not decided.
-- trantor-net, from D-K1-28: http-host still has D-K1-25's Linux defect. ureq
-  3.4.0's `TcpTransport::await_input` is a plain `read` under
-  `set_read_timeout` with no EINTR retry
-  (`src/unversioned/transport/tcp.rs:217–231`), so a resize fails an HTTP
-  request with `Interrupted` whatever the flags.
+- From D-K1-29: the guard's SIGCONT handler still runs on the app thread with
+  `SA_RESTART`, so a resume after Ctrl-Z would do to a ureq request on Linux,
+  and to a timed socket on macOS, what a resize did. Not measured for SIGCONT
+  itself; the table above holds for any handled signal.
