@@ -1,6 +1,7 @@
 # D-K1-29's measurement: whether SIGWINCH blocked on the calling thread, with a
 # dedicated thread left to receive it, keeps a resize out of blocking calls.
-# `cargo run --release`; each case runs in a fresh process.
+# `cargo run --release --bin sigmask-probe` for resizes, `--bin stop` for a
+# stop and resume; each case runs in a fresh process.
 [workspace]
 
 [package]
@@ -13,3 +14,4 @@ publish = false
 ureq = { version = "=3.4.0", default-features = false }
 libc = "=0.2.189"
 signal-hook-registry = "=1.4.8"
+signal-hook = { version = "=0.4.4", default-features = false }

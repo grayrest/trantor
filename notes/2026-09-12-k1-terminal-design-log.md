@@ -631,13 +631,44 @@ Rejected: blocking at driver startup, for the reasons above. Unblocking only
 SIGWINCH in children: it leaves every other host-blocked signal to leak into
 programs that never asked for it.
 
+**D-K1-30 — SIGTSTP and SIGCONT stay on the app thread.** D-K1-29 left the
+guard's SIGCONT handler there, and the obvious follow-up was to move it to the
+receiver as well. Measured with `spikes/k1-sigwinch-thread` (`--bin stop`): a
+separate `sh` stops the process 1s into a 2s budget and sends SIGCONT at 1.3s;
+handlers installed as the guard installs them, SIGTSTP emulating its default
+with `raise(SIGSTOP)`. Three runs per cell, all alike:
+
+| Setup | ureq GET or timed socket read, macOS | the same, Linux 6.8 | pipe read, both |
+|---|---|---|---|
+| no handlers, SIGSTOP | `Timeout` at 2.00s | **`Interrupted`** at 1.31s | `Ok` at 1.50s |
+| as built by D-K1-29 | `Timeout` at **3.33s** | **`Interrupted`** at 1.31s | `Ok` at 1.50s |
+| SIGCONT on the receiver | `Timeout` at **3.33s** | **`Interrupted`** at 1.31s | `Ok` at 1.50s |
+| SIGCONT and SIGTSTP on the receiver | `Timeout` at 2.00s | **`Interrupted`** at 1.31s | `Ok` at 1.50s |
+
+Moving SIGCONT alone changes nothing: SIGTSTP's handler runs on the app thread
+first and stretches the call. Moving both fixes macOS. Nothing fixes Linux,
+which interrupts a timed socket call on resume with no handler installed at all
+(`signal(7)` documents it), so a client has to retry there regardless.
+
+Moving both would cost more than it buys. `suspend!` sends SIGTSTP with
+`raise`, which is thread-directed and would stay pending on a thread that
+blocks it, so it would need `kill(getpid())`. And teardown and resume would run
+beside the app thread instead of interrupting it: the app could write a frame
+or set a mode between the teardown and the stop, and the enter bytes written on
+resume could land in the middle of the app's output. What it buys is one
+stretch per Ctrl-Z on macOS, not a stretch for as long as a window drag lasts.
+
+Rejected: SIGCONT alone, which the table shows does nothing; SIGTSTP and
+SIGCONT together, for the race in the code that puts the terminal back.
+
 ## Still open (raised, not decided)
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
   of K1.
 - `Stdout` writes interleaved with `Screen` frames on the same device are the
   app's to avoid; whether `Terminal` should warn is not decided.
-- From D-K1-29: the guard's SIGCONT handler still runs on the app thread with
-  `SA_RESTART`, so a resume after Ctrl-Z would do to a ureq request on Linux,
-  and to a timed socket on macOS, what a resize did. Not measured for SIGCONT
-  itself; the table above holds for any handled signal.
+- trantor-net, from D-K1-30: on Linux a stop and resume fails http-host's
+  request with `Interrupted` whether or not any handler is installed, so any
+  trantor-net app has it after Ctrl-Z and `fg`. ureq 3.4.0 does not retry
+  (`src/unversioned/transport/tcp.rs:217–231`); sockets-host's retry
+  (`f2c71eb`) already covers Tcp and Udp.
