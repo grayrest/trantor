@@ -830,7 +830,7 @@ the pid; `update <name>` recovers before reading the manifest; a
 `variants/world.toml` and a symlinked variant file are variants, and a world
 holds a pin only through a github dependency.
 
-## D-T2g — `ZonedDateTime`, `day_of_week`, calendars in zoned resolution (2026-09-13)
+## D-T2g — `ZonedDateTime`, `day_of_week`, calendars and rounding in zoned values (2026-09-13)
 
 - **D-T2-7 `ZonedDateTime := TemporalHost.ZonedDateTime.{ … }`.** Supersedes
   the one-field record `{ h : TemporalHost.ZonedDateTime }`. The record existed
@@ -867,6 +867,17 @@ holds a pin only through a github dependency.
   instant as `zoned_with!(z.plain_date!(), t, zone, dis)` in all 320 probe cases
   on every calendar, so it and its host leaf went (user, 2026-09-13).
   `with_plain_date!` stays: it keeps the zoned value's calendar.
+- **D-T2-11 `round!` is computed from the swept pieces, not by temporal_rs.**
+  Upstream rounds a zoned value through the wall-clock direction it gets wrong
+  near transitions: across 20 zones in 2026 it gave the wrong day boundary on
+  6,728 of 701,920 quarter-hours and the wrong hour on 6,684
+  (2026-03-07T00:00-05:00 to the hour gave 23:00 the day before). The gate had
+  pinned one wrong value, 10:37:30 `HalfExpand` to the hour as 10:00, because
+  behaviour expectations were recorded from output. `round.rs` follows TC39: a
+  day rounds by its real length between two starts of day; a time unit rounds
+  the wall clock, keeps the offset where it still reads back, else resolves
+  `Compatible`. A gate sweep checks 2,964,240 roundings (10 s) and fails on
+  upstream's `round`.
 
 ## Still open (raised, not decided)
 
