@@ -562,15 +562,18 @@ that. A deadline enforced by `poll` can, because `poll` returns EINTR under
 Rejected: installing without `SA_RESTART`. It buys exact trantor-net budgets on
 macOS today, in a process where every other blocking read breaks on a resize.
 
+*(sockets-host done in trantor-net `2e463bb`.)* A socket is now nonblocking for
+the length of a leaf call and waits in `poll` against the call's deadline.
+`tests/eintr` and `tests/eintr-host` run the `SA_RESTART` half on macOS too. With
+the previous `SO_RCVTIMEO` code, macOS's TCP read, read_until and UDP recv under
+`SA_RESTART` fail those tests at ~3.0s.
+
 ## Still open (raised, not decided)
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
   of K1.
 - `Stdout` writes interleaved with `Screen` frames on the same device are the
   app's to avoid; whether `Terminal` should warn is not decided.
-- trantor-net, from D-K1-28: sockets-host should wait on `poll` against its
-  deadline instead of `SO_RCVTIMEO`/`SO_SNDTIMEO`, so macOS budgets hold under
-  `SA_RESTART`.
 - trantor-net, from D-K1-28: http-host still has D-K1-25's Linux defect. ureq
   3.4.0's `TcpTransport::await_input` is a plain `read` under
   `set_read_timeout` with no EINTR retry
