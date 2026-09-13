@@ -328,6 +328,8 @@ Terminal.query! : Terminal, Query, U64
                   => Try((Terminal, [Answered(Reply), Unsupported]), [TimedOut, TerminalErr(IOErr), ..])
 ```
 
+*(Signature superseded by D-K1-32.)*
+
 Input arriving during a query goes to `Terminal.pending`; `next_event!` drains
 it first. `open!` probes nothing — `--color auto` should not pay a round trip.
 `Screen` asks about `?2026` once on first use; `with_kitty_keyboard!` asks
@@ -676,6 +678,35 @@ sending the request again recovers from. The bug is ureq's, where the fix is a
 loop inside `await_input`; a ureq release that retries is picked up by bumping
 the pin. trantor-net's README states the limitation. Tcp and Udp are not
 affected: sockets-host waits in `poll` against each call's deadline (`2e463bb`).
+
+**D-K1-32 — `query!` succeeds only with the reply; `Unsupported` and
+`TimedOut` are errors that carry the `Terminal`.** D-K1-14's `Err(TimedOut)`
+discarded the `Terminal` the query had been reading into, and code review found
+two losses. Keys typed while the query waited were in that value's `pending`,
+so a caller falling back to the `Terminal` it passed in never saw them. And the
+DA1 reply the query wrote was still on its way: it arrived during the next
+query, which took it as `Unsupported`, or took the earlier query's late reply
+as its own answer.
+
+```roc
+Terminal.query! : Terminal, Query, U64
+                  => Try((Terminal, Reply), [Unsupported(Terminal), TimedOut(Terminal), TerminalErr(IOErr), ..])
+```
+
+A query exists to get an answer, so both ways of not getting one are errors:
+`Unsupported` is a terminal that cannot answer, `TimedOut` no terminal or a
+broken one. With one success left, the `Answered` wrapper is gone. Both errors
+carry the `Terminal` so the program keeps what the query read. That `Terminal`
+counts, in `stale_da`, the DA1 replies owed by queries that timed out. Until
+each has arrived, a later query takes nothing as its answer, and `next_event!`
+drops a DA1 reply while the count is above zero. A budget too large to add to
+the clock saturates.
+
+Rejected: `TimedOut` in `Ok` beside `Answered` and `Unsupported`, the first fix
+(trantor-terminal `7b027f3`), because a timeout is a failure, not an answer.
+Bare `Err(TimedOut)` and `Err(Unsupported)`, which keep both losses.
+`with_kitty_keyboard!` and `Screen`'s synchronized-output check treat both
+errors as unsupported (trantor-terminal `d02f67f`, `2f3139d`).
 
 ## Still open (raised, not decided)
 
