@@ -34,7 +34,10 @@ pub fn blocks(readme: &str) -> Result<Vec<Block>, String> {
     let mut i = 0;
     while i < lines.len() {
         let Some((indent, fence, info)) = fence_open(lines[i]) else {
-            if is_heading(lines[i]) {
+            // A setext heading is its underline under a paragraph line.
+            let underline = !lines[i].starts_with("    ") && { let t = lines[i].trim(); !t.is_empty() && (t.chars().all(|c| c == '=') || t.chars().all(|c| c == '-')) };
+            let setext = underline && i > 0 && !lines[i - 1].trim().is_empty();
+            if is_heading(lines[i]) || setext {
                 last_heading = Some(i);
             }
             i += 1;
@@ -104,7 +107,13 @@ fn is_fence_close(line: &str, fence: &str) -> bool {
     t.len() >= fence.len() && t.chars().all(|x| x == c)
 }
 
+/// An ATX heading: up to three spaces, then 1–6 `#`. Indented further it is
+/// code, not a heading.
 fn is_heading(line: &str) -> bool {
+    let indent = line.len() - line.trim_start_matches(' ').len();
+    if indent > 3 || line.starts_with('\t') {
+        return false;
+    }
     let t = line.trim_start();
     let hashes = t.chars().take_while(|c| *c == '#').count();
     (1..=6).contains(&hashes) && t[hashes..].chars().next().is_none_or(char::is_whitespace)
@@ -135,6 +144,12 @@ pub fn scan(line: &str) -> Scan {
         match state {
             S::Code => match c {
                 '#' => return Scan { comment_at: Some(at), depth, blanked },
+                // `x = \\text`: a multi-line string starting mid-line runs to
+                // the end of it, brackets and all.
+                '\\' if chars.get(k + 1).map(|x| x.1) == Some('\\') => {
+                    blanked.push_str(&" ".repeat(line.len() - at));
+                    return Scan { comment_at: None, depth, blanked };
+                }
                 '"' => { state = S::Str; blanked.push('"') }
                 '\'' => { state = S::Char; blanked.push('\'') }
                 '(' | '[' | '{' => { depth += 1; blanked.push(c) }

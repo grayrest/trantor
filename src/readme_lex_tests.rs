@@ -44,6 +44,19 @@ fn a_longer_fence_holds_a_shorter_one_and_a_heading_ends_output() {
 }
 
 #[test]
+fn an_indented_hash_line_is_not_a_heading_but_a_setext_one_is() {
+    let b = blocks("```roc\napp [main!] {}\n```\nRun it:\n\n    # from the package root\n\nIt prints:\n```text\nhi\n```\n").unwrap();
+    assert!(b[0].output.is_some(), "an indented # line is code");
+    let b = blocks("```roc\napp [main!] {}\n```\nInstalling\n----------\n```text\ntrantor add org/greet\n```\n").unwrap();
+    assert!(b[0].output.is_none(), "a setext heading ends the app's output");
+}
+
+#[test]
+fn a_multi_line_string_starting_mid_line_hides_its_brackets() {
+    assert_eq!(scan("x = \\\\usage (see below").depth, 0);
+}
+
+#[test]
 fn a_value_on_the_next_indented_line_belongs_to_its_binding() {
     let lines: Vec<(usize, String)> = ["greeting =", "\tGreet.hello(who)   # \"hello world\""]
         .iter().enumerate().map(|(i, l)| (i + 1, l.to_string())).collect();

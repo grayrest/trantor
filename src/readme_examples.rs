@@ -54,8 +54,9 @@ pub fn check(steps: &Steps, with: &Path) -> Result<(), String> {
         let prelude = statements(&prelude_lines).0;
         let platform = std::fs::read_to_string(platform_dir(with, APP_WORLD).join("main.roc"))
             .map_err(|e| format!("read the composed platform: {e}"))?;
-        let g = generate(&fragments, &modules, &module_names, &prelude, &platform)?;
-        let got = run_source(steps, with, &g.app, "the README.md examples", 0, &readme)?;
+        let own: std::collections::BTreeSet<String> = crate::package_modules::shipped(steps.root, steps.pkg).into_keys().collect();
+        let g = generate(&fragments, &modules, &module_names, &prelude, &platform, &own)?;
+        let got = run_source(steps, with, &g.app, "the README.md examples", 0, &readme, None)?;
         compared = compare(&g.expected, &got)?;
     }
     println!(
@@ -103,7 +104,7 @@ fn whole_app(steps: &Steps, with: &Path, app: &Block) -> Result<bool, String> {
     let source = retarget(&app.lines.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n"));
     let what = format!("the README.md app at line {}", app.first_line);
     let readme = std::fs::read_to_string(steps.root.join("README.md")).unwrap_or_default();
-    let got = run_source(steps, with, &source, &what, app.exit.unwrap_or(0), &readme)?;
+    let got = run_source(steps, with, &source, &what, app.exit.unwrap_or(0), &readme, Some(app.first_line))?;
     if let Some((n, stated)) = &app.output {
         if &got != stated {
             let (stated, got) = if stated.trim_end() == got.trim_end() { (format!("{stated:?}"), format!("{got:?}")) } else { (stated.clone(), got) };
@@ -114,12 +115,14 @@ fn whole_app(steps: &Steps, with: &Path, app: &Block) -> Result<bool, String> {
 }
 
 /// Build and run `source` as the scratch world's app, requiring `exit`.
-fn run_source(steps: &Steps, with: &Path, source: &str, what: &str, exit: i32, readme: &str) -> Result<String, String> {
+/// `starts_at`: the README line a whole app's first line is; `None` for the
+/// generated app, whose lines are tagged.
+fn run_source(steps: &Steps, with: &Path, source: &str, what: &str, exit: i32, readme: &str, starts_at: Option<usize>) -> Result<String, String> {
     std::fs::write(with.join("app/main.roc"), source).map_err(|e| format!("write {what}: {e}"))?;
     let build = steps.trantor_ran(&["build", s(with), "--app", "app", "--out", "readme"])?;
     if !build.ok() {
         let said = format!("{}{}", build.stdout, build.stderr);
-        return Err(format!("{what} does not build{}\n{}", readme_lines(source, &said, readme), build.failure("trantor build")));
+        return Err(format!("{what} does not build{}\n{}", readme_lines(source, &said, readme, starts_at), build.failure("trantor build")));
     }
     let bin = with.join("target/trantor").join(APP_WORLD).join("bin/readme");
     let ran = crate::bounded::run(std::process::Command::new(&bin).current_dir(with), what, &steps.scratch.join("runs"))?;
@@ -137,13 +140,16 @@ fn run_source(steps: &Steps, with: &Path, source: &str, what: &str, exit: i32, r
 /// The app's own lines, not the platform's `platform/main.roc`; a generated
 /// line with no README origin maps to nothing. Each README line is quoted, so
 /// the error's rewritten code (`r25 = n + 100`) can be matched to the text.
-fn readme_lines(source: &str, said: &str, readme: &str) -> String {
+fn readme_lines(source: &str, said: &str, readme: &str, starts_at: Option<usize>) -> String {
     let lines: Vec<&str> = source.lines().collect();
     let text: Vec<&str> = readme.lines().collect();
     let mut found: Vec<usize> = said.match_indices("app/main.roc:").filter_map(|(i, m)| {
         let rest = &said[i + m.len()..];
         rest.split(|c: char| !c.is_ascii_digit()).next()?.parse::<usize>().ok()
     }).filter_map(|generated| {
+        if let Some(first) = starts_at {
+            return Some(first + generated.checked_sub(1)?);
+        }
         let upto = lines.get(..generated.checked_sub(1)?)?;
         let (at, tag) = upto.iter().enumerate().rev().find_map(|(i, l)| {
             let l = l.trim();
@@ -247,7 +253,8 @@ mod tests {
     fn a_build_error_in_the_generated_app_names_the_readme_line() {
         let source = format!("app\n{LINE_TAG}2\nx = 1\ny = oops\n{GEN_TAG}\nmain! = 1\n");
         let readme = "# t\nx = 1\ny = oops\n";
-        assert_eq!(readme_lines(&source, "── error ─ app/main.roc:4:5", readme), "\n  README.md line 3: y = oops");
-        assert_eq!(readme_lines(&source, "app/main.roc:6:1 and platform/main.roc:4:1", readme), "", "generated and platform lines map to nothing");
+        assert_eq!(readme_lines(&source, "── error ─ app/main.roc:4:5", readme, None), "\n  README.md line 3: y = oops");
+        assert_eq!(readme_lines(&source, "app/main.roc:6:1 and platform/main.roc:4:1", readme, None), "", "generated and platform lines map to nothing");
+        assert_eq!(readme_lines("app", "app/main.roc:2:1", readme, Some(2)), "\n  README.md line 3: y = oops", "a whole app maps by offset");
     }
 }

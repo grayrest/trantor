@@ -33,7 +33,9 @@ fn stated(st: &Stmt) -> Vec<(usize, String, Claim)> {
 /// A column-0 `main!` in a block that is not a whole app: it would collide
 /// with the generated app's own.
 pub fn defines_main(b: &Block) -> Option<usize> {
-    b.lines.iter().find(|(_, l)| l.starts_with("main!") && l.contains('=') && !l.contains("==")).map(|(n, _)| *n)
+    b.lines.iter().find(|(_, l)| {
+        l.strip_prefix("main!").map(str::trim_start).is_some_and(|r| (r.starts_with('=') && !r.starts_with("==")) || (r.starts_with(':') && !r.starts_with("::")))
+    }).map(|(n, _)| *n)
 }
 
 pub struct Generated {
@@ -48,7 +50,7 @@ pub fn import_of(line: &str) -> Option<String> {
     code.strip_prefix("import ").map(|m| m.trim().to_string())
 }
 
-pub fn generate(fragments: &[&Block], modules: &[&Block], module_names: &BTreeMap<String, usize>, prelude: &[Stmt], platform: &str) -> Result<Generated, String> {
+pub fn generate(fragments: &[&Block], modules: &[&Block], module_names: &BTreeMap<String, usize>, prelude: &[Stmt], platform: &str, own: &BTreeSet<String>) -> Result<Generated, String> {
     let contract = crate::main_contract::main_contract(platform)?;
     if contract.body != "Ok({})" {
         return Err(format!("README.md examples run inside a generated main!, which must be able to finish; this baseline's is `{}`", contract.signature));
@@ -56,7 +58,7 @@ pub fn generate(fragments: &[&Block], modules: &[&Block], module_names: &BTreeMa
     let mut imports: BTreeSet<String> = contract.imports.iter().cloned().collect();
     imports.insert("pf.Stdout".into());
     imports.extend(modules.iter().chain(fragments).flat_map(|b| b.lines.iter().filter_map(|(_, l)| import_of(l))));
-    let taint = Taint::of(&imports, modules, prelude);
+    let taint = Taint::of(&imports, own, modules, prelude);
     let mut top = vec![];
     for b in modules {
         for (n, l) in &b.lines {
@@ -105,7 +107,7 @@ pub fn generate(fragments: &[&Block], modules: &[&Block], module_names: &BTreeMa
             }
             let first = stmts[unit[0]].line;
             let name = format!("block_{index}_{part}!");
-            fns.push(format!("{GEN_TAG}\n{name} : {{}} => Try({{}}, _)\n{name} = |{{}}| {{\n{}\tOk({{}})\n}}\n",
+            fns.push(format!("{GEN_TAG}\n{name} : {{}} => Try({{}}, _)\n{name} = |{{}}| {{\n{}\t{GEN_TAG}\n\tOk({{}})\n}}\n",
                 body_lines.iter().map(|l| format!("\t{}\n", l.replace('\n', "\n\t"))).collect::<String>()));
             calls.push(format!("\tmatch {name}({{}}) {{ Ok(_) => {{}}, Err(e) => Stdout.line!(\"{MARK_ERR}:{first}:${{Str.inspect(e)}}\") ?? {{}} }}"));
         }
@@ -147,7 +149,7 @@ fn statement(st: &Stmt, bound: &[String], clock: bool, expected: &mut BTreeMap<u
         Some((_, rhs)) => {
             let var = (bound.len() == 1).then(|| bound[0].clone());
             if !claims.is_empty() && var.is_none() {
-                return Err(format!("README.md line {}: a destructuring binding cannot state a value; bind a name and state it there", st.line));
+                return Err(format!("README.md line {}: a destructuring or discarded binding cannot state a value; bind a name and state it there", st.line));
             }
             (vec![st.code.clone()], var, rhs)
         }
@@ -198,7 +200,7 @@ fn pattern_names(lhs: &str) -> Vec<String> {
         let word = &lhs[start..end];
         let label = lhs[end..].trim_start().starts_with(':');
         let var = lhs[..start].ends_with('$');
-        if is_ident(word.trim_end_matches('!')) && !label && !var && !KEYWORDS.contains(&word) {
+        if is_ident(word.trim_end_matches('!')) && word != "_" && !label && !var && !KEYWORDS.contains(&word) {
             names.push(word.to_string());
         }
         k = j;
@@ -272,6 +274,9 @@ mod tests {
         assert_eq!(pattern_names("{ a: x, b }"), vec!["x", "b"]);
         assert_eq!(pattern_names("var $n"), Vec::<String>::new());
         assert_eq!(pattern_names("run!"), vec!["run!"]);
+        assert!(pattern_names("_").is_empty());
+        assert!(defines_main(&Block::for_test(&["main! = |_| Ok({})"])).is_some());
+        assert!(defines_main(&Block::for_test(&["main!({ ok: a != b })"])).is_none());
     }
 
     #[test]

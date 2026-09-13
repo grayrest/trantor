@@ -41,7 +41,9 @@ pub fn claim(comment: &str) -> Claim {
     }
     // `Bool.true`, `Some(x`: capitalised and value-shaped. `Note:` is prose.
     let capital_value = one_token && head.starts_with(|c: char| c.is_ascii_uppercase()) && head.contains(['(', '.']);
-    if looks_like_value(first) || capital_value {
+    // `Ok("bye"), decoded from bytes`: a tag with prose after it but no ` — `.
+    let tag_then_prose = first.split_once('(').is_some_and(|(name, _)| is_tag_name(name));
+    if looks_like_value(first) || capital_value || tag_then_prose {
         return Claim::Unrecognised(head.to_string());
     }
     Claim::Prose
@@ -52,7 +54,7 @@ pub fn claim(comment: &str) -> Claim {
 /// the expression's own line (`x.compare(y)   # LT`).
 pub fn claim_below(comment: &str) -> Claim {
     match claim(comment) {
-        Claim::Token(t) if is_tag_name(&t) => Claim::Prose,
+        Claim::Token(t) if is_tag_name(&t) && !is_bool(&t) => Claim::Prose,
         other => other,
     }
 }
@@ -225,6 +227,9 @@ mod tests {
         assert_eq!(claim("Deprecated"), Claim::Token("Deprecated".into()));
         assert_eq!(claim_below("Deprecated"), Claim::Prose, "a tag name below the line is prose");
         assert_eq!(claim_below("\"x\""), Claim::Quoted("x".into()));
+        assert_eq!(claim_below("False"), Claim::Token("False".into()), "a Bool below is still a claim");
+        assert!(matches!(claim("Ok(\"bye\"), decoded from bytes"), Claim::Unrecognised(_)));
+        assert!(matches!(claim("Err(NotFound) when missing"), Claim::Unrecognised(_)));
         for near in ["-> 3", "⇒ 3", "~3", "2024-02-29, constrained", "359 days", "999 (paren after)", "[1, 2]", r##""x" and more"##, "3,000",
                      "→ 3", "= 3", "=> 3", "'a'", "３", ".5", "Bool.true", "True, as it happens", "\"x\"."] {
             assert!(matches!(claim(near), Claim::Unrecognised(_)), "{near} should be unrecognised, got {:?}", claim(near));
