@@ -60,31 +60,6 @@ fn on_path(name: &str) -> Option<String> {
 /// way met `spawn /Users/them/.bin/roc: No such file or directory` — a path
 /// they never chose, from a step they did not know existed. The front door
 /// cannot depend on a path only its author has.
-/// Glue's output for a copy of the platform's Roc modules in which each
-/// multi-field single-variant union has a placeholder second variant: there
-/// glue writes the payload struct it will not write for the real union.
-fn placeholder_glue(dir: &Path, gen: &Path, singles: &[crate::glue_unions::Single]) -> Result<String, String> {
-    let copy = gen.join("glue-placeholder");
-    let _ = std::fs::remove_dir_all(&copy);
-    std::fs::create_dir_all(copy.join("platform")).map_err(|e| format!("create {}: {e}", copy.display()))?;
-    std::fs::create_dir_all(copy.join("out")).map_err(|e| format!("create {}: {e}", copy.display()))?;
-    for e in std::fs::read_dir(gen.join("platform")).map_err(|e| format!("read platform: {e}"))?.flatten() {
-        let p = e.path();
-        if p.extension().is_some_and(|x| x == "roc") {
-            let mut text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
-            let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            if let Some(s) = singles.iter().find(|s| s.fields > 1 && s.module == stem) {
-                text = crate::glue_unions::with_placeholder(&text, &s.module).ok_or_else(|| format!("{}: could not add the placeholder variant", p.display()))?;
-            }
-            std::fs::write(copy.join("platform").join(e.file_name()), text).map_err(|e| format!("write the placeholder platform: {e}"))?;
-        }
-    }
-    let out = abs(&copy.join("out"))?;
-    let main = abs(&copy.join("platform/main.roc"))?;
-    roc_capped(&["glue", &glue_src(), &out, &main], dir, "glue (placeholder copy)")?;
-    std::fs::read_to_string(copy.join("out/roc_platform_abi.rs")).map_err(|e| format!("read placeholder glue output: {e}"))
-}
-
 pub(crate) fn roc_bin() -> String {
     std::env::var("ROC")
         .ok()
@@ -92,7 +67,7 @@ pub(crate) fn roc_bin() -> String {
         .unwrap_or_else(|| format!("{}/.bin/roc", home()))
 }
 
-fn glue_src() -> String {
+pub(crate) fn glue_src() -> String {
     if let Ok(g) = std::env::var("GLUE") {
         return g;
     }
@@ -166,7 +141,7 @@ fn run(program: &str, args: &[&str], dir: &Path, what: &str) -> Result<(), Strin
 
 /// A path as an absolute string, for a tool whose working directory is the
 /// SOURCE tree while its output belongs under `target/trantor` (D-H7-38).
-fn abs(p: &Path) -> Result<String, String> {
+pub(crate) fn abs(p: &Path) -> Result<String, String> {
     let p = if p.exists() {
         p.canonicalize().map_err(|e| format!("canonicalize {}: {e}", p.display()))?
     } else {
@@ -182,7 +157,7 @@ fn abs(p: &Path) -> Result<String, String> {
 }
 
 /// Run `roc <args…>` under the R5 timeout cap, in `dir`.
-fn roc_capped(args: &[&str], dir: &Path, what: &str) -> Result<(), String> {
+pub(crate) fn roc_capped(args: &[&str], dir: &Path, what: &str) -> Result<(), String> {
     let roc = roc_bin();
     // perl -e 'alarm shift; exec @ARGV' 120 <roc> <args…>
     let mut full: Vec<&str> = vec![
@@ -230,7 +205,7 @@ pub fn build(
     // Single-variant service unions are unwrapped by glue; composition puts
     // back what the service and the shim need (glue_unions.rs, D-H7-44).
     let singles = crate::glue_unions::singles(&gen.join("platform"), &resolved.services)?;
-    let placeholder = if singles.iter().any(|s| s.fields > 1) { Some(placeholder_glue(dir, &gen, &singles)?) } else { None };
+    let placeholder = if singles.iter().any(|s| s.fields > 1) { Some(crate::glue_unions::placeholder_glue(dir, &gen, &singles)?) } else { None };
     let glue = crate::glue_unions::repair(&glue, &singles, placeholder.as_deref())?;
     crate::codegen::write_if_changed(&gen.join("abi/src/generated.rs"), glue.as_bytes())?;
 

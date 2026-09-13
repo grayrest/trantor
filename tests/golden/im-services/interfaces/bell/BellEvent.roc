@@ -1,5 +1,5 @@
-## One event with one field: glue's unwrapped payload is right, and only the
-## name `BellEvent` is composition's to add (D-H7-44).
+## One event with several fields, beside a several-field command: the repair
+## must retype the Event union's `bell` and leave the Cmd union's alone.
 BellEvent := [
-	Rang(Str),
+	Rang(Str, U64),
 ]

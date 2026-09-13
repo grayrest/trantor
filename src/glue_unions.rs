@@ -8,11 +8,14 @@
 //!   the name is missing, so `pub type Echo = RocStr;` is all it needs.
 //! - no field (`[Stop]`): the payload is zero-sized and glue writes no
 //!   accessor; trantor adds a unit struct and the accessors the shim calls.
-//! - several fields (`[Ping(U64, Str, Str)]`): trantor runs glue a second time
-//!   on a copy of the platform where that union has a placeholder second
-//!   variant, takes the payload struct glue writes there, and puts it in place
-//!   of the `u64` — field, accessors and refcount arms. The placeholder never
-//!   reaches the app or the service: only this second glue run sees it.
+//! - several fields (`[Ping(U64, Str, Str)]`): glue types the payload as its
+//!   FIRST field's type (`u64` there, `RocStr` for `[Ping(Str, U64)]`), so its
+//!   size asserts fail and its refcount arm is wrong. trantor runs glue a
+//!   second time on a copy of the platform where that union has a placeholder
+//!   second variant, takes the payload struct glue writes there, and puts it in
+//!   place of whatever glue typed — in that driver union's field, its two
+//!   accessors and its refcount arms. The placeholder never reaches the app or
+//!   the service: only this second glue run sees it.
 //!
 //! The service keeps the API it would have had; composition absorbs glue's
 //! behaviour, instead of every one-command service growing a second command.
@@ -21,8 +24,7 @@ use std::path::Path;
 use crate::resolve::Service;
 use crate::splice::snake_case;
 
-/// The placeholder variant the second glue run sees.
-const PLACEHOLDER: &str = "TrantorGlueOnly";
+pub use crate::glue_placeholder::placeholder_glue;
 
 pub struct Single {
     /// The union's module name, which glue would have named the type.
@@ -66,32 +68,6 @@ fn only_variant(text: &str, name: &str) -> Option<(String, usize)> {
         .take_while(|c| c.is_alphanumeric() || *c == '_')
         .collect();
     (!variant.is_empty()).then_some((variant, *fields))
-}
-
-/// The module text with a placeholder second variant, for the second glue run.
-pub fn with_placeholder(text: &str, name: &str) -> Option<String> {
-    let start = text.find(&format!("{name} :="))?;
-    let open = text[start..].find('[')? + start;
-    let mut depth = 0i32;
-    let mut in_comment = false;
-    for (i, c) in text[open..].char_indices() {
-        match c {
-            _ if in_comment => in_comment = c != '\n',
-            '#' => in_comment = true,
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    let at = open + i;
-                    let before = text[..at].trim_end();
-                    let sep = if before.ends_with(',') || before.ends_with('[') { "" } else { "," };
-                    return Some(format!("{before}{sep} {PLACEHOLDER}{}", &text[at..]));
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 /// Glue's output with every single-variant union made usable. `placeholder`
@@ -191,9 +167,13 @@ fn payload_items(placeholder: &str, s: &Single, payload: &str) -> Result<String,
     }
     let arm = |f: &str| refcount_arm(placeholder, &s.module, &s.variant, f);
     let (dec, inc) = (arm("decref").unwrap_or_default(), arm("incref").unwrap_or_default());
+    // A payload with nothing refcounted has empty arms; binding `payload` then
+    // would be an unused variable, and a warning fails the build.
+    let bind = |body: &str| if body.trim().is_empty() { "        let _ = self;\n" } else { "        let payload = self;\n" };
     items.push_str(&format!(
-        "\nimpl {payload} {{\n    pub unsafe fn decref(self, roc_host: &RocHost) {{\n        let _ = roc_host;\n        let payload = self;\n{dec}    }}\n\
-         \x20   pub unsafe fn incref(self, amount: isize) {{\n        let _ = amount;\n        let payload = self;\n{inc}    }}\n}}\n"
+        "\nimpl {payload} {{\n    pub unsafe fn decref(self, roc_host: &RocHost) {{\n        let _ = roc_host;\n{}{dec}    }}\n\
+         \x20   pub unsafe fn incref(self, amount: isize) {{\n        let _ = amount;\n{}{inc}    }}\n}}\n",
+        bind(&dec), bind(&inc)
     ));
     Ok(items)
 }
@@ -217,58 +197,70 @@ fn refcount_arm(glue: &str, module: &str, variant: &str, f: &str) -> Option<Stri
     Some(body)
 }
 
-/// Put `payload` in place of the `u64` glue gave the wrapper, in the payload
-/// union, the accessors, and the refcount arms glue left empty.
+/// Put `payload` in place of whatever glue typed the wrapper's payload as —
+/// in `{block}Payload`'s field only, in `impl {block}`'s two accessors for that
+/// exact field, and in its refcount arms (glue's are empty or wrong for the
+/// mis-typed payload). Matching the field by exact name and block keeps
+/// `door_bell` and the other driver union's `bell` out of it.
 fn retype_wrapper(glue: &str, s: &Single, payload: &str) -> Result<String, String> {
-    let (w, b) = (&s.wrapper, s.block);
-    let field = format!("pub {w}: core::mem::ManuallyDrop<u64>,");
-    if !glue.contains(&field) {
-        return Err(format!("glue output does not type `{b}`'s `{w}` payload as u64 — its handling of single-variant unions changed; re-measure (D-H7-44)"));
-    }
-    let tag_arm = format!("{b}Tag::{} => {{}},", s.module);
-    let mut out = Vec::new();
-    let mut in_block_impl = false;
-    let mut current_fn = "";
+    let (w, b, m) = (&s.wrapper, s.block, &s.module);
+    let field = format!("pub {w}: core::mem::ManuallyDrop<");
+    let (take, borrow) = (format!("fn take_payload_{w}_unchecked("), format!("fn borrow_payload_{w}_unchecked("));
+    let cast = format!("&self.payload.{w} as *const core::mem::ManuallyDrop<");
+    let arm = format!("{b}Tag::{m} => {{");
+    let mut out: Vec<String> = Vec::new();
+    let (mut in_union, mut in_impl, mut current_fn, mut found) = (false, false, "", false);
+    let mut skip_arm_to: Option<String> = None;
     for l in glue.lines() {
-        if l.starts_with("impl ") {
-            in_block_impl = l == format!("impl {b} {{");
+        if let Some(close) = &skip_arm_to {
+            if l == close {
+                skip_arm_to = None;
+            }
+            continue;
+        }
+        if l.starts_with("pub union ") {
+            in_union = l == format!("pub union {b}Payload {{");
+        }
+        if l.starts_with("impl ") || l.starts_with("pub struct ") || l.starts_with("pub union ") {
+            in_impl = l == format!("impl {b} {{");
         }
         if let Some(f) = ["decref", "incref"].into_iter().find(|f| l.contains(&format!("pub unsafe fn {f}("))) {
             current_fn = f;
         }
-        let mut line = l.replace(&field, &format!("pub {w}: core::mem::ManuallyDrop<{payload}>,"));
-        if in_block_impl && line.contains(&format!("_{w}_unchecked")) {
-            line = line.replace("-> &u64", &format!("-> &{payload}")).replace("-> u64", &format!("-> {payload}"));
+        let indent = &l[..l.len() - l.trim_start().len()];
+        if in_union && l.trim_start().starts_with(&field) {
+            out.push(format!("{indent}pub {w}: core::mem::ManuallyDrop<{payload}>,"));
+            found = true;
+            continue;
         }
-        if in_block_impl && line.contains(&format!("ManuallyDrop<u64> as *const u64")) && out.last().is_some_and(|p: &String| p.contains(&format!("_{w}_unchecked"))) {
-            line = line.replace("ManuallyDrop<u64> as *const u64", &format!("ManuallyDrop<{payload}> as *const {payload}"));
+        if in_impl && (l.contains(&take) || l.contains(&borrow)) {
+            let head = l.split_once("-> ").map_or(l, |(h, _)| h);
+            let ret = if l.contains(&borrow) { format!("&{payload}") } else { payload.to_string() };
+            out.push(format!("{head}-> {ret} {{"));
+            continue;
         }
-        if in_block_impl && line.trim() == tag_arm {
-            let indent = &line[..line.len() - line.trim_start().len()];
-            line = match current_fn {
-                "decref" => format!("{indent}{b}Tag::{m} => {{\n{indent}    let payload = unsafe {{ value.take_payload_{w}_unchecked() }};\n{indent}    unsafe {{ payload.decref(roc_host); }}\n{indent}}},", m = s.module),
-                _ => format!("{indent}{b}Tag::{m} => {{\n{indent}    let payload = unsafe {{ core::ptr::read(value.borrow_payload_{w}_unchecked()) }};\n{indent}    unsafe {{ payload.incref(amount); }}\n{indent}}},", m = s.module),
-            };
+        if in_impl && l.contains(&cast) {
+            out.push(format!("{indent}unsafe {{ &*(&self.payload.{w} as *const core::mem::ManuallyDrop<{payload}> as *const {payload}) }}"));
+            continue;
         }
-        out.push(line);
+        if in_impl && !current_fn.is_empty() && l.trim_start().starts_with(&arm) {
+            if l.trim_end() != format!("{indent}{arm}}},") {
+                skip_arm_to = Some(format!("{indent}}},"));
+            }
+            out.push(match current_fn {
+                "decref" => format!("{indent}{arm}\n{indent}    let payload = unsafe {{ value.take_payload_{w}_unchecked() }};\n{indent}    unsafe {{ payload.decref(roc_host); }}\n{indent}}},"),
+                _ => format!("{indent}{arm}\n{indent}    let payload = unsafe {{ core::ptr::read(value.borrow_payload_{w}_unchecked()) }};\n{indent}    unsafe {{ payload.incref(amount); }}\n{indent}}},"),
+            });
+            continue;
+        }
+        out.push(l.to_string());
+    }
+    if !found {
+        return Err(format!("glue output has no `{w}` field in `{b}Payload` — its handling of single-variant unions changed; re-measure (D-H7-44)"));
     }
     Ok(out.join("\n") + "\n")
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn one_variant_is_found_with_its_name_and_field_count() {
-        assert_eq!(only_variant("Echo := [\n\t## doc\n\tPing(U64, Str, Str),\n]", "Echo"), Some(("Ping".into(), 3)));
-        assert_eq!(only_variant("Tick := [Stop]", "Tick"), Some(("Stop".into(), 0)));
-        assert_eq!(only_variant("Echo := [Ping(U64), Shout(Str)]", "Echo"), None);
-    }
-
-    #[test]
-    fn the_placeholder_is_a_second_variant() {
-        assert_eq!(with_placeholder("Echo := [\n\tPing(U64, Str, Str),\n]\n", "Echo").unwrap(), format!("Echo := [\n\tPing(U64, Str, Str), {PLACEHOLDER}]\n"));
-        assert_eq!(with_placeholder("Tick := [Stop]", "Tick").unwrap(), format!("Tick := [Stop, {PLACEHOLDER}]"));
-    }
-}
+#[path = "glue_unions_tests.rs"]
+mod tests;

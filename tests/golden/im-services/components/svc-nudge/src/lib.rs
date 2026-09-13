@@ -1,5 +1,5 @@
-//! `svc-nudge` — one command and one event, neither with a payload
-//! (D-H7-44): `Nudge.Poke`, answered with `NudgeEvent.Poked`.
+//! `svc-nudge` — one command with no payload and one event with one field
+//! (D-H7-44): `Nudge.Poke`, answered with `NudgeEvent.Poked(text)`.
 use core::ffi::c_void;
 use trantor_abi as abi;
 use abi::services::{self, HostCtx};
@@ -15,7 +15,8 @@ pub extern "C-unwind" fn trantor__svc_nudge__init(_ctx: *const HostCtx) {}
 pub extern "C-unwind" fn trantor__svc_nudge__cmd(_request: u64, _cmd: Nudge) -> RocList<Answer> {
     let host = abi::host();
     let route_key = RocStr::from_str("nudge-key", host);
-    unsafe { RocList::from_slice(&[Answer { route_key, event: NudgeEvent }], host) }
+    let event: NudgeEvent = RocStr::from_str("poked from a string long enough to live on the heap", host);
+    unsafe { RocList::from_slice(&[Answer { route_key, event }], host) }
 }
 
 #[unsafe(no_mangle)]

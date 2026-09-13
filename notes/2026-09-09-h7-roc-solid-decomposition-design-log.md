@@ -1166,15 +1166,19 @@ one-variant union to its payload. What it gets wrong depends on the payload:
   (`RocStr`), refcounts included; only the named type is missing.
 - **No field** (`[Stop]`): the payload is zero-sized and glue writes no
   accessor for it.
-- **Several fields** (`[Ping(U64, Str, Str)]`): the payload is typed `u64`, so
-  glue's own `Cmd` size and tag-offset asserts fail and its refcount arm for
-  the wrapper is empty (the strings would leak).
+- **Several fields** (`[Ping(U64, Str, Str)]`): the payload is typed as its
+  FIRST field's type — `u64` there, `RocStr` for `[Ping(Str, U64)]` — so glue's
+  own size and tag-offset asserts fail and its refcount arm is empty or wrong.
+  (The first measurement used only a `U64`-first union and read this as "typed
+  `u64`"; review found the repair refusing every other shape.)
 
 Composition now repairs the glue output (`glue_unions.rs`): a type alias for one
 field; a unit struct and the accessors for none; and for several fields a
 second glue run on a copy of the platform modules where that union has a
 placeholder second variant, from which the payload struct is taken and put in
-place of the `u64` — union field, accessors and refcount arms. Substituting it
+place of whatever glue typed, in that driver union's field (a command's
+`Cmd`, an event's `Event` — both may carry a field of the same name), its two
+exact accessors, and its refcount arms. Substituting it
 satisfies glue's asserts unchanged (they encode Roc's true layout). The
 placeholder exists only in that copy: the app and the service see the union as
 written. `im-services` carries `Bell` (one three-field command, one one-field
@@ -1183,8 +1187,9 @@ event) and `Nudge` (no-payload command and event), end to end.
 Rejected: a placeholder variant in the real composed union — it would reach the
 app's exhaustive `match` on events and the service's Rust `match`, an API
 demand of its own; waiting on a glue fix. If glue changes how it treats these
-unions, the repair fails loudly rather than guessing (it requires the `u64` it
-replaces).
+unions, the repair fails loudly rather than guessing (it requires the wrapper
+field it replaces). `im-services`' `Bell` has a `Str`-first three-field command
+beside a two-field event; strings are long enough to be heap-allocated.
 
 ## Still open (raised, not decided)
 

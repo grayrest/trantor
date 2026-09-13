@@ -23,7 +23,7 @@ main = {
 			Cmd.Log("init"),
 			Cmd.Echo(Echo.Ping(0, "echo-key", "hello")),
 			Cmd.Tick(Tick.Start(0, "tick-key", 3)),
-			Cmd.Bell(Bell.Ring(9, "bell-key", "ding")),
+			Cmd.Bell(Bell.Ring("bell-key", 9, "ding, in a string long enough to live on the heap")),
 			Cmd.Nudge(Nudge.Poke),
 		],
 	},
@@ -45,8 +45,8 @@ main = {
 			Event.Echo(EchoEvent.Shouted(s, n)) => "shouted:${s}:${n.to_str()}"
 			Event.Tick(TickEvent.Ticked(n)) => "tick:${n.to_str()}"
 			Event.Tick(TickEvent.Stopped) => "stopped"
-			Event.Bell(BellEvent.Rang(s)) => "rang:${s}"
-			Event.Nudge(NudgeEvent.Poked) => "poked"
+			Event.Bell(BellEvent.Rang(s, n)) => "rang:${s}:${n.to_str()}"
+			Event.Nudge(NudgeEvent.Poked(s)) => s
 		}
 		{ ..model, log: List.append(model.log, line), outbox: [] }
 	},
