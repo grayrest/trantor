@@ -885,6 +885,28 @@ holds a pin only through a github dependency.
   2024-01-01 since 2023-11-17 by years was P1M15D, not P1M14D — 43,598 of
   494,100 probed cases. temporal_rs's own `since` agreed with the definition in
   all of them. Written in Roc over the existing leaf.
+- **D-T2-13 Every zoned operation goes through an exact tzdb provider.**
+  Supersedes D-T1-23 and D-T1-25 (resolution, zoned `add` and start of day
+  reimplemented in `zoned.rs`) and D-T2-11 (`round.rs`). Measuring `until_in!`
+  found it wrong on 9,914 of 119,952 pairs per date unit near transitions, and
+  tracing it found the one cause behind every zoned defect so far: temporal_rs's
+  compiled provider estimates the instants a local date-time can mean
+  (`candidate_nanoseconds_for_local_epoch_nanoseconds`), and all wall-clock
+  resolution goes through it; instant -> offset is exact. A provider wrapping
+  the compiled one with that lookup computed from the offsets, passed to
+  upstream's `_with_provider` functions, made upstream agree with the oracle
+  everywhere measured (resolution 0/78,744, start of day 0/19,686 where the
+  stock provider was wrong 2,959 times, round identical to `round.rs`, `until`
+  0/479,808). The approved plan was porting TC39's difference and rounding
+  (~400 lines); the provider is ~120 and fixes the paths not yet audited too,
+  so the user chose it and chose to migrate everything and delete the
+  reimplementations (2026-09-13). The provider's gap search bisects on offsets
+  rather than calling `get_time_zone_transition`, which past the tzif data can
+  answer the query instant. Sweeps now call upstream through the provider, each
+  failing with the stock one; resolution gains 2045, `hours_in_day` gains a
+  sweep, `until` gains one. Zoned `since_rounded!` became `until` negated, as
+  D-T2-12. Not swept: non-ISO calendars, rounded differences, and zones outside
+  the twenty except for a day's start.
 
 ## Still open (raised, not decided)
 
