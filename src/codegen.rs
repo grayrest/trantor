@@ -27,6 +27,7 @@ pub fn emit(
         write_if_changed(&out.join(rel), &bytes)
     };
 
+    let shipped = crate::shipped_modules::Shipped::default();
     w("platform/main.roc", main_roc(world, driver, r))?;
     // Under a host workspace (cargo_root) the crates already have one; a
     // second, nested workspace claiming them is a cargo error (D-H7-14).
@@ -129,6 +130,7 @@ pub fn emit(
     // A service's event/env modules ship beside its command module.
     for (iface, module) in &r.extra_modules {
         let from = crate::manifest::iface_dir(src, world, iface).join(format!("{module}.roc"));
+        shipped.claim(module, &from, &format!("interface `{iface}`"))?;
         copy(&from, &format!("platform/{module}.roc"))?;
     }
     // The driver's own contract modules (Cmd/Event/Env/…): copied from its
@@ -141,6 +143,7 @@ pub fn emit(
             .map_err(|e| format!("driver `{}` exports `{module}`: read {}: {e}", r.driver, from.display()))?;
         let spliced = crate::splice::splice(&text, &r.services)
             .map_err(|e| format!("{}: {e}", from.display()))?;
+        shipped.claim(module, &from, &format!("driver `{}`", r.driver))?;
         w(&format!("platform/{module}.roc"), spliced)?;
     }
 
@@ -152,6 +155,7 @@ pub fn emit(
     for (module, component) in &r.roc_impls {
         let from = module_path(&component_dir(src, component, &world.components[component]), module);
         if from.exists() {
+            shipped.claim(module, &from, &format!("component `{component}`"))?;
             copy(&from, &format!("platform/{module}.roc"))?;
         }
     }
@@ -162,6 +166,7 @@ pub fn emit(
         }
         let from = crate::manifest::iface_dir(src, world, iface).join(format!("{module}.roc"));
         if from.exists() {
+            shipped.claim(module, &from, &format!("interface `{iface}`"))?;
             copy(&from, &format!("platform/{module}.roc"))?;
         }
     }
@@ -179,9 +184,18 @@ pub fn emit(
                     None => (entry.as_str(), entry.as_str()),
                 };
                 let from = module_path(&component_dir(src, name, c), module);
-                if !from.exists() {
+                // A shim exports the INTERFACE it fulfils (D19); its module
+                // was shipped with the wiring above.
+                if world.interfaces.contains_key(module) {
                     continue;
                 }
+                if !from.exists() {
+                    return Err(format!(
+                        "component `{name}` exports `{module}`, but there is no {} (nor roc/{module}.roc)",
+                        component_dir(src, name, c).join(format!("{module}.roc")).display()
+                    ));
+                }
+                shipped.claim(as_name, &from, &format!("component `{name}`"))?;
                 let text = std::fs::read_to_string(&from)
                     .map_err(|e| format!("read {}: {e}", from.display()))?;
                 // A pure-Roc component may ship the driver's CONTRACT text —

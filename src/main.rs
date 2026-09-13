@@ -42,6 +42,7 @@ mod resolve;
 mod scaffold;
 mod scan;
 mod services;
+mod shipped_modules;
 mod splice;
 mod stub;
 mod symbols;
