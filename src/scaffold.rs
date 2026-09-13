@@ -133,7 +133,7 @@ fn scaffold(dir: &Path, from: Option<&str>, marker: &mut Marker) -> Result<(), S
     marker.wrote("world.toml")?;
     write_new(&dir.join("Cargo.toml"), &workspace_toml(&name))?;
     marker.wrote("Cargo.toml")?;
-    write_new(&dir.join(".gitignore"), "# Everything trantor generates lives here (D-H7-38).\ntarget/\n# An interrupted add/update/remove's journal (D-T3-12).\n.trantor-edit/\n")?;
+    write_new(&dir.join(".gitignore"), "# Everything trantor generates lives here (D-H7-38).\ntarget/\n# An interrupted add/update/remove's journal (D-T3-12).\n.trantor-edit/\n# A running or interrupted `trantor new`'s marker.\n.trantor-new\n")?;
     marker.wrote(".gitignore")?;
     if let Baseline::GitHub(slug) = &baseline {
         // `new` builds right after, so the compose that would validate this

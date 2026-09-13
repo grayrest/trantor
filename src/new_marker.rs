@@ -10,9 +10,10 @@
 //! The marker is claimed by linking an already-locked file into place, so it
 //! exists only while locked: a second `new` racing the first cannot take it,
 //! and cannot mistake a live run for a killed one.
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, Write};
+use std::os::unix::fs::MetadataExt;
+use std::path::{Component, Path, PathBuf};
 
 const MARKER: &str = ".trantor-new";
 /// Generated in full, so removed whole.
@@ -26,31 +27,27 @@ pub struct Marker {
 impl Marker {
     /// Claim `dir` for a `new`, after cleaning up a killed one.
     pub fn claim(dir: &Path) -> Result<Marker, String> {
-        let mut missing: Vec<PathBuf> = dir.ancestors().take_while(|a| !a.as_os_str().is_empty() && !a.exists()).map(Path::to_path_buf).collect();
+        let dir = std::path::absolute(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let mut missing: Vec<PathBuf> = dir.ancestors().take_while(|a| !a.exists()).map(Path::to_path_buf).collect();
         missing.reverse();
-        std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
-        let path = dir.join(MARKER);
-        let staging = dir.join(format!("{MARKER}.tmp-{}", std::process::id()));
-        let mut file = File::create(&staging).map_err(|e| format!("create {}: {e}", staging.display()))?;
-        if !crate::journal::try_lock(&file) {
-            return Err(format!("could not lock {}", staging.display()));
-        }
+        std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+        // Resolved, so a rerun through another spelling (`/tmp`, `..`) matches.
+        let resolve = |p: &Path| p.canonicalize().map_err(|e| format!("{}: {e}", p.display()));
+        let dir = resolve(&dir)?;
+        let missing = missing.iter().map(|m| resolve(m)).collect::<Result<Vec<_>, _>>()?;
+        let mut header = format!("project\t{}\n", dir.display());
         for d in &missing {
-            writeln!(file, "dir\t{}", d.display()).map_err(|e| format!("write {}: {e}", staging.display()))?;
+            header.push_str(&format!("made\t{}\n", d.display()));
         }
-        let linked = match std::fs::hard_link(&staging, &path) {
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => undo_killed(dir)
-                .and_then(|()| std::fs::hard_link(&staging, &path).map_err(|e| format!("another `trantor new` is starting in {} ({e})", dir.display()))),
-            other => other.map_err(|e| format!("create {}: {e}", path.display())),
-        };
-        std::fs::remove_file(&staging).ok();
-        if let Err(e) = linked {
-            for d in missing.iter().rev() {
-                std::fs::remove_dir(d).ok();
+        match place(&dir, &header) {
+            Ok(file) => Ok(Marker { dir, file }),
+            Err(e) => {
+                for d in missing.iter().rev() {
+                    std::fs::remove_dir(d).ok();
+                }
+                Err(e)
             }
-            return Err(e);
         }
-        Ok(Marker { dir: dir.to_path_buf(), file })
     }
 
     /// `rel` (under the directory) was just written by this `new`.
@@ -64,44 +61,91 @@ impl Marker {
         if self.dir.join(rel).exists() {
             return Ok(());
         }
-        writeln!(self.file, "dir\t{}", self.dir.join(rel).display()).map_err(|e| format!("write the new marker: {e}"))
+        writeln!(self.file, "sub\t{rel}").map_err(|e| format!("write the new marker: {e}"))
     }
 
     /// Success: the project is the user's now.
     pub fn finish(self) {
-        std::fs::remove_file(self.dir.join(MARKER)).ok();
+        remove_if_same(&self.dir.join(MARKER), &self.file);
     }
 
     /// Failure: remove what this run wrote, as a killed run's would be.
-    pub fn undo(self) -> Result<(), String> {
-        undo_entries(&self.dir)
+    pub fn undo(mut self) -> Result<(), String> {
+        undo_entries(&self.dir, &mut self.file)
+    }
+}
+
+/// Put a locked marker holding `header` in place, cleaning up a killed run's
+/// first. Linking an already-locked file means the marker is never visible
+/// unlocked; where hard links are not supported, it is created in place.
+fn place(dir: &Path, header: &str) -> Result<File, String> {
+    let path = dir.join(MARKER);
+    let staging = dir.join(format!("{MARKER}.tmp-{}", std::process::id()));
+    let mut file = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&staging)
+        .map_err(|e| format!("create {}: {e}", staging.display()))?;
+    if !crate::journal::try_lock(&file) {
+        return Err(format!("could not lock {}", staging.display()));
+    }
+    file.write_all(header.as_bytes()).map_err(|e| format!("write {}: {e}", staging.display()))?;
+    let mut linked = std::fs::hard_link(&staging, &path);
+    if linked.as_ref().is_err_and(|e| e.kind() == std::io::ErrorKind::AlreadyExists) {
+        undo_killed(dir)?;
+        linked = std::fs::hard_link(&staging, &path);
+    }
+    std::fs::remove_file(&staging).ok();
+    match linked {
+        Ok(()) => Ok(file),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(format!("another `trantor new` is starting in {}", dir.display())),
+        Err(_) => {
+            let mut direct = OpenOptions::new().read(true).write(true).create_new(true).open(&path)
+                .map_err(|e| format!("create {}: {e}", path.display()))?;
+            crate::journal::try_lock(&direct);
+            direct.write_all(header.as_bytes()).map_err(|e| format!("write {}: {e}", path.display()))?;
+            Ok(direct)
+        }
     }
 }
 
 /// A marker whose lock can be taken belongs to a killed `new`.
 fn undo_killed(dir: &Path) -> Result<(), String> {
-    let marker = File::open(dir.join(MARKER)).map_err(|e| format!("open {}: {e}", dir.join(MARKER).display()))?;
+    let mut marker = File::open(dir.join(MARKER)).map_err(|e| format!("open {}: {e}", dir.join(MARKER).display()))?;
     if !crate::journal::try_lock(&marker) {
         return Err(format!("another `trantor new` is running in {}", dir.display()));
     }
-    undo_entries(dir)?;
+    undo_entries(dir, &mut marker)?;
     eprintln!("trantor: an interrupted `trantor new` in {} was cleaned up", dir.display());
     Ok(())
 }
 
-fn undo_entries(dir: &Path) -> Result<(), String> {
-    let text = std::fs::read_to_string(dir.join(MARKER)).unwrap_or_default();
-    let mut files: Vec<(String, String)> = vec![];
-    let mut dirs: Vec<PathBuf> = vec![];
+/// A relative path that stays under the directory: no `..`, no root.
+fn inside(rel: &str) -> bool {
+    !rel.is_empty() && Path::new(rel).components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+/// Undo what the marker behind `handle` lists. The marker is read through the
+/// handle that holds its lock, not by path — another run may have replaced the
+/// file at that path by now — and only paths inside the project, or the
+/// directories `new` made above it, are touched.
+fn undo_entries(dir: &Path, handle: &mut File) -> Result<(), String> {
+    let mut text = String::new();
+    handle.rewind().and_then(|()| handle.read_to_string(&mut text)).map_err(|e| format!("read the new marker: {e}"))?;
+    let refuse = |why: &str| format!("{} {why}; delete it if no `trantor new` is running there", dir.join(MARKER).display());
+    let (mut files, mut subs, mut made): (Vec<(String, String)>, Vec<String>, Vec<PathBuf>) = (vec![], vec![], vec![]);
+    let mut project = None;
     for line in text.lines() {
         match line.split('\t').collect::<Vec<_>>().as_slice() {
-            ["file", rel, hash] => {
+            ["project", p] => project = Some(PathBuf::from(p)),
+            ["file", rel, hash] if inside(rel) => {
                 files.retain(|(r, _)| r != rel);
                 files.push((rel.to_string(), hash.to_string()));
             }
-            ["dir", path] => dirs.push(PathBuf::from(path)),
-            _ => {}
+            ["sub", rel] if inside(rel) => subs.push(rel.to_string()),
+            ["made", p] if dir.starts_with(p) => made.push(PathBuf::from(p)),
+            _ => return Err(refuse("holds an entry trantor did not write")),
         }
+    }
+    if project.as_deref() != Some(dir) {
+        return Err(refuse("was written for another directory (moved, or cloned)"));
     }
     let mut changed = vec![];
     for (rel, hash) in &files {
@@ -112,9 +156,9 @@ fn undo_entries(dir: &Path) -> Result<(), String> {
             Err(_) => {}
         }
     }
-    for d in dirs.iter().rev() {
-        if d.file_name().is_some_and(|n| n == GENERATED) && d.parent() == Some(dir) {
-            std::fs::remove_dir_all(d).ok();
+    for rel in subs.iter().rev() {
+        if rel == GENERATED {
+            std::fs::remove_dir_all(dir.join(rel)).ok();
         }
     }
     if !changed.is_empty() {
@@ -126,11 +170,22 @@ fn undo_entries(dir: &Path) -> Result<(), String> {
             dir.join(MARKER).display()
         ));
     }
-    std::fs::remove_file(dir.join(MARKER)).ok();
-    for d in dirs.iter().rev() {
+    remove_if_same(&dir.join(MARKER), handle);
+    for rel in subs.iter().rev() {
+        std::fs::remove_dir(dir.join(rel)).ok(); // only if empty
+    }
+    for d in made.iter().rev() {
         std::fs::remove_dir(d).ok(); // only if empty
     }
     Ok(())
+}
+
+/// Remove the marker at `path` only if it is still the file `handle` opened.
+fn remove_if_same(path: &Path, handle: &File) {
+    let same = std::fs::metadata(path).ok().zip(handle.metadata().ok()).is_some_and(|(a, b)| a.ino() == b.ino() && a.dev() == b.dev());
+    if same {
+        std::fs::remove_file(path).ok();
+    }
 }
 
 /// FNV-1a: stable across builds, which a std hasher is not promised to be.
@@ -171,6 +226,22 @@ mod tests {
         let _m = Marker::claim(&d).unwrap();
         let e = Marker::claim(&d).err().expect("second claim refused");
         assert!(e.contains("another `trantor new`"), "{e}");
+    }
+
+    #[test]
+    fn a_marker_cannot_reach_outside_its_project_or_follow_it_elsewhere() {
+        let base = tmp("evil");
+        let victim = base.join("victim.txt");
+        std::fs::create_dir_all(base.join("proj")).unwrap();
+        std::fs::write(&victim, "keep").unwrap();
+        let hash = format!("{:016x}", fnv(b"keep"));
+        let proj = base.join("proj");
+        std::fs::write(proj.join(MARKER), format!("project\t{}\nfile\t../victim.txt\t{hash}\n", proj.display())).unwrap();
+        assert!(Marker::claim(&proj).is_err());
+        assert!(victim.exists(), "a path out of the project is refused, not followed");
+        std::fs::write(proj.join(MARKER), "project\t/somewhere/else\n").unwrap();
+        let e = Marker::claim(&proj).err().expect("another directory's marker");
+        assert!(e.contains("another directory"), "{e}");
     }
 
     #[test]
