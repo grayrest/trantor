@@ -88,6 +88,8 @@ breaks symlinked-orphan 'mv components/greet-lib "$T/greet-lib-$RANDOM" && ln -s
 	"Helper is not a module any component exports"
 breaks paren-orphan 'printf "Helper :: [].{\n\tx : I64\n\tx = 1\n}\n\nexpect(Helper.x == 2)\n" > components/greet-lib/Helper.roc' \
 	"Helper is not a module any component exports"
+breaks type-body-orphan 'printf "Helper :: [].{\n\tx : I64\n\tx = 1\n\n\texpect x == 2\n}\n" > components/greet-lib/Helper.roc' \
+	"Helper is not a module any component exports"
 breaks module-clash 'mkdir -p components/mine-lib && printf "Stdout :: [].{\n\tx : I64\n\tx = 1\n}\n" > components/mine-lib/Stdout.roc
 	printf "\n[components.mine-lib]\nkind = \"roc\"\nexports = [\"Stdout\"]\n" >> package.toml' \
 	"two sources for the platform module \`Stdout\`"
@@ -95,7 +97,7 @@ breaks empty-suite 'mkdir tests/empty' \
 	"tests/empty/ is none of"
 breaks two-kinds 'cp tests/script/test.sh tests/hello/' \
 	"tests/hello/ is more than one kind of suite"
-echo "ok: 23 broken packages each fail naming the break — a baseline module claimed (via dev-deps and via deps), an expect in an unexported module, an expect in no module, unreached expects, a stray world.toml, a README value, a README app, a README near-miss value, a README app's stated output (directly after it and after prose), a stated Bool, a README app's exit status, an expected line, a failing script, an empty cargo suite, a hung script, a malformed timeout, an orphan expect behind a symlink, an orphan expect(...), a module from two sources, an empty suite, a two-kind suite"
+echo "ok: 24 broken packages each fail naming the break — a baseline module claimed (via dev-deps and via deps), an expect in an unexported module, an expect in no module, unreached expects, a stray world.toml, a README value, a README app, a README near-miss value, a README app's stated output (directly after it and after prose), a stated Bool, a README app's exit status, an expected line, a failing script, an empty cargo suite, a hung script, a malformed timeout, an orphan expect behind a symlink, an orphan expect(...), an orphan expect in a type module's body, a module from two sources, an empty suite, a two-kind suite"
 
 passes_within symlink-loop 240 'ln -s . loop1; ln -s . loop2'
 passes_within background-child 240 'printf "(sleep 600) &\n" > tests/script/prelude.sh && perl -0pi -e "s/set -euo pipefail\n/set -euo pipefail\nsource prelude.sh\n/" tests/script/test.sh'
@@ -108,15 +110,21 @@ echo "ok: a symlink loop, a script leaving a child running, a hidden tests/ dire
 variant interrupted 'rm -rf README.md tests/hello; printf "echo \$\$ > \"%s/sleeper.pid\"\nexec sleep 600\n" "$T" >> tests/script/test.sh'
 # Job control gives the runner its own group with SIGINT at its default: a plain
 # background job inherits SIGINT ignored, and then only trantor's own handler
-# made it react, so the check passed with forwarding reverted.
-set -m
-"$TR" test "$T/interrupted" > "$T/interrupted.out" 2>&1 & runner=$!
-set +m
-for _ in $(seq 1200); do [[ -s "$T/sleeper.pid" ]] && break; sleep 0.1; done
-sleeper=$(cat "$T/sleeper.pid" 2>/dev/null) || { echo "FAIL: the interrupted run never reached its script"; tail -20 "$T/interrupted.out"; exit 1; }
-kill -INT "$runner"; status=0; wait "$runner" 2>/dev/null || status=$?
-sleep 1
-if kill -0 "$sleeper" 2>/dev/null; then kill "$sleeper"; echo "FAIL: an interrupted trantor test left its script running"; exit 1; fi
-[[ $status == 130 ]] || { echo "FAIL: an interrupted trantor test exited $status, not by SIGINT (130)"; tail -5 "$T/interrupted.out"; exit 1; }
+# made it react, so the check passed with forwarding reverted. Three rounds:
+# a runner that returns before re-raising the signal still wins that race now
+# and then, and one round let it through.
+for round in 1 2 3; do
+	rm -f "$T/sleeper.pid"
+	set -m
+	"$TR" test "$T/interrupted" > "$T/interrupted.out" 2>&1 & runner=$!
+	set +m
+	for _ in $(seq 1200); do [[ -s "$T/sleeper.pid" ]] && break; sleep 0.1; done
+	sleeper=$(cat "$T/sleeper.pid" 2>/dev/null) || { echo "FAIL: the interrupted run never reached its script"; tail -20 "$T/interrupted.out"; exit 1; }
+	kill -INT "$runner"; status=0; wait "$runner" 2>/dev/null || status=$?
+	sleep 1
+	if kill -0 "$sleeper" 2>/dev/null; then kill "$sleeper"; echo "FAIL: an interrupted trantor test left its script running"; exit 1; fi
+	[[ $status == 130 ]] || { echo "FAIL: round $round: an interrupted trantor test exited $status, not by SIGINT (130)"; tail -5 "$T/interrupted.out"; exit 1; }
+	! grep -q "test.sh failed" "$T/interrupted.out" || { echo "FAIL: round $round: an interrupt was reported as a failing script"; exit 1; }
+done
 echo "ok: an interrupted run ends the script it was running, and dies of the interrupt"
 echo "T3 PASS"

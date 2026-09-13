@@ -54,16 +54,33 @@ pub fn shipped(root: &Path, pkg: &Package) -> BTreeMap<String, Module> {
 /// module holding only those has nothing for `roc test` to count.
 pub fn has_expect(file: &Path) -> bool {
     let Ok(text) = std::fs::read_to_string(file) else { return false };
-    let mut depth = 0;
+    // Module level is depth 0, and depth 1 inside a type module's `.{ ... }`
+    // body, which is where a module's expects usually live — `roc test` runs
+    // those too.
+    let (mut depth, mut in_type_body) = (0, false);
     for line in text.lines() {
-        let top = depth <= 0;
+        let module_level = depth <= 0 || (in_type_body && depth == 1);
         let rest = line.trim_start().strip_prefix("expect");
-        if top && rest.is_some_and(|r| r.is_empty() || r.starts_with(|c: char| c.is_whitespace() || c == '(')) {
+        if module_level && rest.is_some_and(|r| r.is_empty() || r.starts_with(|c: char| c.is_whitespace() || c == '(')) {
             return true;
         }
+        let opens_type_body = depth <= 0 && starts_type_module(line);
         depth += crate::readme_lex::scan(line).depth;
+        if opens_type_body && depth == 1 {
+            in_type_body = true;
+        } else if depth <= 0 {
+            in_type_body = false;
+        }
     }
     false
+}
+
+/// `Name :: ... .{` or `Name := ... .{`: a type module's opening line.
+fn starts_type_module(line: &str) -> bool {
+    line.split_once(" :").is_some_and(|(name, rest)| {
+        name.starts_with(|c: char| c.is_ascii_uppercase()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && (rest.starts_with(':') || rest.starts_with('=')) && rest.trim_end().ends_with(".{")
+    })
 }
 
 pub fn same_file(a: &Path, b: &Path) -> bool {
@@ -140,6 +157,12 @@ mod tests {
         std::fs::write(d.join("Body.roc"), "f = |x| {\n  expect(x > 0)\n  x\n}\n").unwrap();
         assert!(has_expect(&d.join("Paren.roc")) && has_expect(&d.join("Indented.roc")));
         assert!(!has_expect(&d.join("Body.roc")));
+        std::fs::write(d.join("TypeBody.roc"), "Helper :: [].{\n\tx : I64\n\tx = 1\n\texpect x == 2\n}\n").unwrap();
+        std::fs::write(d.join("MethodBody.roc"), "Helper :: [].{\n\tf = |x| {\n\t\texpect x > 0\n\t\tx\n\t}\n}\n").unwrap();
+        std::fs::write(d.join("MidString.roc"), "x = \\\\usage (see below\nexpect x == \"nope\"\n").unwrap();
+        assert!(has_expect(&d.join("TypeBody.roc")), "an expect in a type module's body");
+        assert!(!has_expect(&d.join("MethodBody.roc")), "an expect in a method's body");
+        assert!(has_expect(&d.join("MidString.roc")), "brackets in a mid-line multi-line string");
     }
 
     #[test]

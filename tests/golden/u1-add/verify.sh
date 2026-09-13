@@ -168,7 +168,35 @@ grep -q "two sources for the platform module \`Mine\`" "$T/add12.out" || { echo 
 [[ "$(sum "$T/mine/package.toml" "$T/mine/trantor.lock")" == "$pbefore" ]] || { echo "FAIL: a refused add changed the package"; exit 1; }
 echo "ok: a missing exported module and a module from two places each fail the add"
 
-# (11) new without a baseline writes no app and says how to get one.
+# (11) A world variant in a subdirectory shares the lock: removing a dep from
+# world.toml keeps the pin it uses, and world.toml's own platform is the one
+# composed in target/ afterwards.
+mkdir -p "$T/app/variants"
+sed 's/^name = .*/name = "variant"/' "$T/app/world.toml" > "$T/app/variants/w.toml"
+perl -pi -e 's|path = "(?!/)|path = "../|' "$T/app/variants/w.toml"
+(cd "$T/app" && "$TR" remove greet) > "$T/rm2.out" 2>&1 || { echo "FAIL: remove with a variant"; cat "$T/rm2.out"; exit 1; }
+grep -q "its pin stays" "$T/rm2.out" || { echo "FAIL: remove did not keep the pin a variant uses"; cat "$T/rm2.out"; exit 1; }
+grep -q 'name = "greet"' "$T/app/trantor.lock" || { echo "FAIL: the variant's pin was dropped"; exit 1; }
+! grep -q 'Greet' "$T/app/target/trantor/app/platform/main.roc" || { echo "FAIL: target/ holds a platform other than world.toml's"; exit 1; }
+"$TR" compose "$T/app" --world variants/w.toml --out "$T/variant-out" > "$T/var.out" 2>&1 || { echo "FAIL: the variant no longer composes"; cat "$T/var.out"; exit 1; }
+echo "ok: a variant in a subdirectory keeps its pin through a remove, and target/ is the edited world's"
+
+# (12) A killed `new` is cleaned up by the next one, keeping what the user added.
+# A baseline whose driver.toml is a FIFO: composing it blocks, so the kill
+# lands after new has written its files.
+mkdir -p "$T/fifobase/components/drv" && cp "$PWD/tests/golden/u1-front-door/base/package.toml" "$T/fifobase/"
+mkfifo "$T/fifobase/components/drv/driver.toml"
+"$TR" new "$T/half" --from "$T/fifobase" > "$T/new1.out" 2>&1 & newer=$!
+for _ in $(seq 100); do [[ -f "$T/half/.gitignore" ]] && break; sleep 0.1; done
+sleep 0.5; kill -KILL "$newer"; wait "$newer" 2>/dev/null || true
+[[ -f "$T/half/world.toml" && -f "$T/half/.trantor-new" ]] || { echo "FAIL: the killed new left no half project to clean up"; ls -la "$T/half"; exit 1; }
+printf 'mine\n' > "$T/half/NOTES.md"
+"$TR" new "$T/half" --from "$CLI" > "$T/new2.out" 2>&1 || { echo "FAIL: new after a killed new"; tail -5 "$T/new2.out"; exit 1; }
+grep -q "was cleaned up" "$T/new2.out" || { echo "FAIL: the rerun did not say it cleaned up"; cat "$T/new2.out"; exit 1; }
+[[ -f "$T/half/NOTES.md" && -f "$T/half/app/main.roc" && ! -e "$T/half/.trantor-new" ]] || { echo "FAIL: the rerun lost the user's file or did not finish"; ls -la "$T/half"; exit 1; }
+echo "ok: a killed new is cleaned up by the next one, and a file the user added survives"
+
+# (13) new without a baseline writes no app and says how to get one.
 "$TR" new "$T/bare" > "$T/new.out" 2>&1
 [[ ! -e "$T/bare/app/main.roc" ]] || { echo "FAIL: new with no baseline wrote an app"; exit 1; }
 grep -q -- "--from" "$T/new.out" || { echo "FAIL: new with no baseline did not point at --from"; cat "$T/new.out"; exit 1; }

@@ -49,18 +49,27 @@ pub fn forward_signals() {
                 return;
             }
             INTERRUPTED.store(true, Ordering::SeqCst);
+            let signal = libc::c_int::from(byte);
+            eprintln!("trantor: interrupted — ending the running commands (interrupt again to kill them now)");
             let groups: Vec<i32> = GROUPS.iter().map(|g| g.load(Ordering::SeqCst)).filter(|g| *g != 0).collect();
+            // A second signal during the grace period kills them at once.
+            let now: Vec<i32> = groups.clone();
+            std::thread::spawn(move || {
+                let mut again = 0u8;
+                // SAFETY: reads one byte into a local.
+                if unsafe { libc::read(read_fd, (&mut again as *mut u8).cast(), 1) } == 1 {
+                    for g in &now {
+                        // SAFETY: a negative pid addresses the process group.
+                        unsafe { libc::kill(-g, libc::SIGKILL) };
+                    }
+                    die_of(signal);
+                }
+            });
             let enders: Vec<_> = groups.into_iter().map(|g| std::thread::spawn(move || end_group(g))).collect();
             for e in enders {
                 e.join().ok();
             }
-            let signal = libc::c_int::from(byte);
-            // SAFETY: restore the default disposition and die of the signal,
-            // so the parent sees what happened.
-            unsafe {
-                libc::signal(signal, libc::SIG_DFL);
-                libc::raise(signal);
-            }
+            die_of(signal);
         });
         for s in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
             // A signal the caller ignored — `nohup`, a background job — stays
@@ -74,4 +83,14 @@ pub fn forward_signals() {
             }
         }
     });
+}
+
+/// Restore the default disposition and die of the signal, so the parent sees
+/// what happened.
+fn die_of(signal: libc::c_int) {
+    // SAFETY: changing a disposition and raising; no memory involved.
+    unsafe {
+        libc::signal(signal, libc::SIG_DFL);
+        libc::raise(signal);
+    }
 }
