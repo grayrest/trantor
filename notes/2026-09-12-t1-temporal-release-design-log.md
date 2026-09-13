@@ -734,11 +734,39 @@ fix reverted. Decisions (user, 2026-09-13):
 
 Also fixed within existing decisions: a GitHub `[dev-deps]` baseline is pinned
 by `update` and removable by `remove`; a pin another manifest in the directory
-uses is kept by `remove`, and an edit composes every other world variant with
-github deps; `add` of a dependency already present changes nothing and names
+uses is kept by `remove`, and a world edit composes every other world variant
+with github deps; `add` of a dependency already present changes nothing and names
 `update`; interrupted `trantor test` dies of the signal (exit 130), a nested
 run's grace is 3 s shorter per level, ignored signals stay ignored, and the
 signal pipe is close-on-exec; a killed `new` is cleaned up by the next `new`.
+
+## D-T3e — the review of the T3d fixes
+
+A fourth round found 25 defects. The worst were data loss in the fixes
+themselves: the killed-`new` cleanup deleted files the user had added since,
+two concurrent `new`s deleted each other's projects, and a journal sweep could
+empty a live edit's journal. Decisions (user, 2026-09-13):
+
+- **D-T3-18 A killed `new` is cleaned up only where provably its own.** The
+  marker records the bytes `new` wrote; the next `new` removes a file only if it
+  still holds them, a directory only if empty, and `target/` whole; anything
+  changed makes it refuse by name. The marker is linked into place already
+  locked, so two runs cannot share it.
+- **D-T3-19 Only effectful calls read the machine.** A README value is
+  machine-dependent when it comes from a `!` call through a listed module (or
+  its alias, `exposing` list, a value built from it, or a helper, prelude
+  binding or type method making one). Pure calls do not count, and a module the
+  package under test exports is not a listed one.
+
+Also fixed: the journal sweep checks the owner's pid before its lock; a journal
+without its file list is kept, not discarded; world variants are found under
+subdirectories and read even when they do not parse, only those using a pin
+the edit changed are composed, into scratch output, for package edits too; an
+expect in a type module's body and after a mid-line `\\` string is seen; a
+second interrupt kills at once; README tag claims with trailing prose fail, a
+Bool below a line is still a claim, headings follow CommonMark (indented `#`
+is code, setext counts), whole apps' build errors name README lines, and
+project names Roc cannot spell in a header are refused instead of escaped.
 
 ## Still open (raised, not decided)
 

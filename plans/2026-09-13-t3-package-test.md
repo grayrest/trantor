@@ -126,3 +126,11 @@ Gates: `t3-package-test` 23 breaks, 4 no-hang passes (one a README with an
 unrelated text block and `# TODO`), and an interrupted run under job control
 that must exit 130 — checked to fail against a build with forwarding disabled;
 `u1-add` adds a hand edit after a killed add surviving recovery.
+
+## Review round 4 (T3e)
+
+Decisions are D-T3-18 and D-T3-19. `new_marker.rs` holds the `new` marker.
+Gates: `t3-package-test` 24 breaks (a type-module body orphan added) and an
+interrupt check run three rounds, each requiring exit 130 and no "failed"
+report; `u1-add` adds a variant in a subdirectory keeping its pin with target/
+left as the edited world's, and a killed `new` cleaned up with a user file kept.
