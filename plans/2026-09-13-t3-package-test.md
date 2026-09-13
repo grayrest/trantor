@@ -116,3 +116,13 @@ a killed add undone, a package with no baseline refused, missing and clashing
 modules. `just verify` fails when anything is skipped. trantor-net's `peer`
 uses a watcher instead of an EXIT trap (bash 3.2 exits 0 through a trap after a
 `set -u` error).
+
+## Review round 3 (T3d)
+
+Decisions are D-T3-15 … D-T3-17. `update`/`remove` moved from `registry.rs` to
+`pins.rs`; signal forwarding moved to `interrupt.rs`; number normalisation to
+`readme_numbers.rs`; `journal.rs` and `readme_lex.rs` tests to `*_tests.rs`.
+Gates: `t3-package-test` 23 breaks, 4 no-hang passes (one a README with an
+unrelated text block and `# TODO`), and an interrupted run under job control
+that must exit 130 — checked to fail against a build with forwarding disabled;
+`u1-add` adds a hand edit after a killed add surviving recovery.

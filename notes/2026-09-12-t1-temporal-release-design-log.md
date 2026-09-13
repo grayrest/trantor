@@ -671,8 +671,9 @@ Not fixed, by decision or scope:
 - A stated plain value on an expression whose `to_str` does not exist (a Try
   without `?`) is a compile error, not a diff. It fails; it does not pass.
 - A package's own github dependencies resolve through the package's lock, not
-  the consuming world's (`deps::expand_into` recurses with the package root);
-  a consumer gets them pinned only if the package commits its lock.
+  the consuming world's (`deps::expand_into` recurses with the package root). A
+  package that does not commit its lock cannot be composed by a consumer at all:
+  the compose fails naming the unpinned dependency.
 - The removed expect floors (140, 5, 200) stay removed (D-T3-3); D-T3-7 is what
   now catches unreachable expects.
 
@@ -693,10 +694,11 @@ to the classifier (`LT`, `-P1D`, `True`). Decisions (user, 2026-09-13):
   `.trantor-edit/` and each file replaced by rename; an `add` killed mid-compose
   used to leave its edit. The next trantor command in that directory undoes an
   interrupted edit, unless its owner is still alive.
-- **D-T3-13 Interrupts reach child process groups.** `trantor test` forwards
-  SIGINT/SIGTERM/SIGHUP to every running group, and ends a group with SIGTERM
-  then SIGKILL after 5 s, so a nested `trantor test` ends its own groups too. A
-  child that calls `setsid` has left the group; stopping it is its suite's job.
+- **D-T3-13 Interrupts reach child process groups.** On SIGINT, SIGTERM or
+  SIGHUP (unless the caller ignored it) `trantor test` sends SIGTERM to every
+  running group, then SIGKILL after a grace period, and dies of the signal it
+  received. A child that calls `setsid` has left the group; stopping it is its
+  suite's job.
 - **D-T3-14 A platform module has one source, for every world.** Two
   components (or an interface and a component) shipping the same
   `platform/<Module>.roc`, or a component exporting a module it does not have,
@@ -712,6 +714,31 @@ read the machine are found through aliases, `exposing`, module-level functions
 and prelude bindings over a fixed module list (`Now`, `Utc`, `Clocks`, `Env`,
 `Random`, `Locale`, `Cli`, `Stdin`, `File`, `Fs`, `Cmd`, `Subprocess`) — a
 package whose machine-reading module has another name is not covered.
+
+## D-T3d — the review of the T3c fixes
+
+A third round of four reviewers found 43 defects, again including passes on
+untested code (`expect(...)` and indented module-level expects, components
+under `.vendor/` or `tests/`, a four-backtick fence hiding a roc block, `# ->`
+claims, f64-rounded numbers, `Path` reads) and a fixture that passed with its
+fix reverted. Decisions (user, 2026-09-13):
+
+- **D-T3-15 Recovery restores only what the edit left untouched.** The journal
+  also records the bytes the edit wrote; a file that holds something else is
+  kept, the journal stays, and the note says how to discard it. Ownership is an
+  flock held for the owner's life instead of a pid.
+- **D-T3-16 A bare tag name states a value only inline.** `x.compare(y)   # LT`
+  is a claim; `# TODO` on a line of its own is prose.
+- **D-T3-17 App output stops at a heading.** A ```text block after a whole app
+  is its output when no other block and no Markdown heading lies between.
+
+Also fixed within existing decisions: a GitHub `[dev-deps]` baseline is pinned
+by `update` and removable by `remove`; a pin another manifest in the directory
+uses is kept by `remove`, and an edit composes every other world variant with
+github deps; `add` of a dependency already present changes nothing and names
+`update`; interrupted `trantor test` dies of the signal (exit 130), a nested
+run's grace is 3 s shorter per level, ignored signals stay ignored, and the
+signal pipe is close-on-exec; a killed `new` is cleaned up by the next `new`.
 
 ## Still open (raised, not decided)
 
