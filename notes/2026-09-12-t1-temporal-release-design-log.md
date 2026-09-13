@@ -863,6 +863,10 @@ holds a pin only through a github dependency.
   instant everywhere — the only difference left is `with_plain_date!` keeping
   the zoned value's calendar where rebuilding takes the date's. The sweep is
   not in the gate (133 s); three behaviour lines are.
+- **D-T2-10 No `with_plain_time!`.** With D-T2-9 fixed it resolved the same
+  instant as `zoned_with!(z.plain_date!(), t, zone, dis)` in all 320 probe cases
+  on every calendar, so it and its host leaf went (user, 2026-09-13).
+  `with_plain_date!` stays: it keeps the zoned value's calendar.
 
 ## Still open (raised, not decided)
 
