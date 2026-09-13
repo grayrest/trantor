@@ -830,7 +830,7 @@ the pid; `update <name>` recovers before reading the manifest; a
 `variants/world.toml` and a symlinked variant file are variants, and a world
 holds a pin only through a github dependency.
 
-## D-T2-7 — `ZonedDateTime` is a nominal over its handle (2026-09-13)
+## D-T2g — `ZonedDateTime` and `day_of_week` (2026-09-13)
 
 - **D-T2-7 `ZonedDateTime := TemporalHost.ZonedDateTime.{ … }`.** Supersedes
   the one-field record `{ h : TemporalHost.ZonedDateTime }`. The record existed
@@ -840,6 +840,15 @@ holds a pin only through a github dependency.
   alias cannot carry them. The record added a field for no reason, so it went
   (user, 2026-09-13). The gate is unchanged: 387 expects, 73 behaviour lines, 4
   sweeps.
+
+- **D-T2-8 `day_of_week` is the only weekday, and pure.** `day_of_week!` went
+  to the host for a calendar-aware answer beside the pure `iso_day_of_week`.
+  Measured against temporal_rs 0.2.6 over 19.4M calendar/date pairs (every day
+  of ISO years 1–3000, and every day of one year in 997 across the full range),
+  and through the Roc path for all 16 calendars on four dates: every calendar
+  answered the ISO weekday and none refused a date ISO accepts. The host call
+  was a slower copy that could fail, so the leaf went and `iso_day_of_week`
+  took the name (user, 2026-09-13). `CalendarFields.day_of_week` stays.
 
 ## Still open (raised, not decided)
 
