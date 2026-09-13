@@ -130,13 +130,24 @@ rm "$T/mine/components/mine-lib/Mine.roc" && mkfifo "$T/mine/components/mine-lib
 pbefore=$(sum "$T/mine/package.toml" "$T/mine/trantor.lock")
 (cd "$T/mine" && exec "$TR" add org/greet) > "$T/add9.out" 2>&1 & adder=$!
 for _ in $(seq 100); do [[ -d "$T/mine/.trantor-edit" ]] && grep -q greet "$T/mine/package.toml" && break; sleep 0.1; done
-grep -q greet "$T/mine/package.toml" || { echo "FAIL: the add never reached its compose"; cat "$T/add9.out"; exit 1; }
+grep -q greet "$T/mine/package.toml" || { kill -KILL "$adder" 2>/dev/null; echo "FAIL: the add never reached its compose"; cat "$T/add9.out"; exit 1; }
 sleep 0.5; kill -KILL "$adder"; wait "$adder" 2>/dev/null || true
 rm "$T/mine/components/mine-lib/Mine.roc" && cp "$T/Mine.roc.keep" "$T/mine/components/mine-lib/Mine.roc"
 "$TR" remove nothing-here "$T/mine" > "$T/rec.out" 2>&1 || true
 grep -q "was undone" "$T/rec.out" || { echo "FAIL: the next command did not undo the killed add"; cat "$T/rec.out"; exit 1; }
 [[ "$(sum "$T/mine/package.toml" "$T/mine/trantor.lock")" == "$pbefore" && ! -e "$T/mine/.trantor-edit" ]] || { echo "FAIL: the killed add's edit survived"; exit 1; }
-echo "ok: an add killed mid-compose is undone by the next trantor command in that project"
+# Killed again, then edited by hand before the next command: the edit is kept.
+rm "$T/mine/components/mine-lib/Mine.roc" && mkfifo "$T/mine/components/mine-lib/Mine.roc"
+(cd "$T/mine" && exec "$TR" add org/greet) > "$T/add9b.out" 2>&1 & adder=$!
+for _ in $(seq 100); do [[ -d "$T/mine/.trantor-edit" ]] && grep -q greet "$T/mine/package.toml" && break; sleep 0.1; done
+sleep 0.5; kill -KILL "$adder"; wait "$adder" 2>/dev/null || true
+rm "$T/mine/components/mine-lib/Mine.roc" && cp "$T/Mine.roc.keep" "$T/mine/components/mine-lib/Mine.roc"
+printf '# my hand edit\n' >> "$T/mine/package.toml"
+"$TR" remove nothing-here "$T/mine" > "$T/rec2.out" 2>&1 || true
+grep -q "changed since" "$T/rec2.out" || { echo "FAIL: recovery did not say the manifest changed since"; cat "$T/rec2.out"; exit 1; }
+grep -q "my hand edit" "$T/mine/package.toml" || { echo "FAIL: recovery reverted a hand edit made after the crash"; exit 1; }
+rm -rf "$T/mine/.trantor-edit"
+echo "ok: an add killed mid-compose is undone by the next trantor command, unless the files changed since"
 
 # (9) A package that cannot be composed cannot have a change checked: refused.
 mkdir -p "$T/addon/components/addon-lib"

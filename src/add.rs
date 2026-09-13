@@ -15,9 +15,18 @@ const USAGE: &str = "usage: trantor add <org>/<repo> [<dir>] [--as <name>] [--wo
 pub fn add(dir: &Path, world_flag: Option<&str>, slug: &str, as_name: Option<&str>) -> Result<(), String> {
     crate::journal::recover_noting(dir)?;
     let target = Target::of(dir, world_flag)?;
+    let place = place(dir, world_flag);
+    // Already a dependency: `add` does not move its pin — that is `update`.
+    if let Some((present, _)) = target.deps(dir)?.into_iter().find(|(n, d)| matches!(d.source(n), Ok(DepSource::GitHub(s)) if s == slug)) {
+        if as_name.is_some_and(|a| a != present) {
+            return Err(format!("add {slug}: it is already a dependency in {}, as `{present}`", target.manifest()));
+        }
+        eprintln!("trantor: `{present}` = {slug} is already in {}; nothing changed. `trantor update {present}{place}` moves its pin", target.manifest());
+        return Ok(());
+    }
     let fetched = registry::fetch(slug)?;
     let dep_name = as_name.unwrap_or(&fetched.name).to_string();
-    name_is_free(dir, &target, &dep_name, slug).map_err(|e| format!("add {slug}: {e}"))?;
+    name_is_free(dir, &target, &dep_name, slug, &place).map_err(|e| format!("add {slug}: {e}"))?;
     let changed = project::transact(dir, &target, || registry::record(dir, target.manifest(), &dep_name, &fetched))
         .map_err(|e| format!("add {slug}: {e}"))?;
     let pin = fetched.tag.as_deref().map(|t| format!("tag {t}"))
@@ -36,7 +45,7 @@ pub fn add(dir: &Path, world_flag: Option<&str>, slug: &str, as_name: Option<&st
 /// accept a package already present under another name, which composed until
 /// the two pins drifted apart. World variants share the directory's lock, so a
 /// name pinned for another variant is taken too.
-fn name_is_free(dir: &Path, target: &Target, name: &str, slug: &str) -> Result<(), String> {
+fn name_is_free(dir: &Path, target: &Target, name: &str, slug: &str, place: &str) -> Result<(), String> {
     let deps = target.deps(dir)?;
     if let Some(dep) = deps.get(name) {
         match dep.source(name)? {
@@ -44,7 +53,7 @@ fn name_is_free(dir: &Path, target: &Target, name: &str, slug: &str) -> Result<(
             other => {
                 let was = match other { DepSource::GitHub(s) => format!("github {s}"), DepSource::Path(p) => format!("path {p}") };
                 return Err(format!(
-                    "`{name}` is already a dependency in {} ({was}). Remove it first (`trantor remove {name}`), \
+                    "`{name}` is already a dependency in {} ({was}). Remove it first (`trantor remove {name}{place}`), \
                      or add this one under another name with --as",
                     target.manifest()
                 ));
@@ -55,13 +64,29 @@ fn name_is_free(dir: &Path, target: &Target, name: &str, slug: &str) -> Result<(
         return Err(format!("{slug} is already a dependency in {}, as `{}`", target.manifest(), other.0));
     }
     if let Some(e) = Lock::load(dir)?.get(name).filter(|e| e.github != slug && !deps.contains_key(name)) {
-        return Err(format!(
-            "{LOCK_FILE} pins `{name}` to {} for another world in this directory. World variants share one \
-             lock, so a name means one package — use --as to name this one differently",
-            e.github
-        ));
+        return Err(if target.names_used_elsewhere(dir).contains(name) {
+            format!(
+                "{LOCK_FILE} pins `{name}` to {} for another manifest in this directory. Manifests here share one \
+                 lock, so a name means one package — use --as to name this one differently",
+                e.github
+            )
+        } else {
+            format!("{LOCK_FILE} still pins `{name}` to {}, though nothing here uses it — `trantor remove {name}{place}` drops the pin", e.github)
+        });
     }
     Ok(())
+}
+
+/// How to name this project again in a suggested command.
+fn place(dir: &Path, world_flag: Option<&str>) -> String {
+    let mut s = String::new();
+    if dir != Path::new(".") {
+        s.push_str(&format!(" {}", dir.display()));
+    }
+    if let Some(w) = world_flag {
+        s.push_str(&format!(" --world {w}"));
+    }
+    s
 }
 
 /// `trantor add <org>/<repo> [<dir>] [--as <name>] [--world <file>]`: the

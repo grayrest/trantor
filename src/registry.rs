@@ -8,7 +8,6 @@
 //! works. Reaching for the REST API to list tags would buy nothing and cost
 //! that property, which is why a test asserts no code path builds that host.
 
-use crate::manifest::DepSource;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -232,6 +231,7 @@ pub fn ensure_cached(slug: &str, commit: &str) -> Result<PathBuf, String> {
     // either whole or absent. A fetch killed after `git init` used to leave a
     // `.git` that counted as cached forever, and every later compose blamed
     // the package for having no package.toml.
+    sweep_partials(&dir);
     let partial = dir.with_file_name(format!("{commit}.partial-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&partial);
     std::fs::create_dir_all(&partial).map_err(|e| format!("create {}: {e}", partial.display()))?;
@@ -251,6 +251,19 @@ pub fn ensure_cached(slug: &str, commit: &str) -> Result<PathBuf, String> {
         format!("cache {slug} at {}: {e}", dir.display())
     })?;
     Ok(dir)
+}
+
+/// Fetches killed part way, beside this entry, whose trantor is gone.
+fn sweep_partials(entry: &Path) {
+    let Some(parent) = entry.parent() else { return };
+    let Ok(entries) = std::fs::read_dir(parent) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let pid = name.rsplit_once(".partial-").and_then(|(_, p)| p.parse::<u32>().ok());
+        if pid.is_some_and(|p| p != std::process::id() && !crate::bounded::alive(p)) {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
 }
 
 fn checked_out_at(dir: &Path, commit: &str) -> bool {
@@ -297,7 +310,7 @@ pub fn github_root(world_dir: &Path, name: &str, slug: &str) -> Result<PathBuf, 
 
 // ---- the commands -----------------------------------------------------------
 
-fn edit_world(dir: &Path, world_file: &str) -> Result<(PathBuf, toml_edit::DocumentMut), String> {
+pub(crate) fn edit_world(dir: &Path, world_file: &str) -> Result<(PathBuf, toml_edit::DocumentMut), String> {
     let p = dir.join(world_file);
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     let doc = text
@@ -375,72 +388,6 @@ pub fn record(dir: &Path, manifest: &str, dep_name: &str, f: &Fetched) -> Result
         commit: f.commit.clone(),
     });
     Ok(lock.save(dir)? || !present)
-}
-
-/// `trantor update [<name>]` — move a pin. Without this the lock's own header
-/// tells the user to edit a file that cannot express a version.
-pub fn update(dir: &Path, manifest: &str, deps: &std::collections::BTreeMap<String, crate::manifest::Dep>, only: Option<&str>) -> Result<bool, String> {
-    let mut lock = Lock::load(dir)?;
-    let mut moved = 0;
-    let mut seen = 0;
-    for (name, dep) in deps {
-        if only.is_some_and(|o| o != name) {
-            continue;
-        }
-        let DepSource::GitHub(slug) = dep.source(name)? else { continue };
-        seen += 1;
-        let resolved = resolve(&slug)?;
-        let (tag, branch, commit) = match resolved {
-            Resolved::Tag(t, c) => (Some(t), None, c),
-            Resolved::Branch(b, c) => (None, Some(b), c),
-        };
-        let before = lock.get(name).map(|e| e.commit.clone());
-        if before.as_deref() == Some(commit.as_str()) {
-            eprintln!("trantor: `{name}` is already at {}", &commit[..12.min(commit.len())]);
-            continue;
-        }
-        ensure_cached(&slug, &commit)?;
-        lock.packages.retain(|e| e.name != *name);
-        lock.packages.push(Entry { name: name.clone(), github: slug, tag: tag.clone(), branch, commit: commit.clone() });
-        moved += 1;
-        eprintln!(
-            "trantor: `{name}` {} -> {}{}",
-            before.as_deref().map_or("(unpinned)".into(), |c| c[..12.min(c.len())].to_string()),
-            &commit[..12.min(commit.len())],
-            tag.map_or(String::new(), |t| format!(" ({t})"))
-        );
-    }
-    if let Some(o) = only {
-        if seen == 0 {
-            return Err(format!("no github dep named `{o}` in {manifest}"));
-        }
-    } else if seen == 0 {
-        return Err(format!("{manifest} has no github deps to update"));
-    }
-    let changed = lock.save(dir)?;
-    eprintln!("trantor: {moved} of {seen} dep(s) moved");
-    Ok(changed)
-}
-
-/// `trantor remove <name>` — drop the dep and its pin.
-pub fn remove(dir: &Path, manifest: &str, name: &str) -> Result<(), String> {
-    let (p, mut doc) = edit_world(dir, manifest)?;
-    let had = doc
-        .get_mut("deps")
-        .and_then(|d| d.as_table_like_mut())
-        .map(|t| t.remove(name).is_some())
-        .unwrap_or(false);
-    if !had {
-        return Err(format!("{manifest} has no dep named `{name}`"));
-    }
-    if doc.get("deps").and_then(|d| d.as_table_like()).is_some_and(|t| t.is_empty()) {
-        doc.remove("deps");
-    }
-    crate::journal::write_atomic(&p, doc.to_string().as_bytes())?;
-    let mut lock = Lock::load(dir)?;
-    lock.packages.retain(|e| e.name != name);
-    lock.save(dir)?;
-    Ok(())
 }
 
 #[cfg(test)]

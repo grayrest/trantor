@@ -4,6 +4,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::add::{flag_value, is_project};
+use crate::manifest::{Dep, DepSource};
+use crate::registry::{edit_world, ensure_cached, resolve, Entry, Lock, Resolved};
 use crate::project::{self, Target};
 
 const UPDATE_USAGE: &str = "usage: trantor update [<name>] [<dir>] [--world <file>]   (every pin: trantor update --all [<dir>])";
@@ -52,7 +54,7 @@ pub fn update_command(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>) ->
     crate::journal::recover_noting(&dir)?;
     let target = Target::of(&dir, a.world.as_deref())?;
     project::transact(&dir, &target, || {
-        crate::registry::update(&dir, target.manifest(), &target.deps(&dir)?, name.as_deref())
+        update(&dir, target.manifest(), &target.deps(&dir)?, name.as_deref())
     })
     .map(|_| ())
     .map_err(|e| format!("update: {e}"))
@@ -74,12 +76,95 @@ pub fn remove_command(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>) ->
     };
     crate::journal::recover_noting(&dir)?;
     let target = Target::of(&dir, a.world.as_deref())?;
-    project::transact(&dir, &target, || crate::registry::remove(&dir, target.manifest(), &name).map(|()| true))
-        .map(|_| eprintln!("trantor: removed `{name}`"))
-        .map_err(|e| format!("remove: {e}"))
+    let elsewhere = target.names_used_elsewhere(&dir).contains(&name);
+    let mut said = String::new();
+    project::transact(&dir, &target, || {
+        said = remove(&dir, target.manifest(), &name, elsewhere)?;
+        Ok(true)
+    })
+    .map(|_| eprintln!("trantor: {said}"))
+    .map_err(|e| format!("remove: {e}"))
 }
 
 fn names_a_dep(dir: &str, world: Option<&str>, name: &str) -> bool {
     let dir = Path::new(dir);
     Target::of(dir, world).and_then(|t| t.deps(dir)).is_ok_and(|d| d.contains_key(name))
+}
+
+/// `trantor update [<name>]` — move a pin. Without this the lock's own header
+/// tells the user to edit a file that cannot express a version.
+pub fn update(dir: &Path, manifest: &str, deps: &std::collections::BTreeMap<String, Dep>, only: Option<&str>) -> Result<bool, String> {
+    let mut lock = Lock::load(dir)?;
+    let mut moved = 0;
+    let mut seen = 0;
+    for (name, dep) in deps {
+        if only.is_some_and(|o| o != name) {
+            continue;
+        }
+        let DepSource::GitHub(slug) = dep.source(name)? else { continue };
+        seen += 1;
+        let resolved = resolve(&slug)?;
+        let (tag, branch, commit) = match resolved {
+            Resolved::Tag(t, c) => (Some(t), None, c),
+            Resolved::Branch(b, c) => (None, Some(b), c),
+        };
+        let before = lock.get(name).map(|e| e.commit.clone());
+        // The same commit under another repo — a fork — is still a move: the
+        // pin must name the repo the manifest does.
+        if lock.get(name).is_some_and(|e| e.commit == commit && e.github == slug) {
+            eprintln!("trantor: `{name}` is already at {}", &commit[..12.min(commit.len())]);
+            continue;
+        }
+        ensure_cached(&slug, &commit)?;
+        lock.packages.retain(|e| e.name != *name);
+        lock.packages.push(Entry { name: name.clone(), github: slug, tag: tag.clone(), branch, commit: commit.clone() });
+        moved += 1;
+        eprintln!(
+            "trantor: `{name}` {} -> {}{}",
+            before.as_deref().map_or("(unpinned)".into(), |c| c[..12.min(c.len())].to_string()),
+            &commit[..12.min(commit.len())],
+            tag.map_or(String::new(), |t| format!(" ({t})"))
+        );
+    }
+    if let Some(o) = only {
+        if seen == 0 {
+            return Err(format!("no github dep named `{o}` in {manifest}"));
+        }
+    } else if seen == 0 {
+        return Err(format!("{manifest} has no github deps to update"));
+    }
+    let changed = lock.save(dir)?;
+    eprintln!("trantor: {moved} of {seen} dep(s) moved");
+    Ok(changed)
+}
+
+/// `trantor remove <name>` — drop the dep from `[deps]` or `[dev-deps]`, and
+/// its pin unless another manifest in the directory still uses it. A pin left
+/// behind with no manifest line is dropped on its own. What it did, for the
+/// user.
+pub fn remove(dir: &Path, manifest: &str, name: &str, used_elsewhere: bool) -> Result<String, String> {
+    let (p, mut doc) = edit_world(dir, manifest)?;
+    let mut had = false;
+    for table in ["deps", "dev-deps"] {
+        if doc.get_mut(table).and_then(|d| d.as_table_like_mut()).is_some_and(|t| t.remove(name).is_some()) {
+            had = true;
+            if doc.get(table).and_then(|d| d.as_table_like()).is_some_and(|t| t.is_empty()) {
+                doc.remove(table);
+            }
+        }
+    }
+    let mut lock = Lock::load(dir)?;
+    let pinned = lock.get(name).is_some();
+    if !had && (!pinned || used_elsewhere) {
+        return Err(format!("{manifest} has no dep named `{name}`"));
+    }
+    if had {
+        crate::journal::write_atomic(&p, doc.to_string().as_bytes())?;
+    }
+    if used_elsewhere {
+        return Ok(format!("removed `{name}` from {manifest}; its pin stays, another manifest here uses it"));
+    }
+    lock.packages.retain(|e| e.name != name);
+    lock.save(dir)?;
+    Ok(if had { format!("removed `{name}`") } else { format!("dropped the leftover pin for `{name}`") })
 }
