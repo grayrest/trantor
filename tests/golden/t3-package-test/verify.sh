@@ -65,7 +65,11 @@ breaks readme-app 'perl -pi -e "s/Greet.hello\(\"reader\"\)/Greet.nope(\"reader\
 breaks readme-near-miss 'perl -pi -e "s/# \"hello world\"/# 42, give or take/" README.md' \
 	"is not one trantor can check"
 breaks readme-app-output 'printf "\n\`\`\`text\nhello nobody\n\`\`\`\n" >> README.md' \
-	"printed something other than the output stated after it"
+	"printed something other than the output stated at line"
+breaks readme-output-after-prose 'printf "\nIt prints:\n\n\`\`\`text\nhello nobody\n\`\`\`\n" >> README.md' \
+	"printed something other than the output stated at line"
+breaks readme-bool 'perl -0pi -e "s/(Greet.hello\(who\)   # \"hello world\"\n)/\$1Greet.hello(who) == \"hello nobody\"   # True\n/" README.md' \
+	"stated True, actual False"
 breaks readme-app-exit 'perl -0pi -e "s/\`\`\`roc\napp/\`\`\`roc exit=3\napp/" README.md' \
 	"expected 3"
 breaks app-expected 'printf "hello nobody\n" > tests/hello/expected' \
@@ -74,16 +78,36 @@ breaks script-fails 'printf "exit 3\n" >> tests/script/test.sh' \
 	"tests/script/test.sh failed"
 breaks cargo-empty 'mkdir -p tests/rust/src && printf "[package]\nname = \"empty\"\nversion = \"0.0.0\"\nedition = \"2021\"\n" > tests/rust/Cargo.toml && : > tests/rust/src/lib.rs' \
 	"tests/rust: cargo test ran no tests"
-breaks script-hangs 'printf "sleep 60\n" >> tests/script/test.sh' \
-	"killed after 3 s" TRANTOR_TEST_TIMEOUT=3
+# Nothing to build, so only the script can reach the deadline.
+breaks script-hangs 'rm -rf README.md tests/hello; printf "sleep 600\n" >> tests/script/test.sh' \
+	"tests/script/test.sh failed: killed after 30 s" TRANTOR_TEST_TIMEOUT=30
+breaks bad-timeout ':' \
+	"expected whole seconds" TRANTOR_TEST_TIMEOUT=15m
+breaks symlinked-orphan 'mv components/greet-lib "$T/greet-lib-$RANDOM" && ln -s "$(ls -d "$T"/greet-lib-* | tail -1)" components/greet-lib
+	printf "Helper :: [].{\n\tx : I64\n\tx = 1\n}\n\nexpect Helper.x == 2\n" > components/greet-lib/Helper.roc' \
+	"Helper is not a module any component exports"
+breaks module-clash 'mkdir -p components/mine-lib && printf "Stdout :: [].{\n\tx : I64\n\tx = 1\n}\n" > components/mine-lib/Stdout.roc
+	printf "\n[components.mine-lib]\nkind = \"roc\"\nexports = [\"Stdout\"]\n" >> package.toml' \
+	"two sources for the platform module \`Stdout\`"
 breaks empty-suite 'mkdir tests/empty' \
 	"tests/empty/ is none of"
 breaks two-kinds 'cp tests/script/test.sh tests/hello/' \
 	"tests/hello/ is more than one kind of suite"
-echo "ok: 17 broken packages each fail naming the break — a baseline module claimed (via dev-deps and via deps), an expect in an unexported module, an expect in no module, unreached expects, a stray world.toml, a README value, a README app, a README near-miss value, a README app's stated output, a README app's exit status, an expected line, a failing script, an empty cargo suite, a hung script, an empty suite, a two-kind suite"
+echo "ok: 22 broken packages each fail naming the break — a baseline module claimed (via dev-deps and via deps), an expect in an unexported module, an expect in no module, unreached expects, a stray world.toml, a README value, a README app, a README near-miss value, a README app's stated output (directly after it and after prose), a stated Bool, a README app's exit status, an expected line, a failing script, an empty cargo suite, a hung script, a malformed timeout, an orphan expect behind a symlink, a module from two sources, an empty suite, a two-kind suite"
 
 passes_within symlink-loop 240 'ln -s . loop1; ln -s . loop2'
 passes_within background-child 240 'printf "(sleep 600) &\n" > tests/script/prelude.sh && perl -0pi -e "s/set -euo pipefail\n/set -euo pipefail\nsource prelude.sh\n/" tests/script/test.sh'
 passes_within hidden-dir 240 'mkdir -p tests/.cache'
 echo "ok: a symlink loop, a script leaving a child running, and a hidden tests/ directory each pass without hanging"
+
+# An interrupted run takes its subprocesses with it: they are in their own
+# process groups, where a terminal's Ctrl-C does not reach them.
+variant interrupted 'rm -rf README.md tests/hello; printf "echo \$\$ > \"%s/sleeper.pid\"\nexec sleep 600\n" "$T" >> tests/script/test.sh'
+"$TR" test "$T/interrupted" > "$T/interrupted.out" 2>&1 & runner=$!
+for _ in $(seq 1200); do [[ -s "$T/sleeper.pid" ]] && break; sleep 0.1; done
+sleeper=$(cat "$T/sleeper.pid" 2>/dev/null) || { echo "FAIL: the interrupted run never reached its script"; tail -20 "$T/interrupted.out"; exit 1; }
+kill -INT "$runner"; wait "$runner" 2>/dev/null || true
+sleep 1
+if kill -0 "$sleeper" 2>/dev/null; then kill "$sleeper"; echo "FAIL: an interrupted trantor test left its script running"; exit 1; fi
+echo "ok: an interrupted run ends the script it was running"
 echo "T3 PASS"

@@ -8,12 +8,20 @@ pub struct Block {
     pub first_line: usize,
     pub lines: Vec<(usize, String)>,
     /// `exit=N` from the fence's info string; a whole app must exit with it.
-    pub exit: i32,
-    /// The ```text block that follows it (blank lines between allowed), if
-    /// any: a whole app's stated stdout.
-    pub output: Option<String>,
+    pub exit: Option<i32>,
+    /// The ```text block that follows it with no other block between — prose
+    /// such as "It prints:" is fine — and the README line it starts on: a
+    /// whole app's stated stdout.
+    pub output: Option<(usize, String)>,
     /// 0-based index of its closing fence.
     close: usize,
+}
+
+impl Block {
+    #[cfg(test)]
+    pub fn for_test(lines: &[&str]) -> Block {
+        Block { first_line: 1, lines: lines.iter().enumerate().map(|(i, l)| (i + 1, l.to_string())).collect(), exit: None, output: None, close: 0 }
+    }
 }
 
 /// Every ```roc (or ~~~roc) block, indented or not. An unterminated fence is
@@ -21,6 +29,7 @@ pub struct Block {
 pub fn blocks(readme: &str) -> Result<Vec<Block>, String> {
     let lines: Vec<&str> = readme.lines().collect();
     let mut out: Vec<Block> = vec![];
+    let mut last_close = None;
     let mut i = 0;
     while i < lines.len() {
         let Some((indent, fence, info)) = fence_open(lines[i]) else { i += 1; continue };
@@ -29,7 +38,10 @@ pub fn blocks(readme: &str) -> Result<Vec<Block>, String> {
         i += 1;
         while i < lines.len() && !is_fence_close(lines[i], &fence) {
             let l = lines[i];
-            let stripped = if l.len() >= indent && l[..indent].trim().is_empty() { &l[indent..] } else { l.trim_start() };
+            let stripped = match l.get(..indent) {
+                Some(lead) if lead.trim().is_empty() => &l[indent..],
+                _ => l.trim_start(),
+            };
             body.push((i + 1, stripped.to_string()));
             i += 1;
         }
@@ -37,22 +49,24 @@ pub fn blocks(readme: &str) -> Result<Vec<Block>, String> {
             return Err(format!("README.md line {}: the ``` block opened here is never closed", start + 1));
         }
         i += 1;
-        let lang = info.split_whitespace().next().unwrap_or("");
-        match lang {
+        let lang = info.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+        let follows_roc = out.last().is_some_and(|b| Some(b.close) == last_close && b.output.is_none());
+        match lang.as_str() {
             "roc" => {
-                let exit = info.split_whitespace().find_map(|w| w.strip_prefix("exit=")).map_or(Ok(0), |n| {
+                let exit = info.split_whitespace().find_map(|w| w.strip_prefix("exit=")).map(|n| {
                     n.parse().map_err(|_| format!("README.md line {}: `exit={n}` is not an exit status", start + 1))
-                })?;
+                }).transpose()?;
                 out.push(Block { first_line: start + 2, lines: body, exit, output: None, close: i - 1 });
             }
-            "text" | "output" if out.last().is_some_and(|b| b.output.is_none() && lines[b.close + 1..start].iter().all(|l| l.trim().is_empty())) => {
+            "text" | "output" if follows_roc => {
                 let text: String = body.iter().map(|(_, l)| format!("{l}\n")).collect();
                 if let Some(b) = out.last_mut() {
-                    b.output = Some(text);
+                    b.output = Some((start + 1, text));
                 }
             }
             _ => {}
         }
+        last_close = Some(i - 1);
     }
     Ok(out)
 }
@@ -82,6 +96,10 @@ pub struct Scan {
 }
 
 pub fn scan(line: &str) -> Scan {
+    // A `\\` line is a multi-line string's content, all of it.
+    if line.trim_start().starts_with("\\\\") {
+        return Scan { comment_at: None, depth: 0, blanked: " ".repeat(line.len()) };
+    }
     #[derive(PartialEq)]
     enum S { Code, Str, Char }
     let chars: Vec<(usize, char)> = line.char_indices().collect();
@@ -138,8 +156,12 @@ pub struct Stmt {
     pub code: String,
     /// The code with strings blanked, for finding which names it uses.
     pub blanked: String,
-    /// Its inline comment, then any comment-only lines directly below it.
+    /// The comment on its last line, then any comment-only lines directly
+    /// below it: what it claims.
     pub comments: Vec<(usize, String)>,
+    /// Comments on its other lines, which are about a part of it and cannot
+    /// state its value.
+    pub inner: Vec<(usize, String)>,
 }
 
 /// Statements, and comment-only lines that follow no statement.
@@ -153,13 +175,26 @@ pub fn statements(lines: &[(usize, String)]) -> (Vec<Stmt>, Vec<(usize, String)>
         let code = raw[..sc.comment_at.unwrap_or(raw.len())].trim_end();
         let comment = sc.comment_at.map(|at| raw[at..].trim_start_matches('#').trim().to_string());
         let blanked = sc.blanked.trim_end().to_string();
+        // A line that can only continue the statement before it: a method
+        // chain, a `?`, an operator, or a multi-line string's next line.
+        let continues = open.is_none()
+            && last_was_stmt
+            && [".", "?", "&&", "||", "|>", "->", "=>", "\\\\"].iter().any(|p| code.trim_start().starts_with(p))
+            && !code.trim_start().starts_with("..");
+        if continues {
+            open = stmts.pop();
+            depth = 0;
+        }
         if let Some(st) = open.as_mut() {
+            st.inner.append(&mut st.comments);
             st.code.push('\n');
             st.code.push_str(code);
             st.blanked.push(' ');
             st.blanked.push_str(&blanked);
-            if let Some(c) = comment { st.comments.push((*n, c)); }
             depth += sc.depth;
+            if let Some(c) = comment {
+                if depth <= 0 { st.comments.push((*n, c)) } else { st.inner.push((*n, c)) }
+            }
             if depth <= 0 {
                 stmts.extend(open.take());
                 last_was_stmt = true;
@@ -174,8 +209,13 @@ pub fn statements(lines: &[(usize, String)]) -> (Vec<Stmt>, Vec<(usize, String)>
             }
             continue;
         }
-        let st = Stmt { line: *n, code: code.to_string(), blanked, comments: comment.map(|c| vec![(*n, c)]).unwrap_or_default() };
         depth = sc.depth;
+        let (comments, inner) = match comment {
+            Some(c) if depth > 0 => (vec![], vec![(*n, c)]),
+            Some(c) => (vec![(*n, c)], vec![]),
+            None => (vec![], vec![]),
+        };
+        let st = Stmt { line: *n, code: code.to_string(), blanked, comments, inner };
         if depth > 0 {
             open = Some(st);
         } else {
@@ -185,91 +225,6 @@ pub fn statements(lines: &[(usize, String)]) -> (Vec<Stmt>, Vec<(usize, String)>
     }
     stmts.extend(open.take());
     (stmts, loose)
-}
-
-/// What a comment claims.
-#[derive(Debug, PartialEq)]
-pub enum Claim {
-    Prose,
-    /// `"text"` — the expression renders to exactly this.
-    Quoted(String),
-    /// `2024-02-29`, `3`, `P359D`, `true` — renders to exactly this.
-    Token(String),
-    /// `Ok(...)` / `Err(...)` — `Str.inspect` of the value is exactly this.
-    Tag(String),
-    /// Starts like a value but is none of the above.
-    Unrecognised(String),
-}
-
-/// Anything after ` — ` is prose; what comes before it is classified.
-pub fn claim(comment: &str) -> Claim {
-    let head = comment.split(" — ").next().unwrap_or("").trim();
-    if let Some(rest) = head.strip_prefix('"') {
-        return match unquote(rest) {
-            Some((text, tail)) if tail.trim().is_empty() => Claim::Quoted(text),
-            _ => Claim::Unrecognised(head.to_string()),
-        };
-    }
-    if (head.starts_with("Ok(") || head.starts_with("Err(")) && head.ends_with(')') && balanced(head) {
-        return Claim::Tag(head.to_string());
-    }
-    let starts_like_value = head.starts_with(|c: char| c.is_ascii_digit() || "[{(\"".contains(c))
-        || head.strip_prefix('-').is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
-        || head.starts_with("Ok(") || head.starts_with("Err(")
-        || head.strip_prefix('P').is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit() || c == 'T'))
-        || head == "true" || head == "false"
-        || head.split_whitespace().next().is_some_and(|w| w == "true" || w == "false");
-    if !starts_like_value {
-        return Claim::Prose;
-    }
-    if !head.contains(char::is_whitespace) && !head.starts_with(['[', '{', '(']) {
-        return Claim::Token(head.to_string());
-    }
-    Claim::Unrecognised(head.to_string())
-}
-
-/// A Roc string's contents up to its closing quote, unescaped, and what follows.
-pub fn unquote(after_open: &str) -> Option<(String, &str)> {
-    let mut out = String::new();
-    let mut it = after_open.char_indices();
-    while let Some((i, c)) = it.next() {
-        match c {
-            '"' => return Some((out, &after_open[i + 1..])),
-            '\\' => match it.next()?.1 {
-                'n' => out.push('\n'),
-                't' => out.push('\t'),
-                'r' => out.push('\r'),
-                other => out.push(other),
-            },
-            c => out.push(c),
-        }
-    }
-    None
-}
-
-fn balanced(s: &str) -> bool {
-    let (mut depth, mut quoted, mut prev) = (0i32, false, ' ');
-    for c in s.chars() {
-        if c == '"' && prev != '\\' { quoted = !quoted }
-        if !quoted {
-            match c { '(' => depth += 1, ')' => depth -= 1, _ => {} }
-            if depth < 0 { return false }
-        }
-        prev = c;
-    }
-    depth == 0 && !quoted
-}
-
-/// Lowercase identifiers `name` is used as in `blanked` code: not a field
-/// after a single `.`, not part of a longer name. `..name` is a use.
-pub fn uses(blanked: &str, name: &str) -> bool {
-    blanked.match_indices(name).any(|(i, _)| {
-        let head = &blanked[..i];
-        let after = blanked[i + name.len()..].chars().next();
-        let in_word = head.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_');
-        let field = head.ends_with('.') && !head.ends_with("..");
-        !in_word && !field && !after.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '!')
-    })
 }
 
 #[cfg(test)]
@@ -301,34 +256,38 @@ mod tests {
     }
 
     #[test]
-    fn claims_are_classified_and_near_misses_are_unrecognised() {
-        assert_eq!(claim(r##""hello \"reader\"""##), Claim::Quoted("hello \"reader\"".into()));
-        assert_eq!(claim("2024-02-29 — constrained"), Claim::Token("2024-02-29".into()));
-        assert_eq!(claim("P359D — 359 days"), Claim::Token("P359D".into()));
-        assert_eq!(claim("-15"), Claim::Token("-15".into()));
-        assert_eq!(claim(r##"Err(BadInput("no, it isn't"))"##), Claim::Tag(r##"Err(BadInput("no, it isn't"))"##.into()));
-        assert_eq!(claim("a time needs no date"), Claim::Prose);
-        // A token is compared whole, so `3,000` against a value of 3 fails
-        // rather than matching its prefix.
-        assert_eq!(claim("3,000"), Claim::Token("3,000".into()));
-        for near in ["2024-02-29, constrained", "359 days", "999 (paren after)", "[1, 2]", r##""x" and more"##] {
-            assert!(matches!(claim(near), Claim::Unrecognised(_)), "{near} should be unrecognised, got {:?}", claim(near));
-        }
-    }
-
-    #[test]
     fn fences_may_be_indented_or_tildes_and_must_close() {
         let b = blocks("- item\n  ```roc exit=2\n  x = 1\n  ```\n\n~~~roc\ny\n~~~\n\n```text\nshown\n```\n").unwrap();
         assert_eq!(b.len(), 2);
-        assert_eq!((b[0].exit, b[0].lines[0].1.as_str()), (2, "x = 1"));
-        assert_eq!(b[1].output.as_deref(), Some("shown\n"));
+        assert_eq!((b[0].exit, b[0].lines[0].1.as_str()), (Some(2), "x = 1"));
+        assert_eq!(b[1].output, Some((10, "shown\n".to_string())));
         assert!(blocks("```roc\nx\n").is_err());
     }
 
     #[test]
-    fn a_spread_is_a_use_and_a_field_or_longer_name_is_not() {
-        assert!(uses("{ ..jan31, day: 1 }", "jan31"));
-        assert!(!uses("d.jan31", "jan31") && !uses("jan31x", "jan31"));
-        assert!(!uses(&scan(r##"Greet.hello("who")"##).blanked, "who"));
+    fn text_after_prose_is_output_but_not_after_another_block() {
+        let b = blocks("```roc\napp [main!] {}\n```\nIt prints:\n```text\nhi\n```\n").unwrap();
+        assert_eq!(b[0].output, Some((5, "hi\n".to_string())));
+        let b = blocks("```roc\napp [main!] {}\n```\n```sh\nls\n```\n```text\nhi\n```\n").unwrap();
+        assert!(b[0].output.is_none());
     }
+
+    #[test]
+    fn an_indented_fence_with_a_multibyte_continuation_does_not_panic() {
+        let b = blocks("- item\n  ```roc\n  x = 1\n…\n  ```\n").unwrap();
+        assert_eq!(b[0].lines[1].1, "…");
+    }
+
+    #[test]
+    fn a_chain_a_multi_line_string_and_inner_comments_stay_one_statement() {
+        let lines: Vec<(usize, String)> = ["x = \"a\"", "\t.concat(\"!\")   # \"a!\"", "s =", "\t\\\\ # 3 is text", "y = Str.concat(", "\t\"a\",   # \"a\"", ")"]
+            .iter().enumerate().map(|(i, l)| (i + 1, l.to_string())).collect();
+        let (stmts, _) = statements(&lines);
+        assert_eq!(stmts.len(), 3, "{:?}", stmts.iter().map(|s| s.code.clone()).collect::<Vec<_>>());
+        assert_eq!(stmts[0].comments, vec![(2, "\"a!\"".to_string())]);
+        assert!(stmts[1].comments.is_empty() && stmts[1].inner.is_empty(), "a string's # is not a comment");
+        assert_eq!((stmts[2].comments.len(), stmts[2].inner.len()), (0, 1));
+    }
+
+
 }
