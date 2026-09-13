@@ -661,14 +661,25 @@ stretch per Ctrl-Z on macOS, not a stretch for as long as a window drag lasts.
 Rejected: SIGCONT alone, which the table shows does nothing; SIGTSTP and
 SIGCONT together, for the race in the code that puts the terminal back.
 
+**D-K1-31 — http-host's Linux failure after a stop and resume is documented,
+not fixed.** D-K1-30 measured it with no handlers installed: the kernel
+interrupts a timed socket read on resume and ureq 3.4.0's `await_input` does not
+retry (`src/unversioned/transport/tcp.rs:217–231`), so `send!` returns
+`HttpErr(NetworkError)`. It needs no terminal package, only Linux and Ctrl-Z
+during a request.
+
+The fix considered was a connector after ureq's `TcpConnector` that wraps its
+transport and retries `Interrupted` against the remaining deadline, about 60
+lines on ureq's unstable `unversioned` API. Rejected: it puts code on every read
+of every request, the hottest path an HTTP app has, for an edge case that
+sending the request again recovers from. The bug is ureq's, where the fix is a
+loop inside `await_input`; a ureq release that retries is picked up by bumping
+the pin. trantor-net's README states the limitation. Tcp and Udp are not
+affected: sockets-host waits in `poll` against each call's deadline (`2e463bb`).
+
 ## Still open (raised, not decided)
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
   of K1.
 - `Stdout` writes interleaved with `Screen` frames on the same device are the
   app's to avoid; whether `Terminal` should warn is not decided.
-- trantor-net, from D-K1-30: on Linux a stop and resume fails http-host's
-  request with `Interrupted` whether or not any handler is installed, so any
-  trantor-net app has it after Ctrl-Z and `fg`. ureq 3.4.0 does not retry
-  (`src/unversioned/transport/tcp.rs:217–231`); sockets-host's retry
-  (`f2c71eb`) already covers Tcp and Udp.
