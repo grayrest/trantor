@@ -878,6 +878,13 @@ holds a pin only through a github dependency.
   the wall clock, keeps the offset where it still reads back, else resolves
   `Compatible`. A gate sweep checks 2,964,240 roundings (10 s) and fails on
   upstream's `round`.
+- **D-T2-12 A date's `since_rounded!` is `until` from the same receiver, negated.**
+  It swapped the arguments to `until_rounded!`. TC39 defines `since` as `until`
+  with the rounding mode negated and the result negated, and months counted back
+  from the receiver are not months counted forward from the other date:
+  2024-01-01 since 2023-11-17 by years was P1M15D, not P1M14D — 43,598 of
+  494,100 probed cases. temporal_rs's own `since` agreed with the definition in
+  all of them. Written in Roc over the existing leaf.
 
 ## Still open (raised, not decided)
 
