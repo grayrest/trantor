@@ -33,11 +33,10 @@ Common flags: --world <file> picks a world variant (default world.toml).
 Testing a package (a directory with package.toml, run as `trantor test .`)
   Composes it alone (it must fail naming the driver unless one is in reach),
   then on its [dev-deps]; checks the dev-deps alone expose none of its
-  exports; runs its expects; builds README.md's roc blocks (a whole app runs
-  as written) and compares each `expr   # value` comment; then each
-  tests/<name>/ is one of:
+  exports; runs its expects; then each tests/<name>/ is one of:
     main.roc + expected   an app, stdout compared line for line
     Cargo.toml            cargo test --release
     test.sh               run with TRANTOR ROC PKG TMP DEPS DEV_DEPS
-  A README example's missing bindings come from tests/readme-prelude.roc.
+  README examples are not checked; a package that wants them checked keeps
+  a suite for it.
 ";

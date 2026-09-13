@@ -64,7 +64,7 @@ pub fn has_expect(file: &Path) -> bool {
         if module_level && rest.is_some_and(|r| r.is_empty() || r.starts_with(|c: char| c.is_whitespace() || c == '(')) {
             return true;
         }
-        let blanked = crate::readme_lex::scan(line).blanked;
+        let blanked = crate::roc_scan::code(line);
         let mut previous = ' ';
         for c in blanked.chars() {
             match c {

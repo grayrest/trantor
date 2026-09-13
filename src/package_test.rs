@@ -10,7 +10,7 @@ use crate::manifest::Package;
 use crate::package_modules::{roc_files_with_expects, same_file, Module};
 use crate::package_worlds::{driver_in_reach, scratch_world, Deps, Reach};
 
-/// The world app suites and README examples compose into. A test app's header
+/// The world app suites compose into. A test app's header
 /// points at `../target/trantor/app/platform/main.roc`, so this is part of the
 /// contract. It exposes exactly what consumers see.
 pub const APP_WORLD: &str = "app";
@@ -70,7 +70,6 @@ impl Steps<'_> {
             }
         };
         self.expects(&expects, base.as_deref(), &modules)?;
-        crate::readme_examples::check(self, &with)?;
         crate::package_suites::run_all(self, &with)
     }
 

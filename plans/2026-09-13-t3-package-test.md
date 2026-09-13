@@ -143,3 +143,11 @@ nested-run interrupt must let the inner suite's TERM handler finish — checked 
 fail against a build that re-signals the group; `u1-add` adds two self-links
 beside a variant in a subdirectory (the remove must finish) and a foreign
 `.trantor-new` refused without touching a file outside the project.
+
+## README checking removed (T3g)
+
+D-T3-21. Deleted `readme_claims.rs`, `readme_examples.rs`, `readme_generate.rs`,
+`readme_lex.rs` (+ tests), `readme_numbers.rs`, `readme_taint.rs`; the line
+scanner moved to `roc_scan.rs`. `t3-package-test` loses its README breaks and
+gains a pass: a README stating a wrong value passes, and nothing mentions
+README.md.

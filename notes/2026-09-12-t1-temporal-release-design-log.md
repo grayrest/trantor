@@ -799,6 +799,19 @@ level for expects; a `\\` string's interpolation is code; `---` under a fence
 is not a heading; `TODO(...)`-style comments are prose; a comment inside a
 chained statement keeps build errors on the right line.
 
+## D-T3g — README examples are not checked (2026-09-13)
+
+- **D-T3-21 `trantor test` does not read README.md.** Supersedes D-T3-2, D-T3-8,
+  D-T3-16, D-T3-17 and D-T3-20. Checking README examples grew a Roc statement
+  joiner, a claim grammar, a generated app, output markers and a machine-read
+  rule, and five review rounds kept finding the rule leaking in both directions
+  — its knowledge of which calls read the machine lives in other packages. The
+  value did not justify the complexity (user, 2026-09-13). A package that wants
+  its README examples validated keeps a suite for them under `tests/`. The
+  claim-comment conventions in trantor-temporal's README stay as prose;
+  `tests/readme-prelude.roc` is gone. The Roc line scanner survives as
+  `roc_scan.rs`, for finding module-level expects.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
