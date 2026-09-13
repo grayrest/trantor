@@ -36,6 +36,11 @@ fn parse(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>, usage: &str) ->
 
 pub fn update_command(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>) -> Result<(), String> {
     let Some(a) = parse(it, UPDATE_USAGE)? else { return Ok(()) };
+    // Deciding whether one argument names a dependency here reads the manifest,
+    // so an interrupted edit here is recovered first.
+    if matches!((a.all, a.positional.as_slice()), (false, [one]) if is_project(one)) {
+        crate::journal::recover_for_edit(Path::new("."))?;
+    }
     let (name, dir) = match (a.all, a.positional.as_slice()) {
         (true, []) => (None, PathBuf::from(".")),
         (true, [dir]) => (None, PathBuf::from(dir)),

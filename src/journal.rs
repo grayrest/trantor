@@ -29,7 +29,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         _ => path.to_path_buf(),
     };
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = path.with_file_name(format!(".{name}.trantor-tmp-{}", std::process::id()));
+    let tmp = path.with_file_name(format!(".{name}.trantor-tmp-{}", unique()));
     std::fs::write(&tmp, bytes).map_err(|e| format!("write {}: {e}", tmp.display()))?;
     if let Ok(meta) = std::fs::metadata(&path) {
         std::fs::set_permissions(&tmp, meta.permissions()).ok();
@@ -38,6 +38,13 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         std::fs::remove_file(&tmp).ok();
         format!("write {}: {e}", path.display())
     })
+}
+
+/// A pid and a timestamp: unique within a machine, and across containers
+/// sharing a directory short of a pid collision in the same nanosecond.
+fn unique() -> String {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    format!("{}-{nanos}", std::process::id())
 }
 
 pub struct Journal {
@@ -57,8 +64,9 @@ impl Journal {
             Recovery::Nothing => {}
         }
         let dir = project.join(JOURNAL_DIR);
-        let staging = Staging(project.join(format!("{JOURNAL_DIR}.tmp-{}", std::process::id())));
-        std::fs::remove_dir_all(&staging.0).ok();
+        // A name no other process can share: the same pid in another
+        // container once removed and rebuilt a live run's staging directory.
+        let staging = Staging(project.join(format!("{JOURNAL_DIR}.tmp-{}", unique())));
         std::fs::create_dir_all(&staging.0).map_err(|e| format!("create {}: {e}", staging.0.display()))?;
         let owner = File::create(staging.0.join(OWNER)).map_err(|e| format!("create the edit journal: {e}"))?;
         if !try_lock(&owner) {

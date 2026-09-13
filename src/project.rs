@@ -94,26 +94,27 @@ impl Target {
 }
 
 /// World manifests sharing `dir`'s lock: every `*.toml` under it that has a
-/// `[world]` table, outside `target/`, dot-directories, symlinks, and
-/// directories that are projects of their own (a `world.toml`, `trantor.lock`
-/// or `package.toml` of theirs). A variant in a subdirectory is named
-/// otherwise (`variants/w.toml`) and reads its paths from this directory.
+/// `[world]` table (a symlinked one included), outside `target/`,
+/// dot-directories, symlinked directories, and directories with a
+/// `trantor.lock` or `package.toml` of their own. A `world.toml` in a
+/// subdirectory counts: `--world variants/world.toml` is a variant. Whether a
+/// world uses a pin is read from its github dependencies only, so a nested
+/// project whose deps are paths does not hold anyone's pin.
 fn world_files(dir: &Path) -> Vec<String> {
     fn walk(root: &Path, at: &Path, out: &mut Vec<String>) {
         let Ok(entries) = std::fs::read_dir(at) else { return };
         for e in entries.flatten() {
             let path = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
-            // Symlinks are not followed: two links to `.` made this walk
-            // endless, and a link out of the project is not its variant.
+            // Directory links are not followed: two links to `.` made this walk
+            // endless. A linked variant file is still a variant.
             let Ok(kind) = e.file_type() else { continue };
-            if kind.is_symlink() {
+            let linked_dir = kind.is_symlink() && path.is_dir();
+            if linked_dir {
                 continue;
             }
             if kind.is_dir() {
-                // A directory with its own world.toml, lock or package.toml is
-                // a project of its own; its paths are relative to itself.
-                let own_project = path.join(LOCK_FILE).exists() || path.join("package.toml").exists() || path.join("world.toml").exists();
+                let own_project = path.join(LOCK_FILE).exists() || path.join("package.toml").exists();
                 if !(name.starts_with('.') || name == "target" || own_project) {
                     walk(root, &path, out);
                 }
@@ -131,10 +132,15 @@ fn world_files(dir: &Path) -> Vec<String> {
     out
 }
 
-/// The names under `[deps]` and `[dev-deps]`, read as plain TOML.
+/// The github dependencies' names under `[deps]` and `[dev-deps]` — the ones
+/// holding a pin — read as plain TOML, so a world that does not parse still
+/// counts.
 fn dep_names(manifest: &Path) -> BTreeSet<String> {
     let Some(table) = std::fs::read_to_string(manifest).ok().and_then(|t| t.parse::<toml::Table>().ok()) else { return BTreeSet::new() };
-    ["deps", "dev-deps"].iter().filter_map(|k| table.get(*k).and_then(|v| v.as_table())).flat_map(|t| t.keys().cloned()).collect()
+    ["deps", "dev-deps"].iter()
+        .filter_map(|k| table.get(*k).and_then(|v| v.as_table()))
+        .flat_map(|t| t.iter().filter(|(_, v)| v.get("github").is_some()).map(|(k, _)| k.clone()))
+        .collect()
 }
 
 fn same_manifest(dir: &Path, a: &str, b: &str) -> bool {

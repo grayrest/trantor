@@ -172,14 +172,14 @@ echo "ok: a missing exported module and a module from two places each fail the a
 # world.toml keeps the pin it uses, and world.toml's own platform is the one
 # composed in target/ afterwards.
 mkdir -p "$T/app/variants"
-sed 's/^name = .*/name = "variant"/' "$T/app/world.toml" > "$T/app/variants/w.toml"
+sed 's/^name = .*/name = "variant"/' "$T/app/world.toml" > "$T/app/variants/world.toml"
 # Two links back to the project: variant discovery must not walk them forever.
 mkdir -p "$T/app/docs" && ln -s . "$T/app/docs/a" && ln -s . "$T/app/docs/b"
 (cd "$T/app" && perl -e 'alarm shift; exec @ARGV' 120 "$TR" remove greet) > "$T/rm2.out" 2>&1 || { echo "FAIL: remove with a variant (or it did not finish)"; cat "$T/rm2.out"; exit 1; }
 grep -q "its pin stays" "$T/rm2.out" || { echo "FAIL: remove did not keep the pin a variant uses"; cat "$T/rm2.out"; exit 1; }
 grep -q 'name = "greet"' "$T/app/trantor.lock" || { echo "FAIL: the variant's pin was dropped"; exit 1; }
 ! grep -q 'Greet' "$T/app/target/trantor/app/platform/main.roc" || { echo "FAIL: target/ holds a platform other than world.toml's"; exit 1; }
-"$TR" compose "$T/app" --world variants/w.toml --out "$T/variant-out" > "$T/var.out" 2>&1 || { echo "FAIL: the variant no longer composes"; cat "$T/var.out"; exit 1; }
+"$TR" compose "$T/app" --world variants/world.toml --out "$T/variant-out" > "$T/var.out" 2>&1 || { echo "FAIL: the variant no longer composes"; cat "$T/var.out"; exit 1; }
 echo "ok: a variant in a subdirectory keeps its pin through a remove, and target/ is the edited world's"
 
 # (12) A killed `new` is explained by the next one, which removes nothing

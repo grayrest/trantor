@@ -58,6 +58,8 @@ pub fn has_expect(file: &Path) -> bool {
     // however the type is spelled or spread over lines, and nested — which is
     // where a module's expects usually live; `roc test` runs those too.
     let mut open: Vec<bool> = vec![]; // one per open bracket: is it a `.{` body?
+    // Carried across lines: roc accepts `[]` / `.` / `{` on separate lines.
+    let mut previous = ' ';
     for line in text.lines() {
         let module_level = open.iter().all(|body| *body);
         let rest = line.trim_start().strip_prefix("expect");
@@ -65,7 +67,6 @@ pub fn has_expect(file: &Path) -> bool {
             return true;
         }
         let blanked = crate::roc_scan::code(line);
-        let mut previous = ' ';
         for c in blanked.chars() {
             match c {
                 '{' => open.push(previous == '.'),
@@ -168,6 +169,7 @@ mod tests {
             ("LaterLine.roc", "Helper ::\n\t[]\n\t.{\n\t\texpect 1 == 2\n\t}\n"),
             ("Nested.roc", "Outer :: [].{\n\tInner :: [].{\n\t\texpect 1 == 2\n\t}\n}\n"),
             ("Nospace.roc", "Nospace::[].{\n\texpect 1 == 2\n}\n"),
+            ("SplitDot.roc", "Helper :: []\n\t.\n\t{\n\t\texpect 1 == 2\n\t}\n"),
         ] {
             std::fs::write(d.join(name), src).unwrap();
             assert!(has_expect(&d.join(name)), "{name}");

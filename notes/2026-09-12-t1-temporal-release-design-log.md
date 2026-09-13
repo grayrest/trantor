@@ -819,6 +819,17 @@ chained statement keeps build errors on the right line.
   undoes its own files while it is running, and a rerun after a kill refuses,
   listing each file as written, changed since, or gone (user, 2026-09-13).
 
+Also fixed from the sixth review: a runner and the forwarding thread now claim
+a group before ending it, so a group gets one SIGTERM whichever ends it — an
+interrupt during a deadline kill or leftover cleanup used to reach a nested
+`trantor test` as a second interrupt — and a command spawned as the interrupt
+arrived ends itself; a nested run's grace halves per level (at every depth
+shorter than its parent's); a `.`/`{` split across lines still opens a type
+body for expects; journal staging and temp names carry a timestamp as well as
+the pid; `update <name>` recovers before reading the manifest; a
+`variants/world.toml` and a symlinked variant file are variants, and a world
+holds a pin only through a github dependency.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20

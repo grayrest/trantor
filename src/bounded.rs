@@ -18,7 +18,7 @@ use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::interrupt::{forward_signals, register, unregister, INTERRUPTED};
+use crate::interrupt::{claim, forward_signals, register, unregister, INTERRUPTED};
 use std::time::{Duration, Instant};
 
 /// Seconds any one suite, build or run may take. `TRANTOR_TEST_TIMEOUT`
@@ -28,11 +28,11 @@ const DEFAULT_TIMEOUT_SECS: u64 = 900;
 const MAX_TIMEOUT_SECS: u64 = 7 * 24 * 3600;
 const POLL: Duration = Duration::from_millis(50);
 /// How long a top-level group has to exit after SIGTERM before it is killed;
-/// each level of nesting gets `GRACE_STEP` less, so an inner `trantor test`
-/// ends its own groups before its parent kills it.
+/// each level of nesting gets half its parent's, so an inner `trantor test`
+/// ends its own groups before its parent kills it — at every depth, where a
+/// fixed step left parent and child both at the floor from depth 3.
 const GRACE_TOP: Duration = Duration::from_secs(10);
-const GRACE_STEP: Duration = Duration::from_secs(3);
-const GRACE_MIN: Duration = Duration::from_secs(1);
+const GRACE_MIN: Duration = Duration::from_millis(50);
 /// How deep in nested `trantor test` runs this process is.
 const DEPTH_VAR: &str = "TRANTOR_TEST_DEPTH";
 /// The most of a command's stdout or stderr kept in memory: the end of it.
@@ -89,22 +89,29 @@ pub fn run(cmd: &mut Command, what: &str, scratch: &Path) -> Result<Ran, String>
         .map_err(|e| format!("{what}: spawn: {e}"))?;
     let group = child.id() as i32;
     let slot = register(group);
+    // An interrupt that came while this was spawning found no group to end.
+    if INTERRUPTED.load(Ordering::SeqCst) && claim(slot, group) {
+        end_group(group);
+    }
     let deadline = Instant::now() + Duration::from_secs(limit);
     let (status, timed_out_after) = loop {
         if let Some(s) = child.try_wait().map_err(|e| format!("{what}: wait: {e}"))? {
             break (Some(s), None);
         }
         if Instant::now() >= deadline {
-            end_group(group);
+            // Claimed first, so an interrupt during this grace does not send
+            // the group a second SIGTERM, which a nested `trantor test` would
+            // take for "interrupt again".
+            if claim(slot, group) {
+                end_group(group);
+            }
             break (child.wait().ok(), Some(limit));
         }
         std::thread::sleep(POLL);
     };
-    // Anything the command left behind — a server a script started — goes
-    // too. Not when interrupted: the forwarding thread is ending the group, and
-    // a second SIGTERM from here reached a nested `trantor test` as a second
-    // interrupt, which kills its children without their grace.
-    if !INTERRUPTED.load(Ordering::SeqCst) {
+    // Anything the command left behind — a server a script started — goes too,
+    // ended by whichever of this runner and the forwarding thread claims it.
+    if claim(slot, group) {
         end_group(group);
     }
     unregister(slot);
@@ -134,7 +141,7 @@ fn depth() -> u32 {
 }
 
 fn grace() -> Duration {
-    GRACE_TOP.saturating_sub(GRACE_STEP * depth()).max(GRACE_MIN)
+    (GRACE_TOP / 2u32.saturating_pow(depth().min(31))).max(GRACE_MIN)
 }
 
 /// SIGTERM, then SIGKILL for whatever is still there after the grace period.
@@ -142,6 +149,12 @@ pub fn end_group(group: i32) {
     if !signal_group(group, libc::SIGTERM) {
         return;
     }
+    finish_group(group);
+}
+
+/// The second half of `end_group`, for a group that already has its SIGTERM:
+/// wait out the grace, then SIGKILL what remains.
+pub fn finish_group(group: i32) {
     let until = Instant::now() + grace();
     while Instant::now() < until {
         if !signal_group(group, 0) {
@@ -233,10 +246,14 @@ mod tests {
         let top = grace();
         std::env::set_var(DEPTH_VAR, "1");
         let nested = grace();
+        std::env::set_var(DEPTH_VAR, "3");
+        let three = grace();
+        std::env::set_var(DEPTH_VAR, "4");
+        let four = grace();
         std::env::set_var(DEPTH_VAR, "50");
         let deep = grace();
         std::env::remove_var(DEPTH_VAR);
-        assert!(nested < top && deep == GRACE_MIN, "{top:?} {nested:?} {deep:?}");
+        assert!(nested < top && four < three && deep == GRACE_MIN, "{top:?} {nested:?} {three:?} {four:?} {deep:?}");
     }
 
     #[test]

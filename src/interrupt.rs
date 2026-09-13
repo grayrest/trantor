@@ -5,7 +5,7 @@
 //! price of "kill it now".
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-use crate::bounded::end_group;
+use crate::bounded::{end_group, finish_group};
 
 const SLOTS: usize = 64;
 static GROUPS: [AtomicI32; SLOTS] = [const { AtomicI32::new(0) }; SLOTS];
@@ -14,6 +14,13 @@ pub static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
 pub fn register(group: i32) -> Option<usize> {
     (0..SLOTS).find(|&i| GROUPS[i].compare_exchange(0, group, Ordering::SeqCst, Ordering::SeqCst).is_ok())
+}
+
+/// Take on ending the group in `slot`: exactly one of the runner and the
+/// forwarding thread wins it, so a group — and a nested `trantor test` in it —
+/// gets one SIGTERM, not one from each. A slot holding `-group` is being ended.
+pub fn claim(slot: Option<usize>, group: i32) -> bool {
+    slot.is_none_or(|i| GROUPS[i].compare_exchange(group, -group, Ordering::SeqCst, Ordering::SeqCst).is_ok())
 }
 
 pub fn unregister(slot: Option<usize>) {
@@ -53,9 +60,19 @@ pub fn forward_signals() {
             }
             INTERRUPTED.store(true, Ordering::SeqCst);
             let signal = libc::c_int::from(byte);
-            let groups: Vec<i32> = GROUPS.iter().map(|g| g.load(Ordering::SeqCst)).filter(|g| *g != 0).collect();
-            // A second signal during the grace period kills them at once.
-            let now: Vec<i32> = groups.clone();
+            // The groups this thread ends: those no runner is already ending.
+            // A runner that registers after this checks INTERRUPTED and ends
+            // its own (bounded.rs).
+            let groups: Vec<i32> = GROUPS.iter().filter_map(|slot| {
+                let g = slot.load(Ordering::SeqCst);
+                (g > 0 && slot.compare_exchange(g, -g, Ordering::SeqCst, Ordering::SeqCst).is_ok()).then_some(g)
+            }).collect();
+            // Groups a runner was already ending got their SIGTERM; wait out
+            // their grace and kill what remains before dying, rather than
+            // leaving them to a runner that is about to die with trantor.
+            let ending: Vec<i32> = GROUPS.iter().map(|g| g.load(Ordering::SeqCst)).filter(|g| *g < 0).map(|g| -g).filter(|g| !groups.contains(g)).collect();
+            // A second signal kills every group at once, whoever is ending it.
+            let now: Vec<i32> = GROUPS.iter().map(|g| g.load(Ordering::SeqCst).abs()).filter(|g| *g != 0).collect();
             std::thread::spawn(move || {
                 let mut again = 0u8;
                 // SAFETY: reads one byte into a local.
@@ -67,7 +84,9 @@ pub fn forward_signals() {
                     die_of(signal);
                 }
             });
-            let enders: Vec<_> = groups.into_iter().map(|g| std::thread::spawn(move || end_group(g))).collect();
+            let enders: Vec<_> = groups.into_iter().map(|g| std::thread::spawn(move || end_group(g)))
+                .chain(ending.into_iter().map(|g| std::thread::spawn(move || finish_group(g))))
+                .collect();
             note("trantor: interrupted — ending the running commands (interrupt again to kill them now)");
             for e in enders {
                 e.join().ok();
