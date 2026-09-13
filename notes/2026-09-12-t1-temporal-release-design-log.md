@@ -768,6 +768,37 @@ Bool below a line is still a claim, headings follow CommonMark (indented `#`
 is code, setext counts), whole apps' build errors name README lines, and
 project names Roc cannot spell in a header are refused instead of escaped.
 
+## D-T3f — the review of the T3e fixes
+
+A fifth round found 19 defects: a finished edit rolled back later (a stale
+`.done-<pid>` with a reused pid kept the journal), `add` reading a half-edited
+manifest before recovering, a `.trantor-new` able to delete outside its project,
+an interrupt note that could stop forwarding (SIGPIPE, a dead terminal), one
+interrupt killing a nested run's children without grace, and a machine-read
+rule that leaked both ways. Decision (user, 2026-09-13):
+
+- **D-T3-20 A value is machine-dependent when its statement makes an effectful
+  call and touches a listed module** — directly, through an alias or
+  `exposing`, or through a name whose definition touches one — or uses a value
+  such a statement produced. **Supersedes D-T3-19**, whose exclusion of a
+  package's own modules let trantor-temporal state `Now`'s year and switched the
+  check nearly off for trantor-cli, and whose tracking of `value.method!` missed
+  chains, returned values, lambda arguments and fields.
+
+Also fixed: a discarded journal gets a name no earlier run can have left, the
+sweep judges by the owner's lock alone (a pid says nothing across containers),
+and `add`/`update`/`remove` recover before reading anything; the `new` marker
+records its resolved project directory and refuses a marker written for another,
+refuses entries reaching outside the project, reads through its locked handle,
+falls back where hard links are unsupported, and is gitignored; variant
+discovery skips symlinks and directories with their own `world.toml`; the
+interrupt note is written after the groups are being ended and cannot kill or
+panic, the runner does not signal a group the forwarding thread is ending, and
+no command starts after an interrupt; any type-module shape counts as module
+level for expects; a `\\` string's interpolation is code; `---` under a fence
+is not a heading; `TODO(...)`-style comments are prose; a comment inside a
+chained statement keeps build errors on the right line.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20

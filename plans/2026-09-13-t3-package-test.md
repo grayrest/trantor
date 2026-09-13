@@ -134,3 +134,12 @@ Gates: `t3-package-test` 24 breaks (a type-module body orphan added) and an
 interrupt check run three rounds, each requiring exit 130 and no "failed"
 report; `u1-add` adds a variant in a subdirectory keeping its pin with target/
 left as the edited world's, and a killed `new` cleaned up with a user file kept.
+
+## Review round 5 (T3f)
+
+Decision is D-T3-20. Gates: `t3-package-test` 25 breaks (a machine read through
+a chain added), the unrelated-text pass carries `# TODO(grayrest): ...`, and a
+nested-run interrupt must let the inner suite's TERM handler finish — checked to
+fail against a build that re-signals the group; `u1-add` adds two self-links
+beside a variant in a subdirectory (the remove must finish) and a foreign
+`.trantor-new` refused without touching a file outside the project.
