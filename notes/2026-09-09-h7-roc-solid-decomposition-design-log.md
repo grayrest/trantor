@@ -1154,6 +1154,38 @@ see null. The first declaration wins, because a component may already have
 built paths under the directory. The `im-services` fixture checks it end to
 end: `data-dir-gate` answers with the directory the driver declared.
 
+## D-H7-44 — A one-variant service union is composition's to handle, not the service's (2026-09-13)
+
+**Supersedes D-H7-21.** Services with one natural command were made to grow a
+second so glue would name their union, which put glue's behaviour into service
+APIs. Measured again on release-fast-10e922df (glue spec of 2026-09-11) by
+composing `im-services` copies with the check lifted: glue still unwraps a
+one-variant union to its payload. What it gets wrong depends on the payload:
+
+- **One field** (`[Shout(Str)]`): the wrapper's payload is typed correctly
+  (`RocStr`), refcounts included; only the named type is missing.
+- **No field** (`[Stop]`): the payload is zero-sized and glue writes no
+  accessor for it.
+- **Several fields** (`[Ping(U64, Str, Str)]`): the payload is typed `u64`, so
+  glue's own `Cmd` size and tag-offset asserts fail and its refcount arm for
+  the wrapper is empty (the strings would leak).
+
+Composition now repairs the glue output (`glue_unions.rs`): a type alias for one
+field; a unit struct and the accessors for none; and for several fields a
+second glue run on a copy of the platform modules where that union has a
+placeholder second variant, from which the payload struct is taken and put in
+place of the `u64` — union field, accessors and refcount arms. Substituting it
+satisfies glue's asserts unchanged (they encode Roc's true layout). The
+placeholder exists only in that copy: the app and the service see the union as
+written. `im-services` carries `Bell` (one three-field command, one one-field
+event) and `Nudge` (no-payload command and event), end to end.
+
+Rejected: a placeholder variant in the real composed union — it would reach the
+app's exhaustive `match` on events and the service's Rust `match`, an API
+demand of its own; waiting on a glue fix. If glue changes how it treats these
+unions, the repair fails loudly rather than guessing (it requires the `u64` it
+replaces).
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

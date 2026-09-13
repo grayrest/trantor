@@ -119,9 +119,9 @@ event_module = "NotesEvent"             # NEW: ships NotesEvent.roc (P0: one
 
 Wrapper variant / field name = the interface's module name: `Notes(Notes)`,
 `Notes(NotesEvent)`, `audio : AudioEnv`; the app writes
-`Cmd.Notes(Notes.List(0, "k"))`. Compose-time check (P0): a spliced union must
-have ≥2 variants, or one variant with exactly one field (glue unwraps a
-single-variant union and mis-types a multi-field payload).
+`Cmd.Notes(Notes.List(0, "k"))`. Compose-time check: a spliced union must be a
+tag union with at least one variant; a one-variant union's glue output is
+repaired by composition (D-H7-44, superseding the ≥2-variant rule of P0/D-H7-21).
 
 Driver modules carry the splice markers; the block is replaced whole:
 

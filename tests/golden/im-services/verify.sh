@@ -16,9 +16,10 @@ grep -q "imview driver HOST" "$FIX/components/imview/src/lib.rs" || { echo "FAIL
 if ! _b=$(./target/release/trantor build "$FIX" --app app --out imsvc 2>&1); then echo "FAIL: build imsvc" >&2; echo "$_b" >&2; exit 1; fi
 
 out=$("$FIX/target/trantor/im-services/bin/imsvc" 2>/dev/null)
-want="[hi | pong:hello | tick:1 | tick:2 | tick:3 | ticks=3]"
+want="[hi | pong:hello | rang:ding:9 | poked | tick:1 | tick:2 | tick:3 | ticks=3]"
 [[ "$out" == "$want" ]] || { echo "FAIL: got '$out', want '$want'"; exit 1; }
 echo "ok: wrapper unions cross both ways; 3 async wakes completed on the runtime thread; env block read"
+echo "ok: one-variant service unions work — a three-field command (Bell), a one-field event (BellEvent), no-payload command and event (Nudge) (D-H7-44)"
 
 set +e
 "$FIX/target/trantor/im-services/bin/imsvc" echo-gate >/dev/null 2>&1; rc=$?

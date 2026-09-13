@@ -1,0 +1,3 @@
+module = "Nudge"
+kind = "service"
+event_module = "NudgeEvent"

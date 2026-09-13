@@ -281,9 +281,9 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
     })
 }
 
-/// The P0 rule for a service's spliced unions: two or more variants (or one
-/// single-field variant), checked against the interface's shipped modules
-/// before roc or glue ever run.
+/// A service's spliced unions must be tag unions with a variant, checked
+/// against the interface's shipped modules before roc or glue ever run. One
+/// variant is allowed (D-H7-44).
 fn check_service_unions(dir: &Path, world: &World, iface_name: &str, iface: &Interface) -> Result<(), String> {
     let idir = crate::manifest::iface_dir(dir, world, iface_name);
     for module in [Some(&iface.module), iface.event_module.as_ref()].into_iter().flatten() {

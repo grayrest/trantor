@@ -60,6 +60,31 @@ fn on_path(name: &str) -> Option<String> {
 /// way met `spawn /Users/them/.bin/roc: No such file or directory` — a path
 /// they never chose, from a step they did not know existed. The front door
 /// cannot depend on a path only its author has.
+/// Glue's output for a copy of the platform's Roc modules in which each
+/// multi-field single-variant union has a placeholder second variant: there
+/// glue writes the payload struct it will not write for the real union.
+fn placeholder_glue(dir: &Path, gen: &Path, singles: &[crate::glue_unions::Single]) -> Result<String, String> {
+    let copy = gen.join("glue-placeholder");
+    let _ = std::fs::remove_dir_all(&copy);
+    std::fs::create_dir_all(copy.join("platform")).map_err(|e| format!("create {}: {e}", copy.display()))?;
+    std::fs::create_dir_all(copy.join("out")).map_err(|e| format!("create {}: {e}", copy.display()))?;
+    for e in std::fs::read_dir(gen.join("platform")).map_err(|e| format!("read platform: {e}"))?.flatten() {
+        let p = e.path();
+        if p.extension().is_some_and(|x| x == "roc") {
+            let mut text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
+            let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            if let Some(s) = singles.iter().find(|s| s.fields > 1 && s.module == stem) {
+                text = crate::glue_unions::with_placeholder(&text, &s.module).ok_or_else(|| format!("{}: could not add the placeholder variant", p.display()))?;
+            }
+            std::fs::write(copy.join("platform").join(e.file_name()), text).map_err(|e| format!("write the placeholder platform: {e}"))?;
+        }
+    }
+    let out = abs(&copy.join("out"))?;
+    let main = abs(&copy.join("platform/main.roc"))?;
+    roc_capped(&["glue", &glue_src(), &out, &main], dir, "glue (placeholder copy)")?;
+    std::fs::read_to_string(copy.join("out/roc_platform_abi.rs")).map_err(|e| format!("read placeholder glue output: {e}"))
+}
+
 pub(crate) fn roc_bin() -> String {
     std::env::var("ROC")
         .ok()
@@ -201,8 +226,13 @@ pub fn build(
     roc_capped(&["glue", &glue_src(), &glue_out, &plat_main], dir, "glue")?;
     // Installed only when it changed, so an unchanged boundary does not
     // rebuild the abi crate and every host above it.
-    let glue = std::fs::read(gen.join("glue-out/roc_platform_abi.rs")).map_err(|e| format!("read glue output: {e}"))?;
-    crate::codegen::write_if_changed(&gen.join("abi/src/generated.rs"), &glue)?;
+    let glue = std::fs::read_to_string(gen.join("glue-out/roc_platform_abi.rs")).map_err(|e| format!("read glue output: {e}"))?;
+    // Single-variant service unions are unwrapped by glue; composition puts
+    // back what the service and the shim need (glue_unions.rs, D-H7-44).
+    let singles = crate::glue_unions::singles(&gen.join("platform"), &resolved.services)?;
+    let placeholder = if singles.iter().any(|s| s.fields > 1) { Some(placeholder_glue(dir, &gen, &singles)?) } else { None };
+    let glue = crate::glue_unions::repair(&glue, &singles, placeholder.as_deref())?;
+    crate::codegen::write_if_changed(&gen.join("abi/src/generated.rs"), glue.as_bytes())?;
 
     // wasm32 (D-H7-9): its own cargo target, a merged host.wasm, and a wasm
     // link — see wasm.rs. No native staging, no framework sysroot.

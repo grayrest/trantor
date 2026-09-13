@@ -17,10 +17,8 @@
 //! contract text is spliced") and does not breach D13: the marker is the driver
 //! declaring a splice point in its own contract.
 //!
-//! Also here: the P0-measured rule that a spliced union must have two or more
-//! variants. glue unwraps a single-variant union to its payload — the named
-//! Rust type the shim dispatches on then does not exist at all, and a
-//! multi-field payload is mis-typed as `u64` besides.
+//! Also here: a spliced union must be a tag union. A single-variant one is
+//! allowed; glue unwraps it and glue_unions.rs repairs the output (D-H7-44).
 
 use crate::resolve::Service;
 
@@ -215,21 +213,17 @@ pub fn union_variants(text: &str, name: &str) -> Option<Vec<usize>> {
     None
 }
 
-/// The P0 rule, tightened in P4: a spliced union crosses glue as a NAMED type
-/// only with two or more variants — a single-variant union is unwrapped to
-/// its payload and the shim would have nothing to name.
+/// A spliced union must be a tag union with at least one variant. One variant
+/// is fine: glue unwraps it, and composition repairs the output (D-H7-44,
+/// glue_unions.rs) instead of the service growing a second command (D-H7-21).
 pub fn check_spliceable(text: &str, name: &str) -> Result<(), String> {
     let Some(variants) = union_variants(text, name) else {
         return Err(format!("`{name}` is not a tag union (`{name} := [...]`)"));
     };
-    match variants.len() {
-        0 => Err(format!("`{name}` has no variants")),
-        1 => Err(format!(
-            "`{name}` has ONE variant: glue unwraps a single-variant union to its payload, so no \
-             `{name}` type exists for the service shim. Give it a second variant."
-        )),
-        _ => Ok(()),
+    if variants.is_empty() {
+        return Err(format!("`{name}` has no variants"));
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -282,10 +276,11 @@ mod tests {
     }
 
     #[test]
-    fn single_variant_unions_are_rejected() {
-        assert!(check_spliceable("Net := [Http(U64, Str, Str)]", "Net").is_err());
-        assert!(check_spliceable("Net := [Http({ a : U64 })]", "Net").is_err()); // still one variant
+    fn a_union_needs_a_variant_and_one_is_enough() {
+        assert!(check_spliceable("Net := [Http(U64, Str, Str)]", "Net").is_ok());
         assert!(check_spliceable("Net := [Http(U64, Str), Stop]", "Net").is_ok());
+        assert!(check_spliceable("Net := []", "Net").is_err());
+        assert!(check_spliceable("Env := { ticks : U64 }", "Env").is_err());
     }
 
     #[test]

@@ -28,6 +28,7 @@ mod build;
 mod cargo;
 mod codegen;
 mod deps;
+mod glue_unions;
 mod help;
 mod interrupt;
 mod journal;
