@@ -47,14 +47,23 @@ pub fn shipped(root: &Path, pkg: &Package) -> BTreeMap<String, Module> {
     out
 }
 
-/// A top-level `expect`: the keyword at the start of a line, then whitespace
-/// or the end of the line. `roc test` runs only these; an expect inside a
-/// function body runs when the function does, so a module holding only those
-/// has nothing for `roc test` to count.
+/// A top-level `expect`: the keyword outside any bracket, followed by
+/// whitespace, `(` or the end of the line — however it is indented, since Roc
+/// runs `  expect x` and `expect(x)` at module level too. `roc test` runs only
+/// these; an expect inside a function body runs when the function does, so a
+/// module holding only those has nothing for `roc test` to count.
 pub fn has_expect(file: &Path) -> bool {
-    std::fs::read_to_string(file).is_ok_and(|t| {
-        t.lines().any(|l| l.strip_prefix("expect").is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace)))
-    })
+    let Ok(text) = std::fs::read_to_string(file) else { return false };
+    let mut depth = 0;
+    for line in text.lines() {
+        let top = depth <= 0;
+        let rest = line.trim_start().strip_prefix("expect");
+        if top && rest.is_some_and(|r| r.is_empty() || r.starts_with(|c: char| c.is_whitespace() || c == '(')) {
+            return true;
+        }
+        depth += crate::readme_lex::scan(line).depth;
+    }
+    false
 }
 
 pub fn same_file(a: &Path, b: &Path) -> bool {
@@ -64,11 +73,12 @@ pub fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// `.roc` files under the package holding a top-level expect, outside the
-/// package's own `tests/` and `target/` and any dot-directory. Symlinked
-/// directories are followed — a component may live elsewhere and be linked
-/// in — and each real directory is walked once, so a link loop ends.
-pub fn roc_files_with_expects(root: &Path) -> Vec<PathBuf> {
+/// `.roc` files holding a top-level expect: under the package, outside its own
+/// `tests/` and `target/` and any dot-directory, and under every directory its
+/// manifest names — a component at `.vendor/lib` or `tests/support/lib` is
+/// still its code. Symlinked directories are followed, and each real directory
+/// is walked once, so a link loop ends.
+pub fn roc_files_with_expects(root: &Path, pkg: &Package) -> Vec<PathBuf> {
     fn walk(dir: &Path, top: bool, seen: &mut BTreeSet<PathBuf>, out: &mut Vec<PathBuf>) {
         let Ok(real) = dir.canonicalize() else { return };
         if !seen.insert(real) {
@@ -89,7 +99,14 @@ pub fn roc_files_with_expects(root: &Path) -> Vec<PathBuf> {
         }
     }
     let mut out = vec![];
-    walk(root, true, &mut BTreeSet::new(), &mut out);
+    let mut seen = BTreeSet::new();
+    walk(root, true, &mut seen, &mut out);
+    let named = pkg.components.iter().map(|(name, c)| component_dir(root, name, c))
+        .chain(pkg.interfaces.iter().map(|(i, r)| r.dir.clone().unwrap_or_else(|| root.join("interfaces").join(i))));
+    for dir in named {
+        // Walked from scratch: a directory skipped above is not in `seen`.
+        walk(&dir, false, &mut seen, &mut out);
+    }
     out.sort();
     out.dedup_by(|a, b| same_file(a, b));
     out
@@ -116,6 +133,25 @@ mod tests {
     }
 
     #[test]
+    fn an_indented_or_parenthesised_module_level_expect_counts() {
+        let d = tmp("forms");
+        std::fs::write(d.join("Paren.roc"), "x = 1\nexpect(x == 2)\n").unwrap();
+        std::fs::write(d.join("Indented.roc"), "x = 1\n  expect x == 2\n").unwrap();
+        std::fs::write(d.join("Body.roc"), "f = |x| {\n  expect(x > 0)\n  x\n}\n").unwrap();
+        assert!(has_expect(&d.join("Paren.roc")) && has_expect(&d.join("Indented.roc")));
+        assert!(!has_expect(&d.join("Body.roc")));
+    }
+
+    #[test]
+    fn a_component_under_a_skipped_directory_is_still_walked() {
+        let d = tmp("vendored");
+        std::fs::create_dir_all(d.join(".vendor/lib")).unwrap();
+        std::fs::write(d.join(".vendor/lib/Helper.roc"), "expect 1 == 2\n").unwrap();
+        let pkg: Package = toml::from_str("[package]\nname = \"p\"\n\n[components.lib]\nkind = \"roc\"\npath = \".vendor/lib\"\n").unwrap();
+        assert_eq!(roc_files_with_expects(&d, &pkg).len(), 1);
+    }
+
+    #[test]
     fn a_symlinked_component_is_walked_once_and_a_loop_ends() {
         let d = tmp("walk");
         let outside = tmp("outside");
@@ -127,7 +163,7 @@ mod tests {
         std::fs::write(d.join("components/x/tests/Deep.roc"), "expect 1 == 1\n").unwrap();
         std::fs::create_dir_all(d.join("tests")).unwrap();
         std::fs::write(d.join("tests/Suite.roc"), "expect 1 == 1\n").unwrap();
-        let found: Vec<String> = roc_files_with_expects(&d).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        let found: Vec<String> = roc_files_with_expects(&d, &toml::from_str("[package]\nname = \"p\"\n").unwrap()).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
         assert_eq!(found, vec!["Helper.roc", "Deep.roc"], "{found:?}");
     }
 }

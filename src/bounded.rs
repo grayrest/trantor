@@ -7,14 +7,18 @@
 //! deadline, after the command exits (a server it left behind), and when
 //! `trantor test` itself is interrupted. The SIGTERM matters: a nested
 //! `trantor test` receives it and ends its own groups the same way, which a
-//! SIGKILL would not let it do. Being in their own groups, the children do not
-//! see a terminal's Ctrl-C, so trantor forwards SIGINT, SIGTERM and SIGHUP to
-//! them before exiting. A child that calls `setsid` leaves the group and is out
-//! of reach; a suite that starts one owns stopping it.
+//! SIGKILL would not let it do, and its grace is shorter than its parent's so
+//! it finishes first. Being in their own groups, the children do not see a
+//! terminal's Ctrl-C, so on SIGINT, SIGTERM or SIGHUP — each unless the caller
+//! ignored it — trantor sends SIGTERM to them, then dies of the signal it got.
+//! A child that calls `setsid` leaves the group and is out of reach; a suite
+//! that starts one owns stopping it.
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use crate::interrupt::{forward_signals, register, unregister, INTERRUPTED};
 use std::time::{Duration, Instant};
 
 /// Seconds any one suite, build or run may take. `TRANTOR_TEST_TIMEOUT`
@@ -23,8 +27,14 @@ const DEFAULT_TIMEOUT_SECS: u64 = 900;
 /// A week: past this the value is a mistake, not a limit.
 const MAX_TIMEOUT_SECS: u64 = 7 * 24 * 3600;
 const POLL: Duration = Duration::from_millis(50);
-/// How long a group has to exit after SIGTERM before it is killed.
-const GRACE: Duration = Duration::from_secs(5);
+/// How long a top-level group has to exit after SIGTERM before it is killed;
+/// each level of nesting gets `GRACE_STEP` less, so an inner `trantor test`
+/// ends its own groups before its parent kills it.
+const GRACE_TOP: Duration = Duration::from_secs(10);
+const GRACE_STEP: Duration = Duration::from_secs(3);
+const GRACE_MIN: Duration = Duration::from_secs(1);
+/// How deep in nested `trantor test` runs this process is.
+const DEPTH_VAR: &str = "TRANTOR_TEST_DEPTH";
 /// The most of a command's stdout or stderr kept in memory: the end of it.
 const OUTPUT_CAP: u64 = 16 * 1024 * 1024;
 
@@ -69,6 +79,7 @@ pub fn run(cmd: &mut Command, what: &str, scratch: &Path) -> Result<Ran, String>
     let (out_path, err_path) = (scratch.join(format!("run-{n}.out")), scratch.join(format!("run-{n}.err")));
     let file = |p: &Path| std::fs::File::create(p).map_err(|e| format!("create {}: {e}", p.display()));
     let mut child = cmd
+        .env(DEPTH_VAR, (depth() + 1).to_string())
         .stdin(Stdio::null())
         .stdout(file(&out_path)?)
         .stderr(file(&err_path)?)
@@ -91,6 +102,12 @@ pub fn run(cmd: &mut Command, what: &str, scratch: &Path) -> Result<Ran, String>
     // Anything the command left behind — a server a script started — goes too.
     end_group(group);
     unregister(slot);
+    // Interrupted: the forwarding thread is ending the other groups and will
+    // re-raise the signal. Returning now would report the killed command as a
+    // failure and exit 1 before it does.
+    while INTERRUPTED.load(Ordering::SeqCst) {
+        std::thread::sleep(POLL);
+    }
     Ok(Ran { status, stdout: tail(&out_path), stderr: tail(&err_path), timed_out_after })
 }
 
@@ -101,12 +118,20 @@ pub fn alive(pid: u32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) }
 }
 
+fn depth() -> u32 {
+    std::env::var(DEPTH_VAR).ok().and_then(|d| d.parse().ok()).unwrap_or(0)
+}
+
+fn grace() -> Duration {
+    GRACE_TOP.saturating_sub(GRACE_STEP * depth()).max(GRACE_MIN)
+}
+
 /// SIGTERM, then SIGKILL for whatever is still there after the grace period.
-fn end_group(group: i32) {
+pub fn end_group(group: i32) {
     if !signal_group(group, libc::SIGTERM) {
         return;
     }
-    let until = Instant::now() + GRACE;
+    let until = Instant::now() + grace();
     while Instant::now() < until {
         if !signal_group(group, 0) {
             return;
@@ -133,67 +158,6 @@ fn tail(p: &Path) -> String {
     }
     let text = String::from_utf8_lossy(&bytes).into_owned();
     if skipped == 0 { text } else { format!("[the first {skipped} bytes of {} are omitted]\n{text}", p.display()) }
-}
-
-// ---- forwarding an interrupt to the groups --------------------------------
-
-const SLOTS: usize = 64;
-static GROUPS: [AtomicI32; SLOTS] = [const { AtomicI32::new(0) }; SLOTS];
-static WAKE_FD: AtomicI32 = AtomicI32::new(-1);
-
-fn register(group: i32) -> Option<usize> {
-    (0..SLOTS).find(|&i| GROUPS[i].compare_exchange(0, group, Ordering::SeqCst, Ordering::SeqCst).is_ok())
-}
-
-fn unregister(slot: Option<usize>) {
-    if let Some(i) = slot {
-        GROUPS[i].store(0, Ordering::SeqCst);
-    }
-}
-
-extern "C" fn on_signal(signal: libc::c_int) {
-    let fd = WAKE_FD.load(Ordering::SeqCst);
-    let byte = signal as u8;
-    // SAFETY: write(2) is async-signal-safe; the byte is a local.
-    unsafe { libc::write(fd, (&byte as *const u8).cast(), 1) };
-}
-
-/// Once per process: on SIGINT, SIGTERM or SIGHUP, end every running group,
-/// then die of the same signal.
-fn forward_signals() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        let mut fds = [0 as libc::c_int; 2];
-        // SAFETY: fds is a two-element array, as pipe(2) requires.
-        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-            return;
-        }
-        WAKE_FD.store(fds[1], Ordering::SeqCst);
-        let read_fd = fds[0];
-        std::thread::spawn(move || {
-            let mut byte = 0u8;
-            // SAFETY: reads one byte into a local.
-            if unsafe { libc::read(read_fd, (&mut byte as *mut u8).cast(), 1) } != 1 {
-                return;
-            }
-            let groups: Vec<i32> = GROUPS.iter().map(|g| g.load(Ordering::SeqCst)).filter(|g| *g != 0).collect();
-            let enders: Vec<_> = groups.into_iter().map(|g| std::thread::spawn(move || end_group(g))).collect();
-            for e in enders {
-                e.join().ok();
-            }
-            let signal = libc::c_int::from(byte);
-            // SAFETY: restore the default disposition and die of the signal,
-            // so the parent sees what happened.
-            unsafe {
-                libc::signal(signal, libc::SIG_DFL);
-                libc::raise(signal);
-            }
-        });
-        for s in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
-            // SAFETY: on_signal only calls write(2).
-            unsafe { libc::signal(s, on_signal as *const () as libc::sighandler_t) };
-        }
-    });
 }
 
 #[cfg(test)]
@@ -250,6 +214,18 @@ mod tests {
         f.set_len(OUTPUT_CAP + 10).unwrap();
         let t = tail(&p);
         assert!(t.starts_with("[the first 10 bytes") && t.len() < (OUTPUT_CAP + 200) as usize);
+    }
+
+    #[test]
+    fn a_nested_run_has_less_grace_than_its_parent() {
+        let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let top = grace();
+        std::env::set_var(DEPTH_VAR, "1");
+        let nested = grace();
+        std::env::set_var(DEPTH_VAR, "50");
+        let deep = grace();
+        std::env::remove_var(DEPTH_VAR);
+        assert!(nested < top && deep == GRACE_MIN, "{top:?} {nested:?} {deep:?}");
     }
 
     #[test]

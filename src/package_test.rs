@@ -136,13 +136,12 @@ impl Steps<'_> {
     /// package: none of the modules they ship is one it exports.
     fn negative_control_uncomposed(&self, with: &Path) -> Result<(), String> {
         let mine = exposes(&platform_dir(with, APP_WORLD).join("main.roc"))?;
-        let deps = crate::package_worlds::dep_packages(self.root, self.pkg.dev_deps.iter().chain(self.pkg.deps.iter()));
+        let deps = crate::package_worlds::all_dep_packages(self.root, self.pkg)?;
         for m in &self.pkg.package.exports {
             if !mine.contains(m) {
                 return Err(format!("the package exports {m}, but the composed platform does not expose it"));
             }
-            for dep in &deps {
-                let (name, dir, d) = dep.as_ref().map_err(Clone::clone)?;
+            for (name, dir, d) in &deps {
                 if crate::package_modules::shipped(dir, d).contains_key(m) {
                     return Err(format!("its dependency `{name}` already ships {m} — this package is not what supplies it"));
                 }
@@ -158,7 +157,7 @@ impl Steps<'_> {
     /// pass silently.
     fn expects(&self, expects: &Path, base: Option<&Path>, modules: &BTreeMap<String, Module>) -> Result<(), String> {
         let exposed = exposes(&platform_dir(expects, EXPECTS_WORLD).join("main.roc"))?;
-        for file in roc_files_with_expects(self.root) {
+        for file in roc_files_with_expects(self.root, self.pkg) {
             let shipped = modules.iter().any(|(name, m)| same_file(&m.file, &file) && exposed.contains(name));
             if !shipped {
                 let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or_default();

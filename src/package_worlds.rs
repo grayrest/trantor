@@ -127,6 +127,23 @@ pub fn dep_packages<'a>(root: &Path, deps: impl Iterator<Item = (&'a String, &'a
     .collect()
 }
 
+/// Everything the package stands on, transitively: dev-deps, [deps], and
+/// their [deps] in turn, each package once.
+pub fn all_dep_packages(root: &Path, pkg: &Package) -> Result<Vec<(String, PathBuf, Package)>, String> {
+    let mut out: Vec<(String, PathBuf, Package)> = vec![];
+    let mut queue = dep_packages(root, pkg.dev_deps.iter().chain(pkg.deps.iter()));
+    while let Some(next) = queue.pop() {
+        let (name, dir, d) = next?;
+        let real = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+        if out.iter().any(|(_, seen, _)| seen.canonicalize().unwrap_or_else(|_| seen.clone()) == real) {
+            continue;
+        }
+        queue.extend(dep_packages(&dir, d.deps.iter()));
+        out.push((name, dir, d));
+    }
+    Ok(out)
+}
+
 fn deps_reach<'a>(root: &Path, deps: impl Iterator<Item = (&'a String, &'a Dep)>, depth: usize) -> Reach {
     if depth > 16 {
         return Reach::Unknown("the [deps] chain is deeper than 16 — a cycle, most likely".into());
@@ -146,8 +163,13 @@ fn deps_reach<'a>(root: &Path, deps: impl Iterator<Item = (&'a String, &'a Dep)>
 /// whose process is gone. A failed run keeps its worlds for inspection; nothing
 /// used to remove them afterwards, and they reached tens of gigabytes.
 pub fn fresh_scratch(name: &str) -> Result<PathBuf, String> {
+    fresh_scratch_named("trantor-test", name)
+}
+
+/// The same, for another command's scratch directories (`trantor-add-*`).
+pub fn fresh_scratch_named(kind: &str, name: &str) -> Result<PathBuf, String> {
     let tmp = std::env::temp_dir();
-    let prefix = format!("trantor-test-{name}-");
+    let prefix = format!("{kind}-{name}-");
     if let Ok(entries) = std::fs::read_dir(&tmp) {
         for e in entries.flatten() {
             let file = e.file_name().to_string_lossy().into_owned();

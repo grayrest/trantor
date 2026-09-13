@@ -29,6 +29,7 @@ mod cargo;
 mod codegen;
 mod deps;
 mod help;
+mod interrupt;
 mod journal;
 mod main_contract;
 mod manifest;
