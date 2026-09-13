@@ -431,7 +431,7 @@ mod tests {
         let t = tmp();
         write(&t.join("app"), "world.toml", "[world]\nname = \"a\"\ndriver = \"d\"\n\n[deps]\nb = { github = \"org/repo\" }\n");
         let e = load_world(&t.join("app"), "world.toml").unwrap_err();
-        assert!(e.contains("trantor add org/repo"), "{e}");
+        assert!(e.contains("trantor update b"), "{e}");
         std::fs::remove_dir_all(&t).ok();
     }
 

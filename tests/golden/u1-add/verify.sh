@@ -34,8 +34,26 @@ mkdir -p "$T/src/greet/components/greet-lib"
 printf 'Greet :: [].{\n\thello : Str -> Str\n\thello = |n| "hello ${n}"\n}\n' > "$T/src/greet/components/greet-lib/Greet.roc"
 git -C "$T/src/greet" add -A && git -C "$T/src/greet" -c user.email=t@t -c user.name=t commit -qm module && git -C "$T/src/greet" tag -f v0.1.1 >/dev/null
 rm -rf "$T/remotes/greet.git" && git clone -q --bare "$T/src/greet" "$T/remotes/greet.git"
-# Parses and fetches, but cannot compose: it wires an interface to a component
-# that does not exist.
+# Export a module they do not ship, and one another package already ships.
+remote ghost '[package]
+name = "ghost"
+exports = ["Ghost"]
+
+[components.ghost-lib]
+kind = "roc"
+exports = ["Ghost"]'
+remote clash '[package]
+name = "clash"
+exports = ["Mine"]
+
+[components.clash-lib]
+kind = "roc"
+exports = ["Mine"]'
+mkdir -p "$T/src/clash/components/clash-lib" && printf 'Mine :: [].{\n\ty : Str\n\ty = "y"\n}\n' > "$T/src/clash/components/clash-lib/Mine.roc"
+git -C "$T/src/clash" add -A && git -C "$T/src/clash" -c user.email=t@t -c user.name=t commit -qm module && git -C "$T/src/clash" tag -f v0.1.1 >/dev/null
+rm -rf "$T/remotes/clash.git" && git clone -q --bare "$T/src/clash" "$T/remotes/clash.git"
+# Parses and fetches, but cannot compose: it declares an interface it does not
+# ship (no interfaces/nothing/interface.toml).
 remote broken '[package]
 name = "broken"
 
@@ -63,7 +81,7 @@ echo "ok: add in a world edits world.toml, pins the newest tag, and composes"
 before=$(sum "$T/app/world.toml" "$T/app/trantor.lock")
 "$TR" add org/greet "$T/app" > "$T/add2.out" 2>&1 || { echo "FAIL: second add"; cat "$T/add2.out"; exit 1; }
 [[ "$(sum "$T/app/world.toml" "$T/app/trantor.lock")" == "$before" ]] || { echo "FAIL: a second add changed a byte"; exit 1; }
-grep -q "lock unchanged" "$T/add2.out" || { echo "FAIL: a second add did not say the lock was unchanged"; cat "$T/add2.out"; exit 1; }
+grep -q "nothing changed" "$T/add2.out" || { echo "FAIL: a second add did not say nothing changed"; cat "$T/add2.out"; exit 1; }
 echo "ok: a second add, with <dir> given, changes no byte"
 
 # (3) A dependency that cannot compose leaves both files exactly as they were.
@@ -89,7 +107,57 @@ if "$TR" add "$T/app" org/greet > "$T/add6.out" 2>&1; then echo "FAIL: add <dir>
 grep -q "trantor add <org>/<repo> \[<dir>\]" "$T/add6.out" || { echo "FAIL: the old order did not get the usage"; cat "$T/add6.out"; exit 1; }
 echo "ok: the old <dir> <org/repo> order is refused with the usage"
 
-# (6) new without a baseline writes no app and says how to get one.
+# (6) One name is one package, and one package one name.
+if (cd "$T/app" && "$TR" add org/broken --as greet) > "$T/add7.out" 2>&1; then echo "FAIL: add replaced the dep named greet"; exit 1; fi
+grep -q "already a dependency" "$T/add7.out" || { echo "FAIL: a name clash was not named"; cat "$T/add7.out"; exit 1; }
+if (cd "$T/app" && "$TR" add org/greet --as greet2) > "$T/add8.out" 2>&1; then echo "FAIL: add took a package already present under another name"; exit 1; fi
+grep -q "already a dependency in world.toml, as \`greet\`" "$T/add8.out" || { echo "FAIL: the duplicate was not named"; cat "$T/add8.out"; exit 1; }
+[[ "$(sum "$T/app/world.toml" "$T/app/trantor.lock")" == "$before" ]] || { echo "FAIL: a refused add changed a byte"; exit 1; }
+echo "ok: add refuses a taken name and a package already present under another name"
+
+# (7) update and remove work on a package, in add's argument order.
+"$TR" update greet "$T/mine" > "$T/up1.out" 2>&1 || { echo "FAIL: update in a package"; cat "$T/up1.out"; exit 1; }
+grep -q "already at" "$T/up1.out" || { echo "FAIL: update did not report the pin"; cat "$T/up1.out"; exit 1; }
+if "$TR" update "$T/mine" greet > "$T/up2.out" 2>&1; then echo "FAIL: update <dir> <name> was accepted"; exit 1; fi
+grep -q "the name comes first" "$T/up2.out" || { echo "FAIL: the old update order did not say which comes first"; cat "$T/up2.out"; exit 1; }
+(cd "$T/mine" && "$TR" remove greet) > "$T/rm1.out" 2>&1 || { echo "FAIL: remove in a package"; cat "$T/rm1.out"; exit 1; }
+! grep -q greet "$T/mine/package.toml" "$T/mine/trantor.lock" || { echo "FAIL: remove left greet in package.toml or its lock"; exit 1; }
+echo "ok: update and remove work on a package, and the old <dir> <name> order is refused"
+
+# (8) An add killed while it composes is undone by the next command there.
+cp "$T/mine/components/mine-lib/Mine.roc" "$T/Mine.roc.keep"
+rm "$T/mine/components/mine-lib/Mine.roc" && mkfifo "$T/mine/components/mine-lib/Mine.roc"
+pbefore=$(sum "$T/mine/package.toml" "$T/mine/trantor.lock")
+(cd "$T/mine" && exec "$TR" add org/greet) > "$T/add9.out" 2>&1 & adder=$!
+for _ in $(seq 100); do [[ -d "$T/mine/.trantor-edit" ]] && grep -q greet "$T/mine/package.toml" && break; sleep 0.1; done
+grep -q greet "$T/mine/package.toml" || { echo "FAIL: the add never reached its compose"; cat "$T/add9.out"; exit 1; }
+sleep 0.5; kill -KILL "$adder"; wait "$adder" 2>/dev/null || true
+rm "$T/mine/components/mine-lib/Mine.roc" && cp "$T/Mine.roc.keep" "$T/mine/components/mine-lib/Mine.roc"
+"$TR" remove nothing-here "$T/mine" > "$T/rec.out" 2>&1 || true
+grep -q "was undone" "$T/rec.out" || { echo "FAIL: the next command did not undo the killed add"; cat "$T/rec.out"; exit 1; }
+[[ "$(sum "$T/mine/package.toml" "$T/mine/trantor.lock")" == "$pbefore" && ! -e "$T/mine/.trantor-edit" ]] || { echo "FAIL: the killed add's edit survived"; exit 1; }
+echo "ok: an add killed mid-compose is undone by the next trantor command in that project"
+
+# (9) A package that cannot be composed cannot have a change checked: refused.
+mkdir -p "$T/addon/components/addon-lib"
+printf '[package]\nname = "addon"\nexports = ["Addon"]\n\n[components.addon-lib]\nkind = "roc"\nexports = ["Addon"]\n' > "$T/addon/package.toml"
+printf 'Addon :: [].{\n\tx : Str\n\tx = "x"\n}\n' > "$T/addon/components/addon-lib/Addon.roc"
+abefore=$(sum "$T/addon/package.toml")
+if (cd "$T/addon" && "$TR" add org/broken) > "$T/add10.out" 2>&1; then echo "FAIL: add to a package with no baseline succeeded"; exit 1; fi
+grep -q "\[dev-deps\]" "$T/add10.out" || { echo "FAIL: the refusal did not say to name a baseline"; cat "$T/add10.out"; exit 1; }
+[[ "$(sum "$T/addon/package.toml")" == "$abefore" && ! -e "$T/addon/trantor.lock" ]] || { echo "FAIL: the refused add changed the package"; exit 1; }
+echo "ok: a package with no baseline to compose on refuses a change it cannot check"
+
+# (10) A module that is not there, or that comes from two places, does not compose.
+pbefore=$(sum "$T/mine/package.toml" "$T/mine/trantor.lock")
+if (cd "$T/mine" && "$TR" add org/ghost) > "$T/add11.out" 2>&1; then echo "FAIL: add of a package missing its exported module succeeded"; exit 1; fi
+grep -q "exports \`Ghost\`, but there is no" "$T/add11.out" || { echo "FAIL: the missing module was not named"; cat "$T/add11.out"; exit 1; }
+if (cd "$T/mine" && "$TR" add org/clash) > "$T/add12.out" 2>&1; then echo "FAIL: add of a package shipping the same module succeeded"; exit 1; fi
+grep -q "two sources for the platform module \`Mine\`" "$T/add12.out" || { echo "FAIL: the clash was not named"; cat "$T/add12.out"; exit 1; }
+[[ "$(sum "$T/mine/package.toml" "$T/mine/trantor.lock")" == "$pbefore" ]] || { echo "FAIL: a refused add changed the package"; exit 1; }
+echo "ok: a missing exported module and a module from two places each fail the add"
+
+# (11) new without a baseline writes no app and says how to get one.
 "$TR" new "$T/bare" > "$T/new.out" 2>&1
 [[ ! -e "$T/bare/app/main.roc" ]] || { echo "FAIL: new with no baseline wrote an app"; exit 1; }
 grep -q -- "--from" "$T/new.out" || { echo "FAIL: new with no baseline did not point at --from"; cat "$T/new.out"; exit 1; }

@@ -4,10 +4,12 @@ trantor — compose Roc platforms from Rust components.
 
 Starting out
   new <dir> [--from <path|org/repo>]  scaffold a project (and compose it)
-  add <org/repo> [<dir>] [--as <name>] add a dependency here (world or package),
-                                      pinning a semver tag; composes, or changes nothing
-  update <dir> [<name>]               move a pin
-  remove <dir> <name>                 drop a dependency
+  add <org/repo> [<dir>] [--as <name>] add a dependency here (package or world),
+                                      pinning a semver tag
+  update [<name>] [<dir>]             move a pin (--all [<dir>]: every pin)
+  remove <name> [<dir>]               drop a dependency
+                                      add, update and remove compose afterwards and
+                                      keep the change only if that succeeds
 
 Working
   check <dir>                         compose + typecheck (the inner loop)

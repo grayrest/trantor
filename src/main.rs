@@ -29,12 +29,15 @@ mod cargo;
 mod codegen;
 mod deps;
 mod help;
+mod journal;
 mod manifest;
 mod bounded;
 mod package_modules;
 mod package_suites;
 mod package_test;
 mod package_worlds;
+mod pins;
+mod project;
 mod publish;
 mod readme_examples;
 mod readme_lex;
@@ -94,12 +97,20 @@ fn run(args: &[String]) -> Result<(), String> {
         print!("{}", help::HELP);
         return Ok(());
     }
-    if cmd == "add" {
-        return add::command(&mut it);
+    match cmd.as_str() {
+        "add" => return add::command(&mut it),
+        "update" => return pins::update_command(&mut it),
+        "remove" => return pins::remove_command(&mut it),
+        _ => {}
     }
     let dir = PathBuf::from(it.next().ok_or_else(|| {
         format!("{cmd}: missing <dir> (the project or world directory). `trantor --help` lists every command.")
     })?);
+    // An `add`, `update` or `remove` killed mid-check left its edit behind;
+    // whatever runs next in that project puts the files back first.
+    if dir.is_dir() {
+        journal::recover_noting(&dir)?;
+    }
 
     match cmd.as_str() {
         "check" | "run" | "test" => {
@@ -160,22 +171,6 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             return scaffold::new_interface(&dir, &world_file, &name);
-        }
-        "update" | "remove" => {
-            // D-U1-3. `dir` is the world dir. (`add` parses its own arguments.)
-            let mut world_file = String::from("world.toml");
-            let mut arg: Option<String> = None;
-            while let Some(f) = it.next() {
-                match f.as_str() {
-                    "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
-                    other if other.starts_with("--") => return Err(format!("unknown flag {other:?}")),
-                    other => arg = Some(other.to_string()),
-                }
-            }
-            return match cmd.as_str() {
-                "update" => registry::update(&dir, &world_file, arg.as_deref()),
-                _ => registry::remove(&dir, &world_file, &arg.ok_or("remove: missing <name>")?),
-            };
         }
         "compose" => {}
         "interface-stub" => {

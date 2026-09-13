@@ -1,46 +1,67 @@
 //! `trantor add <org>/<repo> [<dir>]` (D-U1-3, T3b).
 //!
 //! Adds the dependency to the project in `<dir>` (default: here): its
-//! `world.toml`, or — in a package — its `package.toml`, pinned in that
-//! directory's `trantor.lock`. Then it composes, as the U1 plan always said it
-//! did, and only a composition that succeeds keeps the edit: on any failure the
-//! manifest and the lock are put back byte for byte, so a failed `add` changes
-//! nothing.
+//! `package.toml`, or its `world.toml`, pinned in that directory's
+//! `trantor.lock`. Then it composes, and only a composition that succeeds keeps
+//! the edit (see `project::transact`).
 use std::path::{Path, PathBuf};
 
-use crate::manifest::Package;
-use crate::registry::{self, LOCK_FILE};
+use crate::manifest::DepSource;
+use crate::project::{self, Target};
+use crate::registry::{self, Lock, LOCK_FILE};
+
+const USAGE: &str = "usage: trantor add <org>/<repo> [<dir>] [--as <name>] [--world <file>]";
 
 pub fn add(dir: &Path, world_flag: Option<&str>, slug: &str, as_name: Option<&str>) -> Result<(), String> {
+    crate::journal::recover_noting(dir)?;
     let target = Target::of(dir, world_flag)?;
     let fetched = registry::fetch(slug)?;
     let dep_name = as_name.unwrap_or(&fetched.name).to_string();
+    name_is_free(dir, &target, &dep_name, slug).map_err(|e| format!("add {slug}: {e}"))?;
+    let changed = project::transact(dir, &target, || registry::record(dir, target.manifest(), &dep_name, &fetched))
+        .map_err(|e| format!("add {slug}: {e}"))?;
+    let pin = fetched.tag.as_deref().map(|t| format!("tag {t}"))
+        .unwrap_or_else(|| format!("{} HEAD (no semver tags)", fetched.branch.as_deref().unwrap_or("default branch")));
+    eprintln!(
+        "trantor: added `{dep_name}` = {slug} to {} at {pin}, commit {}{}",
+        target.manifest(),
+        &fetched.commit[..fetched.commit.len().min(12)],
+        if changed { "" } else { " (already there; nothing changed)" }
+    );
+    Ok(())
+}
 
-    let manifest = Snapshot::take(&dir.join(target.manifest()))?;
-    let lock = Snapshot::take(&dir.join(LOCK_FILE))?;
-    let result = registry::record(dir, target.manifest(), &dep_name, &fetched)
-        .and_then(|changed| target.validate(dir).map(|()| changed));
-    match result {
-        Ok(changed) => {
-            let pin = fetched.tag.as_deref().map(|t| format!("tag {t}"))
-                .unwrap_or_else(|| format!("{} HEAD (no semver tags)", fetched.branch.as_deref().unwrap_or("default branch")));
-            eprintln!(
-                "trantor: added `{dep_name}` = {slug} to {} at {pin}, commit {}{}",
-                target.manifest(),
-                &fetched.commit[..fetched.commit.len().min(12)],
-                if changed { "" } else { " (lock unchanged)" }
-            );
-            Ok(())
-        }
-        Err(e) => {
-            let restored = manifest.restore().and(lock.restore());
-            let note = match restored {
-                Ok(()) => format!("{} and {LOCK_FILE} are unchanged", target.manifest()),
-                Err(r) => format!("AND restoring the previous files failed: {r}"),
-            };
-            Err(format!("add {slug}: {e}\n({note})"))
+/// One name is one package, and one package one name. `add` used to overwrite
+/// an existing dep of the same name — a local path checkout included — and to
+/// accept a package already present under another name, which composed until
+/// the two pins drifted apart. World variants share the directory's lock, so a
+/// name pinned for another variant is taken too.
+fn name_is_free(dir: &Path, target: &Target, name: &str, slug: &str) -> Result<(), String> {
+    let deps = target.deps(dir)?;
+    if let Some(dep) = deps.get(name) {
+        match dep.source(name)? {
+            DepSource::GitHub(s) if s == slug => {}
+            other => {
+                let was = match other { DepSource::GitHub(s) => format!("github {s}"), DepSource::Path(p) => format!("path {p}") };
+                return Err(format!(
+                    "`{name}` is already a dependency in {} ({was}). Remove it first (`trantor remove {name}`), \
+                     or add this one under another name with --as",
+                    target.manifest()
+                ));
+            }
         }
     }
+    if let Some(other) = deps.iter().find(|(n, d)| n.as_str() != name && matches!(d.source(n), Ok(DepSource::GitHub(s)) if s == slug)) {
+        return Err(format!("{slug} is already a dependency in {}, as `{}`", target.manifest(), other.0));
+    }
+    if let Some(e) = Lock::load(dir)?.get(name).filter(|e| e.github != slug && !deps.contains_key(name)) {
+        return Err(format!(
+            "{LOCK_FILE} pins `{name}` to {} for another world in this directory. World variants share one \
+             lock, so a name means one package — use --as to name this one differently",
+            e.github
+        ));
+    }
+    Ok(())
 }
 
 /// `trantor add <org>/<repo> [<dir>] [--as <name>] [--world <file>]`: the
@@ -50,111 +71,48 @@ pub fn command(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>) -> Result
     let (mut positional, mut as_name, mut world): (Vec<String>, Option<String>, Option<String>) = (vec![], None, None);
     while let Some(f) = it.next() {
         match f.as_str() {
-            "--as" => as_name = Some(it.next().ok_or("--as: missing name")?.clone()),
-            "--world" => world = Some(it.next().ok_or("--world: missing file")?.clone()),
-            other if other.starts_with("--") => return Err(format!("unknown flag {other:?}")),
+            "-h" | "--help" => {
+                println!("{USAGE}");
+                return Ok(());
+            }
+            "--as" => as_name = Some(dep_name_arg(it.next())?),
+            "--world" => world = Some(flag_value(it.next(), "--world", "file")?),
+            other if other.starts_with('-') => return Err(format!("unknown flag {other:?}\n{USAGE}")),
             other => positional.push(other.to_string()),
         }
     }
     let (slug, dir) = match positional.as_slice() {
         [slug] => (slug.clone(), PathBuf::from(".")),
-        [first, second] if !is_slug(first) && is_slug(second) => {
-            return Err(format!("add: arguments are `trantor add <org>/<repo> [<dir>]` — try `trantor add {second} {first}`"));
+        [first, second] if is_project(first) && !is_project(second) => {
+            return Err(format!("add: the dependency comes first — try `trantor add {second} {first}`\n{USAGE}"));
         }
         [slug, dir] => (slug.clone(), PathBuf::from(dir)),
-        [] => return Err("add: missing <org>/<repo>; usage: trantor add <org>/<repo> [<dir>]".into()),
-        _ => return Err("add: expected `trantor add <org>/<repo> [<dir>]`".into()),
+        [] => return Err(format!("add: missing <org>/<repo>\n{USAGE}")),
+        _ => return Err(format!("add: too many arguments\n{USAGE}")),
     };
     add(&dir, world.as_deref(), &slug, as_name.as_deref())
 }
 
-fn is_slug(s: &str) -> bool {
-    let parts: Vec<&str> = s.split('/').collect();
-    parts.len() == 2 && parts.iter().all(|p| !p.is_empty() && !p.starts_with('.')) && !std::path::Path::new(s).exists()
+/// A directory holding a project manifest.
+pub fn is_project(s: &str) -> bool {
+    let p = Path::new(s);
+    p.join("world.toml").is_file() || p.join("package.toml").is_file()
 }
 
-enum Target {
-    World(String),
-    Package,
-}
-
-impl Target {
-    /// An explicit `--world` wins; then a world here; then a package here.
-    fn of(dir: &Path, world_flag: Option<&str>) -> Result<Target, String> {
-        if let Some(w) = world_flag {
-            return Ok(Target::World(w.to_string()));
-        }
-        if dir.join("world.toml").is_file() {
-            return Ok(Target::World("world.toml".into()));
-        }
-        if dir.join("package.toml").is_file() {
-            return Ok(Target::Package);
-        }
-        Err(format!("{} has neither a world.toml nor a package.toml to add to", dir.display()))
-    }
-
-    fn manifest(&self) -> &str {
-        match self {
-            Target::World(w) => w,
-            Target::Package => "package.toml",
-        }
-    }
-
-    fn validate(&self, dir: &Path) -> Result<(), String> {
-        match self {
-            Target::World(w) => crate::build::compose(dir, w, None),
-            Target::Package => validate_package(dir),
-        }
+pub fn flag_value(v: Option<&String>, flag: &str, what: &str) -> Result<String, String> {
+    match v {
+        Some(v) if !v.is_empty() && !v.starts_with('-') => Ok(v.clone()),
+        _ => Err(format!("{flag}: missing {what}")),
     }
 }
 
-/// A package cannot always compose alone — an add-on has no driver — so it is
-/// composed the way `trantor test` composes it: on its [dev-deps], with its
-/// lock beside it. With no dev-deps and no driver in reach, expanding its
-/// dependencies is as far as it can be taken, and that still proves the new
-/// one resolves, fetches and parses.
-fn validate_package(dir: &Path) -> Result<(), String> {
-    let root = dir.canonicalize().map_err(|e| format!("{}: {e}", dir.display()))?;
-    let text = std::fs::read_to_string(root.join("package.toml")).map_err(|e| format!("read package.toml: {e}"))?;
-    let pkg: Package = toml::from_str(&text).map_err(|e| format!("parse package.toml: {e}"))?;
-    let scratch = std::env::temp_dir().join(format!("trantor-add-{}-{}", pkg.package.name, std::process::id()));
-    std::fs::remove_dir_all(&scratch).ok();
-    let world = crate::package_worlds::scratch_world(&root, &pkg, &scratch, "check", crate::package_worlds::Deps::WithPackage, &[])?;
-    let can_compose = !pkg.dev_deps.is_empty()
-        || matches!(crate::package_worlds::driver_in_reach(&root, &pkg, 0), crate::package_worlds::Reach::Yes);
-    let result = if can_compose {
-        crate::build::compose(&world, "world.toml", None)
-    } else {
-        crate::manifest::load_world(&world, "world.toml").map(|_| ())
-    };
-    std::fs::remove_dir_all(&scratch).ok();
-    result
-}
-
-/// A file's bytes before an edit, or its absence.
-struct Snapshot {
-    path: PathBuf,
-    bytes: Option<Vec<u8>>,
-}
-
-impl Snapshot {
-    fn take(path: &Path) -> Result<Snapshot, String> {
-        let bytes = match std::fs::read(path) {
-            Ok(b) => Some(b),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(e) => return Err(format!("read {}: {e}", path.display())),
-        };
-        Ok(Snapshot { path: path.to_path_buf(), bytes })
+/// A `[deps]` key: letters, digits, `_` and `-`, not starting with `-`.
+fn dep_name_arg(v: Option<&String>) -> Result<String, String> {
+    let name = flag_value(v, "--as", "name")?;
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(format!("--as {name:?}: a dependency name is letters, digits, `_` and `-`"));
     }
-
-    fn restore(&self) -> Result<(), String> {
-        match &self.bytes {
-            Some(b) => std::fs::write(&self.path, b),
-            None if self.path.exists() => std::fs::remove_file(&self.path),
-            None => Ok(()),
-        }
-        .map_err(|e| format!("restore {}: {e}", self.path.display()))
-    }
+    Ok(name)
 }
 
 #[cfg(test)]
@@ -162,31 +120,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_snapshot_restores_bytes_and_absence() {
-        let d = std::env::temp_dir().join(format!("trantor-snap-{}", std::process::id()));
-        std::fs::create_dir_all(&d).unwrap();
-        let (kept, absent) = (d.join("world.toml"), d.join(LOCK_FILE));
-        std::fs::write(&kept, "before").unwrap();
-        std::fs::remove_file(&absent).ok();
-        let (a, b) = (Snapshot::take(&kept).unwrap(), Snapshot::take(&absent).unwrap());
-        std::fs::write(&kept, "after").unwrap();
-        std::fs::write(&absent, "created").unwrap();
-        a.restore().unwrap();
-        b.restore().unwrap();
-        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "before");
-        assert!(!absent.exists(), "a file that did not exist before is removed");
-        std::fs::remove_dir_all(&d).ok();
-    }
-
-    #[test]
-    fn an_explicit_world_wins_then_a_world_then_a_package() {
-        let d = std::env::temp_dir().join(format!("trantor-target-{}", std::process::id()));
-        std::fs::create_dir_all(&d).unwrap();
-        std::fs::write(d.join("package.toml"), "").unwrap();
-        assert!(matches!(Target::of(&d, None).unwrap(), Target::Package));
-        std::fs::write(d.join("world.toml"), "").unwrap();
-        assert!(matches!(Target::of(&d, None).unwrap(), Target::World(w) if w == "world.toml"));
-        assert!(matches!(Target::of(&d, Some("alt.toml")).unwrap(), Target::World(w) if w == "alt.toml"));
-        std::fs::remove_dir_all(&d).ok();
+    fn a_dependency_name_is_a_plain_toml_key() {
+        assert!(dep_name_arg(Some(&"trantor-cli_2".to_string())).is_ok());
+        for bad in ["", "--world", "a b", "a.b", "\"q\""] {
+            assert!(dep_name_arg(Some(&bad.to_string())).is_err(), "{bad:?} was accepted");
+        }
+        assert!(dep_name_arg(None).is_err());
     }
 }
