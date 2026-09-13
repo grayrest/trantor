@@ -29,6 +29,9 @@ set +e
 set -e
 [[ $rc == 3 ]] || { echo "FAIL: driver-gate exit $rc, want 3 (driver's own arm after the chain)"; exit 1; }
 echo "ok: gate chain — component answered echo-gate (7), driver answered driver-gate (3)"
+dir=$("$FIX/target/trantor/im-services/bin/imsvc" data-dir-gate 2>/dev/null)
+[[ "$dir" == "/fixture/data" ]] || { echo "FAIL: data-dir-gate printed '$dir', want '/fixture/data' (HostCtx.data_dir)"; exit 1; }
+echo "ok: HostCtx.data_dir — the component read the directory the driver declared"
 
 # (5) allocator shims: which class does each archive define them in? Feeds
 # D-H7-11 (per-archive allocators) and the H0c exemption model.

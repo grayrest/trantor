@@ -1131,6 +1131,29 @@ through that same machinery, so `--features eink` did not compile until the
 gate widened to `any(windowing, eink)`. A cfg that outlives the item it was
 written for is invisible until someone compiles the other half.
 
+## D-H7-43 — `HostCtx.data_dir`: the driver says where app data lives (2026-09-13)
+
+Raised by porting rocsidian's file vault into roc-solid-eink as a service
+component for an Android notes app. The vault's root belongs under the app's
+private files directory, and only the driver can name it: Android hands
+`internal_data_path` to the activity, which is the driver's. The alternative on
+the table was an environment variable the driver sets for the component, the
+way `svc-doc` reads `NOMAD_LIBRARY`. Rejected on D-H7-40's lesson: a seam that
+reaches for the environment is reporting a missing parameter.
+
+The field is general, not a vault field: `data_dir(*mut usize) -> *const u8`,
+the driver's per-app data directory as UTF-8 bytes that live for the rest of the
+process, or null. A component that stores files picks its own subdirectory.
+
+**Declared with `set_data_dir`, not as an `init` argument.** A driver can learn
+the directory after it must call `init`: roc-solid's `main` hands every
+component its `HostCtx` before the gate chain runs, and on Android the activity
+arrives later. It also leaves every existing driver compiling unchanged — a
+driver with no data directory (the DOM driver) never calls it and components
+see null. The first declaration wins, because a component may already have
+built paths under the directory. The `im-services` fixture checks it end to
+end: `data-dir-gate` answers with the directory the driver declared.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

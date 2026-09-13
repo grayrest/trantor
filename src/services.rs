@@ -13,6 +13,8 @@
 //!   - `init(wake, measure_text, groups)`: hands every component its `HostCtx`
 //!     (D8) — wake, text measure (D-H7-22), and the group registry a document
 //!     service publishes page draw lists through (D-H7-11);
+//!   - `set_data_dir(dir)`: the directory the driver keeps per-app data in,
+//!     which a component reads through `HostCtx.data_dir` (D-H7-43);
 //!   - `dispatch(&mut cmd, request)`: one arm per wrapper variant,
 //!     moving the payload to the component and wrapping its answers back into
 //!     the world's `Event`; `None` for a core variant (the driver's own);
@@ -78,6 +80,14 @@ pub struct HostCtx {
     pub register_group: extern "C" fn(*const c_void, u32) -> i32,
     /// Forget a published group; the handle names nothing afterwards.
     pub release_group: extern "C" fn(i32),
+    /// The driver's per-app data directory as UTF-8 (D-H7-43: only the driver
+    /// knows where its platform keeps app data — Android's
+    /// `internal_data_path` — so a component that stores files asks here
+    /// rather than reading the environment). Writes the length through the
+    /// pointer and returns the bytes, valid for the rest of the process; null
+    /// with length 0 while the driver has declared none. Callable from any
+    /// thread.
+    pub data_dir: extern "C" fn(*mut usize) -> *const u8,
 }
 
 /// A synchronous answer to a wrapper command, in the component's own event type.
@@ -121,6 +131,7 @@ type GateFn = unsafe extern "C" fn(RocStr, RocList<RocStr>, *mut RocStr) -> i32;
 static WAKE: OnceLock<fn(u32, *mut c_void)> = OnceLock::new();
 static MEASURE: OnceLock<extern "C" fn(*const u8, usize, u16) -> i32> = OnceLock::new();
 static GROUPS: OnceLock<Groups> = OnceLock::new();
+static DATA_DIR: OnceLock<String> = OnceLock::new();
 
 /// The driver's group registry, as two C-ABI entry points.
 #[derive(Clone, Copy)]
@@ -159,6 +170,28 @@ extern "C" fn release_group(handle: i32) {
     }
 }
 
+/// The one `data_dir` every component is handed: the driver's, or null.
+extern "C" fn data_dir(len: *mut usize) -> *const u8 {
+    let (ptr, n) = match DATA_DIR.get() {
+        Some(d) => (d.as_ptr(), d.len()),
+        None => (core::ptr::null(), 0),
+    };
+    if !len.is_null() {
+        // SAFETY: a non-null `len` is the caller's writable usize.
+        unsafe { *len = n };
+    }
+    ptr
+}
+
+/// Declare the directory this driver keeps per-app data in, for every
+/// component's `HostCtx.data_dir`. Separate from `init` because a driver may
+/// learn it later than it must call `init` (an Android activity hands it over
+/// after `main`'s gates run). The first declaration wins: a component may
+/// already have built paths under it.
+pub fn set_data_dir(dir: &str) {
+    let _ = DATA_DIR.set(dir.to_owned());
+}
+
 "#;
 
 fn upper(name: &str) -> String {
@@ -169,7 +202,7 @@ fn component_decls(svc: &Service, id: u32) -> String {
     let p = svc.symbol_prefix();
     let m = &svc.module;
     let mut s = format!(
-        "pub const {id_name}_ID: u32 = {id};\nstatic CTX_{id_name}: HostCtx = HostCtx {{ component_id: {id}, wake: courier, measure_text: measure, register_group, release_group }};\n",
+        "pub const {id_name}_ID: u32 = {id};\nstatic CTX_{id_name}: HostCtx = HostCtx {{ component_id: {id}, wake: courier, measure_text: measure, register_group, release_group, data_dir }};\n",
         id_name = upper(m)
     );
     // The contract's declarations, once; the ABI string around them twice.
@@ -382,5 +415,19 @@ mod tests {
         assert!(s.contains("-> Option<GateResult>") && s.contains("GateResult { code: rc, out: text }"));
         assert!(s.contains("list, &mut out)"));
         assert!(!s.contains("N_SERVICES"));
+    }
+
+    /// D-H7-43: every component's `HostCtx` carries the driver's data dir, and
+    /// the driver has an entry point to declare it.
+    #[test]
+    fn hands_every_component_the_data_dir() {
+        let r = world_with(vec![
+            Service { component: "svc-echo".into(), module: "Echo".into(), event_module: Some("EchoEvent".into()), env_module: None },
+            Service { component: "svc-tick".into(), module: "Tick".into(), event_module: None, env_module: None },
+        ]);
+        let s = services_rs(&r, false).unwrap();
+        assert!(s.contains("pub data_dir: extern \"C\" fn(*mut usize) -> *const u8,"));
+        assert!(s.contains("pub fn set_data_dir(dir: &str)"));
+        assert_eq!(s.matches("release_group, data_dir }").count(), 2, "one per component's static HostCtx");
     }
 }

@@ -126,11 +126,14 @@ fn run() -> i32 {
     0
 }
 
+/// What this driver declares as its data dir, for `data-dir-gate` to echo.
+const FIXTURE_DATA_DIR: &str = "/fixture/data";
+
 /// The gate chain: components first (through the shim), then the driver's own.
 fn gate(name: &str, argv: &[String]) -> i32 {
     if let Some(answer) = services::gate(name, argv) {
-        // A hook may answer with text as well as a code (D-H7-40); this
-        // fixture's hooks do not, so `out` is empty and only the code matters.
+        // A hook may answer with text as well as a code (D-H7-40);
+        // `data-dir-gate` does, the others leave `out` empty.
         if !answer.out.is_empty() {
             println!("{}", answer.out);
         }
@@ -151,7 +154,13 @@ pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
         .map(|i| unsafe { std::ffi::CStr::from_ptr(*argv.add(i) as *const _) }.to_string_lossy().into_owned())
         .collect();
     let outcome = std::panic::catch_unwind(|| match args.get(1) {
-        Some(name) => gate(name, &args),
+        Some(name) => {
+            // Components are handed their HostCtx before any gate can ask one
+            // (D8), and the data dir is declared first (D-H7-43).
+            services::set_data_dir(FIXTURE_DATA_DIR);
+            services::init(wake, measure, None);
+            gate(name, &args)
+        }
         None => run(),
     });
     match outcome {
