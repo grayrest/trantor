@@ -67,7 +67,7 @@ pub(crate) fn roc_bin() -> String {
         .unwrap_or_else(|| format!("{}/.bin/roc", home()))
 }
 
-fn glue_src() -> String {
+pub(crate) fn glue_src() -> String {
     if let Ok(g) = std::env::var("GLUE") {
         return g;
     }
@@ -141,7 +141,7 @@ fn run(program: &str, args: &[&str], dir: &Path, what: &str) -> Result<(), Strin
 
 /// A path as an absolute string, for a tool whose working directory is the
 /// SOURCE tree while its output belongs under `target/trantor` (D-H7-38).
-fn abs(p: &Path) -> Result<String, String> {
+pub(crate) fn abs(p: &Path) -> Result<String, String> {
     let p = if p.exists() {
         p.canonicalize().map_err(|e| format!("canonicalize {}: {e}", p.display()))?
     } else {
@@ -157,7 +157,7 @@ fn abs(p: &Path) -> Result<String, String> {
 }
 
 /// Run `roc <args…>` under the R5 timeout cap, in `dir`.
-fn roc_capped(args: &[&str], dir: &Path, what: &str) -> Result<(), String> {
+pub(crate) fn roc_capped(args: &[&str], dir: &Path, what: &str) -> Result<(), String> {
     let roc = roc_bin();
     // perl -e 'alarm shift; exec @ARGV' 120 <roc> <args…>
     let mut full: Vec<&str> = vec![
@@ -201,8 +201,13 @@ pub fn build(
     roc_capped(&["glue", &glue_src(), &glue_out, &plat_main], dir, "glue")?;
     // Installed only when it changed, so an unchanged boundary does not
     // rebuild the abi crate and every host above it.
-    let glue = std::fs::read(gen.join("glue-out/roc_platform_abi.rs")).map_err(|e| format!("read glue output: {e}"))?;
-    crate::codegen::write_if_changed(&gen.join("abi/src/generated.rs"), &glue)?;
+    let glue = std::fs::read_to_string(gen.join("glue-out/roc_platform_abi.rs")).map_err(|e| format!("read glue output: {e}"))?;
+    // Single-variant service unions are unwrapped by glue; composition puts
+    // back what the service and the shim need (glue_unions.rs, D-H7-44).
+    let singles = crate::glue_unions::singles(&gen.join("platform"), &resolved.services)?;
+    let placeholder = if singles.iter().any(|s| s.fields > 1) { Some(crate::glue_unions::placeholder_glue(dir, &gen, &singles)?) } else { None };
+    let glue = crate::glue_unions::repair(&glue, &singles, placeholder.as_deref())?;
+    crate::codegen::write_if_changed(&gen.join("abi/src/generated.rs"), glue.as_bytes())?;
 
     // wasm32 (D-H7-9): its own cargo target, a merged host.wasm, and a wasm
     // link — see wasm.rs. No native staging, no framework sysroot.

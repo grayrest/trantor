@@ -1,0 +1,3 @@
+module = "Bell"
+kind = "service"
+event_module = "BellEvent"

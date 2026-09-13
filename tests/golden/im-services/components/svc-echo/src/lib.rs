@@ -54,11 +54,37 @@ pub extern "C-unwind" fn trantor__svc_echo__complete(_token: *mut c_void) -> Roc
     unreachable!("svc-echo answers synchronously and never wakes the driver")
 }
 
-/// Gate hook (D-H7-8): −1 = not mine.
+/// The driver's data dir as this component sees it through `HostCtx.data_dir`
+/// (D-H7-43), or empty when none was declared.
+fn data_dir() -> String {
+    let ctx = CTX.load(Ordering::Acquire);
+    if ctx.is_null() {
+        return String::new();
+    }
+    let mut len = 0usize;
+    // SAFETY: the driver's HostCtx is a static; `data_dir` returns bytes that
+    // live for the rest of the process, or null.
+    let ptr = unsafe { ((*ctx).data_dir)(&mut len) };
+    if ptr.is_null() {
+        return String::new();
+    }
+    String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
+}
+
+/// Gate hook (D-H7-8): −1 = not mine. `data-dir-gate` answers with the data
+/// dir the driver declared, so the fixture sees it cross the contract.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn trantor__svc_echo__gate(name: RocStr, argv: RocList<RocStr>, _out: *mut RocStr) -> i32 {
+pub extern "C-unwind" fn trantor__svc_echo__gate(name: RocStr, argv: RocList<RocStr>, out: *mut RocStr) -> i32 {
     let host = abi::host();
-    let rc = if name.as_str() == "echo-gate" { 7 } else { -1 };
+    let rc = match name.as_str() {
+        "echo-gate" => 7,
+        "data-dir-gate" => {
+            // SAFETY: the chain hands a writable, empty RocStr (D-H7-40).
+            unsafe { *out = RocStr::from_str(&data_dir(), host) };
+            0
+        }
+        _ => -1,
+    };
     unsafe {
         name.decref(host);
         argv.decref(host);

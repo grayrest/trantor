@@ -16,9 +16,10 @@ grep -q "imview driver HOST" "$FIX/components/imview/src/lib.rs" || { echo "FAIL
 if ! _b=$(./target/release/trantor build "$FIX" --app app --out imsvc 2>&1); then echo "FAIL: build imsvc" >&2; echo "$_b" >&2; exit 1; fi
 
 out=$("$FIX/target/trantor/im-services/bin/imsvc" 2>/dev/null)
-want="[hi | pong:hello | tick:1 | tick:2 | tick:3 | ticks=3]"
+want="[hi | pong:hello | rang:ding, in a string long enough to live on the heap:9 | poked from a string long enough to live on the heap | tick:1 | tick:2 | tick:3 | ticks=3]"
 [[ "$out" == "$want" ]] || { echo "FAIL: got '$out', want '$want'"; exit 1; }
 echo "ok: wrapper unions cross both ways; 3 async wakes completed on the runtime thread; env block read"
+echo "ok: one-variant service unions work — a three-field command whose first field is Str, beside a two-field event (Bell); a no-payload command and a one-field event (Nudge) (D-H7-44)"
 
 set +e
 "$FIX/target/trantor/im-services/bin/imsvc" echo-gate >/dev/null 2>&1; rc=$?
@@ -29,6 +30,9 @@ set +e
 set -e
 [[ $rc == 3 ]] || { echo "FAIL: driver-gate exit $rc, want 3 (driver's own arm after the chain)"; exit 1; }
 echo "ok: gate chain — component answered echo-gate (7), driver answered driver-gate (3)"
+dir=$("$FIX/target/trantor/im-services/bin/imsvc" data-dir-gate 2>/dev/null)
+[[ "$dir" == "/fixture/data" ]] || { echo "FAIL: data-dir-gate printed '$dir', want '/fixture/data' (HostCtx.data_dir)"; exit 1; }
+echo "ok: HostCtx.data_dir — the component read the directory the driver declared"
 
 # (5) allocator shims: which class does each archive define them in? Feeds
 # D-H7-11 (per-archive allocators) and the H0c exemption model.

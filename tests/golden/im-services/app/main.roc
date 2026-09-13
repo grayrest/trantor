@@ -8,6 +8,10 @@ import pf.Echo
 import pf.EchoEvent
 import pf.Tick
 import pf.TickEvent
+import pf.Bell
+import pf.BellEvent
+import pf.Nudge
+import pf.NudgeEvent
 
 Model : { label : Str, log : List(Str), outbox : List(Cmd) }
 
@@ -19,6 +23,8 @@ main = {
 			Cmd.Log("init"),
 			Cmd.Echo(Echo.Ping(0, "echo-key", "hello")),
 			Cmd.Tick(Tick.Start(0, "tick-key", 3)),
+			Cmd.Bell(Bell.Ring("bell-key", 9, "ding, in a string long enough to live on the heap")),
+			Cmd.Nudge(Nudge.Poke),
 		],
 	},
 	view: |model, env| {
@@ -39,6 +45,8 @@ main = {
 			Event.Echo(EchoEvent.Shouted(s, n)) => "shouted:${s}:${n.to_str()}"
 			Event.Tick(TickEvent.Ticked(n)) => "tick:${n.to_str()}"
 			Event.Tick(TickEvent.Stopped) => "stopped"
+			Event.Bell(BellEvent.Rang(s, n)) => "rang:${s}:${n.to_str()}"
+			Event.Nudge(NudgeEvent.Poked(s)) => s
 		}
 		{ ..model, log: List.append(model.log, line), outbox: [] }
 	},

@@ -1131,6 +1131,66 @@ through that same machinery, so `--features eink` did not compile until the
 gate widened to `any(windowing, eink)`. A cfg that outlives the item it was
 written for is invisible until someone compiles the other half.
 
+## D-H7-43 — `HostCtx.data_dir`: the driver says where app data lives (2026-09-13)
+
+Raised by porting rocsidian's file vault into roc-solid-eink as a service
+component for an Android notes app. The vault's root belongs under the app's
+private files directory, and only the driver can name it: Android hands
+`internal_data_path` to the activity, which is the driver's. The alternative on
+the table was an environment variable the driver sets for the component, the
+way `svc-doc` reads `NOMAD_LIBRARY`. Rejected on D-H7-40's lesson: a seam that
+reaches for the environment is reporting a missing parameter.
+
+The field is general, not a vault field: `data_dir(*mut usize) -> *const u8`,
+the driver's per-app data directory as UTF-8 bytes that live for the rest of the
+process, or null. A component that stores files picks its own subdirectory.
+
+**Declared with `set_data_dir`, not as an `init` argument.** A driver can learn
+the directory after it must call `init`: roc-solid's `main` hands every
+component its `HostCtx` before the gate chain runs, and on Android the activity
+arrives later. It also leaves every existing driver compiling unchanged — a
+driver with no data directory (the DOM driver) never calls it and components
+see null. The first declaration wins, because a component may already have
+built paths under the directory. The `im-services` fixture checks it end to
+end: `data-dir-gate` answers with the directory the driver declared.
+
+## D-H7-44 — A one-variant service union is composition's to handle, not the service's (2026-09-13)
+
+**Supersedes D-H7-21.** Services with one natural command were made to grow a
+second so glue would name their union, which put glue's behaviour into service
+APIs. Measured again on release-fast-10e922df (glue spec of 2026-09-11) by
+composing `im-services` copies with the check lifted: glue still unwraps a
+one-variant union to its payload. What it gets wrong depends on the payload:
+
+- **One field** (`[Shout(Str)]`): the wrapper's payload is typed correctly
+  (`RocStr`), refcounts included; only the named type is missing.
+- **No field** (`[Stop]`): the payload is zero-sized and glue writes no
+  accessor for it.
+- **Several fields** (`[Ping(U64, Str, Str)]`): the payload is typed as its
+  FIRST field's type — `u64` there, `RocStr` for `[Ping(Str, U64)]` — so glue's
+  own size and tag-offset asserts fail and its refcount arm is empty or wrong.
+  (The first measurement used only a `U64`-first union and read this as "typed
+  `u64`"; review found the repair refusing every other shape.)
+
+Composition now repairs the glue output (`glue_unions.rs`): a type alias for one
+field; a unit struct and the accessors for none; and for several fields a
+second glue run on a copy of the platform modules where that union has a
+placeholder second variant, from which the payload struct is taken and put in
+place of whatever glue typed, in that driver union's field (a command's
+`Cmd`, an event's `Event` — both may carry a field of the same name), its two
+exact accessors, and its refcount arms. Substituting it
+satisfies glue's asserts unchanged (they encode Roc's true layout). The
+placeholder exists only in that copy: the app and the service see the union as
+written. `im-services` carries `Bell` (one three-field command, one one-field
+event) and `Nudge` (no-payload command and event), end to end.
+
+Rejected: a placeholder variant in the real composed union — it would reach the
+app's exhaustive `match` on events and the service's Rust `match`, an API
+demand of its own; waiting on a glue fix. If glue changes how it treats these
+unions, the repair fails loudly rather than guessing (it requires the wrapper
+field it replaces). `im-services`' `Bell` has a `Str`-first three-field command
+beside a two-field event; strings are long enough to be heap-allocated.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
