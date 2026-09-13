@@ -830,7 +830,7 @@ the pid; `update <name>` recovers before reading the manifest; a
 `variants/world.toml` and a symlinked variant file are variants, and a world
 holds a pin only through a github dependency.
 
-## D-T2g — `ZonedDateTime` and `day_of_week` (2026-09-13)
+## D-T2g — `ZonedDateTime`, `day_of_week`, calendars in zoned resolution (2026-09-13)
 
 - **D-T2-7 `ZonedDateTime := TemporalHost.ZonedDateTime.{ … }`.** Supersedes
   the one-field record `{ h : TemporalHost.ZonedDateTime }`. The record existed
@@ -849,6 +849,20 @@ holds a pin only through a github dependency.
   answered the ISO weekday and none refused a date ISO accepts. The host call
   was a slower copy that could fail, so the leaf went and `iso_day_of_week`
   took the name (user, 2026-09-13). `CalendarFields.day_of_week` stays.
+- **D-T2-9 A wall clock is resolved in ISO fields, whatever the calendar.**
+  `reads_back_as` compared a candidate's calendar date with the ISO date asked
+  for, so on any non-ISO calendar nothing read back and every wall clock was
+  treated as a gap: London 2026-10-25 12:00 `Earlier` on Hebrew gave 11:00, the
+  01:30 overlap took the later side under `Compatible`, and `Reject` refused
+  unambiguous times. `with_plain_time`, `start_of_day` and `zoned_from_str` read
+  calendar fields as ISO the same way. Found while measuring whether
+  `with_plain_*` differ from rebuilding with `zoned_with!`; the gate built zoned
+  values on ISO only. Measured after the fix: `resolve_wall` on all 15 other
+  calendars equals ISO on 57.6M zone/day/time/disambiguation cases (at least 10
+  differences before), and the 320-case `with_plain_*` probe agrees on the
+  instant everywhere — the only difference left is `with_plain_date!` keeping
+  the zoned value's calendar where rebuilding takes the date's. The sweep is
+  not in the gate (133 s); three behaviour lines are.
 
 ## Still open (raised, not decided)
 
