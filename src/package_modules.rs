@@ -54,33 +54,31 @@ pub fn shipped(root: &Path, pkg: &Package) -> BTreeMap<String, Module> {
 /// module holding only those has nothing for `roc test` to count.
 pub fn has_expect(file: &Path) -> bool {
     let Ok(text) = std::fs::read_to_string(file) else { return false };
-    // Module level is depth 0, and depth 1 inside a type module's `.{ ... }`
-    // body, which is where a module's expects usually live — `roc test` runs
-    // those too.
-    let (mut depth, mut in_type_body) = (0, false);
+    // Module level is inside no bracket but a type module's `.{ ... }` body —
+    // however the type is spelled or spread over lines, and nested — which is
+    // where a module's expects usually live; `roc test` runs those too.
+    let mut open: Vec<bool> = vec![]; // one per open bracket: is it a `.{` body?
     for line in text.lines() {
-        let module_level = depth <= 0 || (in_type_body && depth == 1);
+        let module_level = open.iter().all(|body| *body);
         let rest = line.trim_start().strip_prefix("expect");
         if module_level && rest.is_some_and(|r| r.is_empty() || r.starts_with(|c: char| c.is_whitespace() || c == '(')) {
             return true;
         }
-        let opens_type_body = depth <= 0 && starts_type_module(line);
-        depth += crate::readme_lex::scan(line).depth;
-        if opens_type_body && depth == 1 {
-            in_type_body = true;
-        } else if depth <= 0 {
-            in_type_body = false;
+        let blanked = crate::readme_lex::scan(line).blanked;
+        let mut previous = ' ';
+        for c in blanked.chars() {
+            match c {
+                '{' => open.push(previous == '.'),
+                '(' | '[' => open.push(false),
+                ')' | ']' | '}' => { open.pop(); }
+                _ => {}
+            }
+            if !c.is_whitespace() {
+                previous = c;
+            }
         }
     }
     false
-}
-
-/// `Name :: ... .{` or `Name := ... .{`: a type module's opening line.
-fn starts_type_module(line: &str) -> bool {
-    line.split_once(" :").is_some_and(|(name, rest)| {
-        name.starts_with(|c: char| c.is_ascii_uppercase()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-            && (rest.starts_with(':') || rest.starts_with('=')) && rest.trim_end().ends_with(".{")
-    })
 }
 
 pub fn same_file(a: &Path, b: &Path) -> bool {
@@ -163,6 +161,17 @@ mod tests {
         assert!(has_expect(&d.join("TypeBody.roc")), "an expect in a type module's body");
         assert!(!has_expect(&d.join("MethodBody.roc")), "an expect in a method's body");
         assert!(has_expect(&d.join("MidString.roc")), "brackets in a mid-line multi-line string");
+        for (name, src) in [
+            ("Generic.roc", "Generic(a) :: [Val(a)].{\n\texpect 1 == 2\n}\n"),
+            ("Spread.roc", "Helper :: [\n\tA,\n\tB,\n].{\n\texpect 1 == 2\n}\n"),
+            ("Commented.roc", "Helper :: [].{ # helpers\n\texpect 1 == 2\n}\n"),
+            ("LaterLine.roc", "Helper ::\n\t[]\n\t.{\n\t\texpect 1 == 2\n\t}\n"),
+            ("Nested.roc", "Outer :: [].{\n\tInner :: [].{\n\t\texpect 1 == 2\n\t}\n}\n"),
+            ("Nospace.roc", "Nospace::[].{\n\texpect 1 == 2\n}\n"),
+        ] {
+            std::fs::write(d.join(name), src).unwrap();
+            assert!(has_expect(&d.join(name)), "{name}");
+        }
     }
 
     #[test]

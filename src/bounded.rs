@@ -74,6 +74,7 @@ pub fn run(cmd: &mut Command, what: &str, scratch: &Path) -> Result<Ran, String>
     static N: AtomicU64 = AtomicU64::new(0);
     let limit = timeout_secs()?;
     forward_signals();
+    wait_if_interrupted();
     let n = N.fetch_add(1, Ordering::Relaxed);
     std::fs::create_dir_all(scratch).map_err(|e| format!("create {}: {e}", scratch.display()))?;
     let (out_path, err_path) = (scratch.join(format!("run-{n}.out")), scratch.join(format!("run-{n}.err")));
@@ -99,15 +100,15 @@ pub fn run(cmd: &mut Command, what: &str, scratch: &Path) -> Result<Ran, String>
         }
         std::thread::sleep(POLL);
     };
-    // Anything the command left behind — a server a script started — goes too.
-    end_group(group);
-    unregister(slot);
-    // Interrupted: the forwarding thread is ending the other groups and will
-    // re-raise the signal. Returning now would report the killed command as a
-    // failure and exit 1 before it does.
-    while INTERRUPTED.load(Ordering::SeqCst) {
-        std::thread::sleep(POLL);
+    // Anything the command left behind — a server a script started — goes
+    // too. Not when interrupted: the forwarding thread is ending the group, and
+    // a second SIGTERM from here reached a nested `trantor test` as a second
+    // interrupt, which kills its children without their grace.
+    if !INTERRUPTED.load(Ordering::SeqCst) {
+        end_group(group);
     }
+    unregister(slot);
+    wait_if_interrupted();
     Ok(Ran { status, stdout: tail(&out_path), stderr: tail(&err_path), timed_out_after })
 }
 
@@ -116,6 +117,16 @@ pub fn alive(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid) else { return false };
     // SAFETY: signal 0 checks existence and permission; it delivers nothing.
     unsafe { libc::kill(pid, 0) == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) }
+}
+
+/// Interrupted: the forwarding thread is ending the groups and will re-raise
+/// the signal. Returning would report the killed command as a failure and exit
+/// 1 before it does, and starting another command would outlive the snapshot
+/// of groups it ends.
+fn wait_if_interrupted() {
+    while INTERRUPTED.load(Ordering::SeqCst) {
+        std::thread::sleep(POLL);
+    }
 }
 
 fn depth() -> u32 {

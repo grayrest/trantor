@@ -1,5 +1,8 @@
 //! Forwarding an interrupt to the process groups `bounded::run` started
 //! (D-T3-13): being in their own groups, they do not see a terminal's Ctrl-C.
+//! A second interrupt SIGKILLs them at once; a nested `trantor test` killed
+//! that way cannot end its own children, which are then left running — the
+//! price of "kill it now".
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 use crate::bounded::end_group;
@@ -50,7 +53,6 @@ pub fn forward_signals() {
             }
             INTERRUPTED.store(true, Ordering::SeqCst);
             let signal = libc::c_int::from(byte);
-            eprintln!("trantor: interrupted — ending the running commands (interrupt again to kill them now)");
             let groups: Vec<i32> = GROUPS.iter().map(|g| g.load(Ordering::SeqCst)).filter(|g| *g != 0).collect();
             // A second signal during the grace period kills them at once.
             let now: Vec<i32> = groups.clone();
@@ -66,6 +68,7 @@ pub fn forward_signals() {
                 }
             });
             let enders: Vec<_> = groups.into_iter().map(|g| std::thread::spawn(move || end_group(g))).collect();
+            note("trantor: interrupted — ending the running commands (interrupt again to kill them now)");
             for e in enders {
                 e.join().ok();
             }
@@ -83,6 +86,17 @@ pub fn forward_signals() {
             }
         }
     });
+}
+
+/// A note on stderr that cannot stop the forwarding: stderr may be a closed
+/// pipe (SIGPIPE would kill trantor before its commands) or a terminal that
+/// just hung up (`eprintln!` would panic this thread and leave trantor waiting
+/// forever). The groups are already being ended when it is written.
+fn note(text: &str) {
+    use std::io::Write;
+    // SAFETY: trantor is exiting; a later write to a closed pipe must fail, not kill.
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) };
+    let _ = writeln!(std::io::stderr(), "{text}");
 }
 
 /// Restore the default disposition and die of the signal, so the parent sees
