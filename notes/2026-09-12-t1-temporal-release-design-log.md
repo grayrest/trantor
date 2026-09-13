@@ -830,6 +830,17 @@ the pid; `update <name>` recovers before reading the manifest; a
 `variants/world.toml` and a symlinked variant file are variants, and a world
 holds a pin only through a github dependency.
 
+## D-T2-7 — `ZonedDateTime` is a nominal over its handle (2026-09-13)
+
+- **D-T2-7 `ZonedDateTime := TemporalHost.ZonedDateTime.{ … }`.** Supersedes
+  the one-field record `{ h : TemporalHost.ZonedDateTime }`. The record existed
+  only because the T2 probe found no syntax to unwrap a nominal over
+  `Box(U64)`; `ZonedDateTime.(h)` builds one and `|ZonedDateTime.(h)| h`
+  unwraps it on `release-fast-10e922df`. Methods still need a nominal, since an
+  alias cannot carry them. The record added a field for no reason, so it went
+  (user, 2026-09-13). The gate is unchanged: 387 expects, 73 behaviour lines, 4
+  sweeps.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20

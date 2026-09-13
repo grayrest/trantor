@@ -34,14 +34,15 @@ plan is shaped the way it is; do not "simplify" past them.
 | `minute : U8 = 0` — default value | **parse error** |
 | `{ base & hour: 10 }` — old update syntax | **parse error** |
 | methods on a record *alias* (non-nominal) | **not possible** |
-| `T := Box(U64)` used transparently, or unwrapped | **no syntax found** |
+| `T := Box(U64)` used transparently | **type error** |
+| `T.(x)` to build one, and as a pattern to unwrap it | works, and RUNS (D-T2-7) |
 
 Consequences that drive the design:
 
 - Partial records do not exist. Anything "optional" is spelled by spreading a
   named zero value.
-- A resource cannot carry methods directly; it must be wrapped in a one-field
-  nominal record (`ZonedDateTime := { h : TemporalHost.ZonedDateTime }`).
+- A resource carries methods through a nominal over its handle
+  (`ZonedDateTime := TemporalHost.ZonedDateTime.{ … }`), not through an alias.
 
 ## Decisions taken (D-T2-1 … D-T2-5)
 
