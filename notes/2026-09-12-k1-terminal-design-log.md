@@ -483,7 +483,8 @@ call and retries EINTR within it. On macOS the kernel behaves differently:
 without `SA_RESTART` it returns EINTR, which the fix covers, but with
 `SA_RESTART` it restarts the call with a fresh timeout (2.71s for a 2s budget),
 and no host retry can bound that. So on macOS, the flags this package installs
-SIGWINCH with decide whether a resize can stretch a trantor-net call.
+SIGWINCH with decide whether a resize can stretch a trantor-net call — decided
+by D-K1-28.
 
 **D-K1-26 — `TCSANOW` for mode entry, not `TCSAFLUSH`.** Flushing discards keys
 typed during startup (the snake enables Raw before drawing), and made the b8
@@ -525,14 +526,53 @@ Two findings from implementing, both in the plan's record: rustix 1.1.4's Apple
 (EINVAL); and the guard must not touch the terminal from outside its
 foreground process group, where `tcsetattr` is answered with SIGTTOU.
 
+**D-K1-28 — every guard signal, SIGWINCH included, keeps `SA_RESTART`.**
+`signal_hook_registry::register_sigaction` installs with `SA_RESTART` (1.4.8,
+`src/lib.rs:187`): one process-wide handler per signal, shared by every
+registrant. `guard.rs` registers SIGWINCH through it, and that stays. The macOS
+cost of keeping it is trantor-net's to fix, as D-K1-25's Linux defect was.
+
+Measured on macOS (Darwin 25.3) and Linux 6.8 (colima). Unless stated, one
+signal 1s into a 2s budget:
+
+| Call | No `SA_RESTART` | `SA_RESTART` |
+|---|---|---|
+| macOS UDP recv under `SO_RCVTIMEO`, SIGWINCH every 0.5s for 8s | EINTR at 0.50s | EAGAIN at **10.03s** |
+| macOS `poll`, the same signals | — | EINTR at 0.50s |
+| ureq 3.4.0 GET (http-host's client), macOS | `Interrupted` at 1.01s | `Timeout` at 3.00s |
+| the same, Linux | `Interrupted` at 1.01s | `Interrupted` at 1.00s |
+
+Without `SA_RESTART`, every blocking call in the process that does not retry
+EINTR fails on every resize, on both platforms. trantor-cli's `Streams.read!` is
+a plain `read` (`components/sync-io/src/lib.rs:49`), so a Cooked app reading
+stdin or a subprocess pipe would break on a resize — the very program D-K1-25
+registers SIGWINCH at `open!` for. So would ureq, and any C library linked in.
+Nor can it be had through the registry: clearing the flag after registering
+changes it for every registrant of that signal, and bypassing the registry gives
+up the chaining D-K1-11 chose it for.
+
+With `SA_RESTART`, EINTR stays confined to calls POSIX never restarts: `poll`
+and `select`, which `read!` already retries (D-K1-25), and Linux's timed
+sockets, which trantor-net `f2c71eb` retries. What remains is macOS stretching a
+timed socket call for as long as resizes keep arriving: a window drag held past
+the budget holds the call open. No retry around an `SO_RCVTIMEO` call can bound
+that. A deadline enforced by `poll` can, because `poll` returns EINTR under
+`SA_RESTART` on macOS.
+
+Rejected: installing without `SA_RESTART`. It buys exact trantor-net budgets on
+macOS today, in a process where every other blocking read breaks on a resize.
+
 ## Still open (raised, not decided)
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
   of K1.
 - `Stdout` writes interleaved with `Screen` frames on the same device are the
   app's to avoid; whether `Terminal` should warn is not decided.
-- Whether SIGWINCH is installed with `SA_RESTART`. With it, macOS restarts a
-  timed trantor-net socket call with a fresh timeout, so each resize can
-  stretch it by up to its whole budget. Without it, every blocking syscall in
-  the process that does not retry EINTR sees `Interrupted` on a resize
-  (D-K1-25).
+- trantor-net, from D-K1-28: sockets-host should wait on `poll` against its
+  deadline instead of `SO_RCVTIMEO`/`SO_SNDTIMEO`, so macOS budgets hold under
+  `SA_RESTART`.
+- trantor-net, from D-K1-28: http-host still has D-K1-25's Linux defect. ureq
+  3.4.0's `TcpTransport::await_input` is a plain `read` under
+  `set_read_timeout` with no EINTR retry
+  (`src/unversioned/transport/tcp.rs:217–231`), so a resize fails an HTTP
+  request with `Interrupted` whatever the flags.
