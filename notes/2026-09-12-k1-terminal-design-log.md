@@ -506,6 +506,25 @@ the driver's exit paths; rustix 1.1.4 providing every termios and pty call
 needed on macOS; `{ super : Bool }` and `() => {}` checking; the `tests/pty/`
 layout as a single-kind T3 directory.
 
+## Implementation (2026-09-12)
+
+**D-K1-27 — Width's Unicode data comes from ICU4X's compiled data, not from
+downloaded UCD files.** When implementation reached `Width`, only
+`GraphemeBreakTest-17.0.0.txt` existed locally (in the cached `icu_segmenter`
+2.3.0). The plan's source — four UCD .txt files checked in — needed a download
+from unicode.org; the alternative was `icu_properties` 2.3.0, already cached,
+whose compiled data is Unicode 17.0.0 and carries every property needed
+(East_Asian_Width, General_Category, Default_Ignorable_Code_Point,
+Emoji_Presentation, Grapheme_Cluster_Break, Extended_Pictographic,
+Indic_Conjunct_Break). The user chose ICU4X. The cost: the check becomes
+"matches this crate version" rather than "matches the Unicode files"; the
+conformance file is still Unicode's own, so a wrong table still fails it.
+
+Two findings from implementing, both in the plan's record: rustix 1.1.4's Apple
+`select` produces `tv_usec = 1_000_000` for a budget just under a whole second
+(EINVAL); and the guard must not touch the terminal from outside its
+foreground process group, where `tcsetattr` is answered with SIGTTOU.
+
 ## Still open (raised, not decided)
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
