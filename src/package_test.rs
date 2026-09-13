@@ -7,6 +7,7 @@ use std::process::Command;
 
 use crate::bounded::{self, Ran};
 use crate::manifest::Package;
+use crate::package_modules::{roc_files_with_expects, same_file, Module};
 use crate::package_worlds::{driver_in_reach, scratch_world, Deps, Reach};
 
 /// The world app suites and README examples compose into. A test app's header
@@ -48,17 +49,25 @@ impl Steps<'_> {
         if !self.pkg.dev_deps.is_empty() {
             println!("ok: composes with its dev-deps");
         }
-        let modules = self.modules()?;
+        let modules = crate::package_modules::shipped(self.root, self.pkg);
         let shipped: Vec<String> = modules.keys().cloned().collect();
         let expects = self.world(EXPECTS_WORLD, Deps::WithPackage, &shipped)?;
         self.trantor(&["compose", s(&expects)], "compose the package with every module it ships exposed")?;
-        let base = if crate::package_worlds::deps_body(self.root, self.pkg, Deps::Baseline)?.is_empty() {
-            None
-        } else {
-            let base = self.world(BASE_WORLD, Deps::Baseline, &[])?;
-            self.trantor(&["compose", s(&base)], "compose what the package stands on, without it")?;
-            self.negative_control(&with, &base)?;
-            Some(base)
+        let stands_on_nothing = crate::package_worlds::deps_body(self.root, self.pkg, Deps::Baseline)?.is_empty();
+        let base = match crate::package_worlds::baseline_reach(self.root, self.pkg) {
+            _ if stands_on_nothing => None,
+            // A driver package's dependencies have no driver without it, so
+            // they cannot compose alone; what they export is read instead.
+            Reach::No => {
+                self.negative_control_uncomposed(&with)?;
+                None
+            }
+            Reach::Yes | Reach::Unknown(_) => {
+                let base = self.world(BASE_WORLD, Deps::Baseline, &[])?;
+                self.trantor(&["compose", s(&base)], "compose what the package stands on, without it")?;
+                self.negative_control(&with, &base)?;
+                Some(base)
+            }
         };
         self.expects(&expects, base.as_deref(), &modules)?;
         crate::readme_examples::check(self, &with)?;
@@ -123,47 +132,34 @@ impl Steps<'_> {
         Ok(())
     }
 
-    /// Every module the package ships, by the name a platform exposes it
-    /// under — roc components' exports and its interfaces' modules — with the
-    /// source file it comes from and whether that file holds an expect. An
-    /// export may be a rename (`"Path as StrPath"`): the source is `Path.roc`,
-    /// the exposed name `StrPath`.
-    fn modules(&self) -> Result<BTreeMap<String, (PathBuf, bool)>, String> {
-        let mut out = BTreeMap::new();
-        for (name, c) in &self.pkg.components {
-            if c.kind != "roc" {
-                continue;
+    /// The negative control for dependencies that cannot compose without the
+    /// package: none of the modules they ship is one it exports.
+    fn negative_control_uncomposed(&self, with: &Path) -> Result<(), String> {
+        let mine = exposes(&platform_dir(with, APP_WORLD).join("main.roc"))?;
+        let deps = crate::package_worlds::dep_packages(self.root, self.pkg.dev_deps.iter().chain(self.pkg.deps.iter()));
+        for m in &self.pkg.package.exports {
+            if !mine.contains(m) {
+                return Err(format!("the package exports {m}, but the composed platform does not expose it"));
             }
-            let dir = self.root.join(c.path.clone().unwrap_or_else(|| format!("components/{name}")));
-            for entry in &c.exports {
-                let (source, exposed) = entry.split_once(" as ").unwrap_or((entry, entry));
-                let file = dir.join(format!("{}.roc", source.trim()));
-                let expects = has_expect(&file);
-                out.insert(exposed.trim().to_string(), (file, expects));
+            for dep in &deps {
+                let (name, dir, d) = dep.as_ref().map_err(Clone::clone)?;
+                if crate::package_modules::shipped(dir, d).contains_key(m) {
+                    return Err(format!("its dependency `{name}` already ships {m} — this package is not what supplies it"));
+                }
             }
         }
-        for iface in self.pkg.interfaces.keys() {
-            let dir = self.root.join("interfaces").join(iface);
-            let module = std::fs::read_to_string(dir.join("interface.toml")).ok()
-                .and_then(|t| toml::from_str::<toml::Value>(&t).ok())
-                .and_then(|v| v.get("module").and_then(|m| m.as_str()).map(str::to_string));
-            if let Some(m) = module {
-                let file = dir.join(format!("{m}.roc"));
-                let expects = has_expect(&file);
-                out.insert(m, (file, expects));
-            }
-        }
-        Ok(out)
+        println!("ok: what it stands on ships none of its {} exported modules (read from their manifests: without this driver they cannot compose)", self.pkg.package.exports.len());
+        Ok(())
     }
 
     /// The package's expects run and are counted as its contribution. Every
     /// `.roc` file holding an expect must belong to a module the package ships,
     /// or no world can reach it: an unexported helper's failing expect used to
     /// pass silently.
-    fn expects(&self, expects: &Path, base: Option<&Path>, modules: &BTreeMap<String, (PathBuf, bool)>) -> Result<(), String> {
+    fn expects(&self, expects: &Path, base: Option<&Path>, modules: &BTreeMap<String, Module>) -> Result<(), String> {
         let exposed = exposes(&platform_dir(expects, EXPECTS_WORLD).join("main.roc"))?;
         for file in roc_files_with_expects(self.root) {
-            let shipped = modules.iter().any(|(name, (source, _))| same_file(source, &file) && exposed.contains(name));
+            let shipped = modules.iter().any(|(name, m)| same_file(&m.file, &file) && exposed.contains(name));
             if !shipped {
                 let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
                 return Err(format!(
@@ -178,7 +174,7 @@ impl Steps<'_> {
             None => 0,
         };
         let mine = both.saturating_sub(theirs);
-        let with_expects = modules.values().filter(|(_, e)| *e).count();
+        let with_expects = modules.values().filter(|m| m.has_expect).count();
         if with_expects > 0 && mine == 0 {
             return Err(format!("{with_expects} of its modules hold expects, but none of the {both} that ran were its own"));
         }
@@ -216,47 +212,4 @@ fn exposes(main: &Path) -> Result<Vec<String>, String> {
         .ok_or_else(|| format!("{} has no exposes list", main.display()))?;
     let inner = line.split_once('[').and_then(|(_, r)| r.split_once(']')).map(|(i, _)| i).unwrap_or("");
     Ok(inner.split(',').map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect())
-}
-
-fn same_file(a: &Path, b: &Path) -> bool {
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(x), Ok(y)) => x == y,
-        _ => a == b,
-    }
-}
-
-/// `expect` as a statement: the keyword, then whitespace or the end of the
-/// line. A multi-line expect (`expect` alone, its body below) used to be missed.
-fn has_expect(file: &Path) -> bool {
-    std::fs::read_to_string(file).is_ok_and(|t| {
-        t.lines().any(|l| l.trim_start().strip_prefix("expect").is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace)))
-    })
-}
-
-/// `.roc` files under the package holding an expect — outside `tests/`,
-/// `target/` and dot-directories, and never through a symlink, which could
-/// loop (two `ln -s .` made this walk effectively endless).
-fn roc_files_with_expects(root: &Path) -> Vec<PathBuf> {
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for e in entries.flatten() {
-            let Ok(kind) = e.file_type() else { continue };
-            let path = e.path();
-            let name = e.file_name().to_string_lossy().into_owned();
-            if kind.is_symlink() {
-                continue;
-            }
-            if kind.is_dir() {
-                if !(name == "target" || name == "tests" || name.starts_with('.')) {
-                    walk(&path, out);
-                }
-            } else if path.extension().is_some_and(|x| x == "roc") && has_expect(&path) {
-                out.push(path);
-            }
-        }
-    }
-    let mut out = vec![];
-    walk(root, &mut out);
-    out.sort();
-    out
 }

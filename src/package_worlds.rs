@@ -103,20 +103,37 @@ pub fn driver_in_reach(root: &Path, pkg: &Package, depth: usize) -> Reach {
     if pkg.package.provides_driver.is_some() {
         return Reach::Yes;
     }
+    deps_reach(root, pkg.deps.iter(), depth)
+}
+
+/// Whether what the package stands on — its dev-deps and its [deps], without
+/// the package — reaches a driver. A driver package's base does not, and
+/// cannot be composed.
+pub fn baseline_reach(root: &Path, pkg: &Package) -> Reach {
+    deps_reach(root, pkg.dev_deps.iter().chain(pkg.deps.iter()), 0)
+}
+
+/// Each dependency's root, parsed.
+pub fn dep_packages<'a>(root: &Path, deps: impl Iterator<Item = (&'a String, &'a Dep)>) -> Vec<Result<(String, PathBuf, Package), String>> {
+    deps.map(|(name, dep)| {
+        let dir = match dep.source(name)? {
+            DepSource::Path(p) => root.join(p),
+            DepSource::GitHub(g) => crate::registry::github_root(root, name, &g)?,
+        };
+        let text = std::fs::read_to_string(dir.join("package.toml")).map_err(|e| format!("`{name}`: read {}: {e}", dir.join("package.toml").display()))?;
+        let pkg = toml::from_str::<Package>(&text).map_err(|e| format!("`{name}`: parse its package.toml: {e}"))?;
+        Ok((name.clone(), dir, pkg))
+    })
+    .collect()
+}
+
+fn deps_reach<'a>(root: &Path, deps: impl Iterator<Item = (&'a String, &'a Dep)>, depth: usize) -> Reach {
     if depth > 16 {
         return Reach::Unknown("the [deps] chain is deeper than 16 — a cycle, most likely".into());
     }
     let mut unknown: Option<String> = None;
-    for (name, dep) in &pkg.deps {
-        let dir = match dep.source(name) {
-            Ok(DepSource::Path(p)) => root.join(p),
-            Ok(DepSource::GitHub(g)) => { unknown.get_or_insert(format!("`{name}` is a github dependency ({g}), which is not read without fetching")); continue }
-            Err(e) => { unknown.get_or_insert(e); continue }
-        };
-        let parsed = std::fs::read_to_string(dir.join("package.toml"))
-            .map_err(|e| format!("`{name}`: read {}: {e}", dir.join("package.toml").display()))
-            .and_then(|t| toml::from_str::<Package>(&t).map_err(|e| format!("`{name}`: parse its package.toml: {e}")));
-        match parsed.map(|d| driver_in_reach(&dir, &d, depth + 1)) {
+    for dep in dep_packages(root, deps) {
+        match dep.map(|(_, dir, d)| driver_in_reach(&dir, &d, depth + 1)) {
             Ok(Reach::Yes) => return Reach::Yes,
             Ok(Reach::No) => {}
             Ok(Reach::Unknown(why)) | Err(why) => { unknown.get_or_insert(why); }
@@ -135,7 +152,7 @@ pub fn fresh_scratch(name: &str) -> Result<PathBuf, String> {
         for e in entries.flatten() {
             let file = e.file_name().to_string_lossy().into_owned();
             let Some(pid) = file.strip_prefix(&prefix).and_then(|p| p.parse::<u32>().ok()) else { continue };
-            if pid != std::process::id() && !alive(pid) {
+            if pid != std::process::id() && !crate::bounded::alive(pid) {
                 std::fs::remove_dir_all(e.path()).ok();
             }
         }
@@ -146,11 +163,6 @@ pub fn fresh_scratch(name: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
-fn alive(pid: u32) -> bool {
-    std::process::Command::new("kill").args(["-0", &pid.to_string()])
-        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
-        .status().is_ok_and(|s| s.success())
-}
 
 #[cfg(test)]
 mod tests {

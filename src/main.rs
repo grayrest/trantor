@@ -31,6 +31,7 @@ mod deps;
 mod help;
 mod manifest;
 mod bounded;
+mod package_modules;
 mod package_suites;
 mod package_test;
 mod package_worlds;
