@@ -51,6 +51,7 @@ pub fn update_command(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>) ->
         (false, [name, dir]) => (Some(name.clone()), PathBuf::from(dir)),
         _ => return Err(format!("update: too many arguments\n{UPDATE_USAGE}")),
     };
+    crate::journal::recover_for_edit(&dir)?;
     let target = Target::of(&dir, a.world.as_deref())?;
     project::transact(&dir, &target, || {
         update(&dir, target.manifest(), &target.deps(&dir)?, name.as_deref())
@@ -73,6 +74,7 @@ pub fn remove_command(it: &mut std::iter::Skip<std::slice::Iter<'_, String>>) ->
         [] => return Err(format!("remove: missing <name>\n{REMOVE_USAGE}")),
         _ => return Err(format!("remove: too many arguments\n{REMOVE_USAGE}")),
     };
+    crate::journal::recover_for_edit(&dir)?;
     let target = Target::of(&dir, a.world.as_deref())?;
     let elsewhere = target.names_used_elsewhere(&dir).contains(&name);
     let mut said = String::new();

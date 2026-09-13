@@ -93,14 +93,20 @@ fn a_journal_without_its_file_list_is_kept_not_discarded() {
 }
 
 #[test]
-fn a_live_staging_directory_is_not_swept() {
+fn a_fresh_staging_directory_is_not_swept_and_a_finished_edit_leaves_no_journal() {
     let d = project("sweep");
-    let live = d.join(format!("{JOURNAL_DIR}.tmp-1")); // launchd: alive, never us
-    std::fs::create_dir_all(&live).unwrap();
-    let dead = d.join(format!("{JOURNAL_DIR}.tmp-999999999"));
-    std::fs::create_dir_all(&dead).unwrap();
+    let fresh = d.join(format!("{JOURNAL_DIR}.tmp-999999999"));
+    std::fs::create_dir_all(&fresh).unwrap();
     sweep(&d);
-    assert!(live.exists() && !dead.exists());
+    assert!(fresh.exists(), "no lock file yet, and new: a begin in progress");
+    // A stale discarded journal with this process's own pid.
+    let stale = d.join(format!("{JOURNAL_DIR}.done-{}", std::process::id()));
+    std::fs::create_dir_all(stale.join("leftover")).unwrap();
+    std::fs::write(d.join("world.toml"), "x").unwrap();
+    let j = Journal::begin(&d, &["world.toml"]).unwrap();
+    j.written().unwrap();
+    j.commit();
+    assert!(!d.join(JOURNAL_DIR).exists(), "the finished edit's journal is gone");
 }
 
 #[test]

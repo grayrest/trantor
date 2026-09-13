@@ -221,28 +221,54 @@ fn restore(target: &Path, bytes: &Option<Vec<u8>>) -> Result<(), String> {
 /// Renamed away first, so a kill mid-delete never leaves a partial journal
 /// that looks like an interrupted edit.
 fn discard(dir: &Path) {
-    let gone = dir.with_file_name(format!("{JOURNAL_DIR}.done-{}", std::process::id()));
-    if std::fs::rename(dir, &gone).is_ok() {
-        std::fs::remove_dir_all(&gone).ok();
+    // A name no earlier run can have left: a stale `.done-<pid>` from a killed
+    // run with a reused pid made this rename fail, and the finished edit's
+    // journal stayed to be "recovered" — rolled back — by the next command.
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let gone = dir.with_file_name(format!("{JOURNAL_DIR}.done-{}-{nanos}", std::process::id()));
+    match std::fs::rename(dir, &gone) {
+        Ok(()) => { std::fs::remove_dir_all(&gone).ok(); }
+        Err(_) => { std::fs::remove_dir_all(dir).ok(); }
     }
 }
 
-/// Staging and discarded journals whose owner is gone: its pid (in the name)
-/// is not running and its lock is free. The pid check comes first — a live
-/// `begin` has created its staging directory before its lock file, and a
-/// sweep that went by the lock alone deleted it mid-write.
+/// Staging and discarded journals whose owner is gone, judged by the owner's
+/// lock alone — a pid says nothing across containers sharing a directory. A
+/// staging directory without its lock file yet belongs to a `begin` that has
+/// just made it, unless it is old.
 fn sweep(project: &Path) {
     let Ok(entries) = std::fs::read_dir(project) else { return };
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        let pid = name.strip_prefix(&format!("{JOURNAL_DIR}.tmp-")).or_else(|| name.strip_prefix(&format!("{JOURNAL_DIR}.done-")));
-        let Some(pid) = pid.and_then(|p| p.parse::<u32>().ok()) else { continue };
-        if pid == std::process::id() || crate::bounded::alive(pid) {
+        let staging = name.starts_with(&format!("{JOURNAL_DIR}.tmp-"));
+        if !staging && !name.starts_with(&format!("{JOURNAL_DIR}.done-")) {
             continue;
         }
-        if File::open(e.path().join(OWNER)).map_or(true, |o| try_lock(&o)) {
+        let abandoned = match File::open(e.path().join(OWNER)) {
+            Ok(owner) => try_lock(&owner),
+            Err(_) if staging => e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STAGING_GRACE)),
+            // A discarded journal part way through its deletion.
+            Err(_) => true,
+        };
+        if abandoned {
             std::fs::remove_dir_all(e.path()).ok();
         }
+    }
+}
+
+/// How old a staging directory without a lock file must be to count as abandoned.
+const STAGING_GRACE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Recover before an edit reads the manifest: a half-done edit must not be
+/// taken for the project's state. A conflict stops the edit.
+pub fn recover_for_edit(project: &Path) -> Result<(), String> {
+    match recover(project)? {
+        Recovery::Conflict(why) => Err(why),
+        Recovery::Restored(note) => {
+            eprintln!("trantor: {note}");
+            Ok(())
+        }
+        Recovery::Nothing => Ok(()),
     }
 }
 

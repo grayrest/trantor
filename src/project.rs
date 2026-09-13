@@ -94,16 +94,26 @@ impl Target {
 }
 
 /// World manifests sharing `dir`'s lock: every `*.toml` under it that has a
-/// `[world]` table, outside `target/`, dot-directories, and directories that
-/// are projects of their own (a `trantor.lock` or `package.toml` of theirs).
+/// `[world]` table, outside `target/`, dot-directories, symlinks, and
+/// directories that are projects of their own (a `world.toml`, `trantor.lock`
+/// or `package.toml` of theirs). A variant in a subdirectory is named
+/// otherwise (`variants/w.toml`) and reads its paths from this directory.
 fn world_files(dir: &Path) -> Vec<String> {
     fn walk(root: &Path, at: &Path, out: &mut Vec<String>) {
         let Ok(entries) = std::fs::read_dir(at) else { return };
         for e in entries.flatten() {
             let path = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
-            if path.is_dir() {
-                let own_project = path.join(LOCK_FILE).exists() || path.join("package.toml").exists();
+            // Symlinks are not followed: two links to `.` made this walk
+            // endless, and a link out of the project is not its variant.
+            let Ok(kind) = e.file_type() else { continue };
+            if kind.is_symlink() {
+                continue;
+            }
+            if kind.is_dir() {
+                // A directory with its own world.toml, lock or package.toml is
+                // a project of its own; its paths are relative to itself.
+                let own_project = path.join(LOCK_FILE).exists() || path.join("package.toml").exists() || path.join("world.toml").exists();
                 if !(name.starts_with('.') || name == "target" || own_project) {
                     walk(root, &path, out);
                 }
