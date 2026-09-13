@@ -46,6 +46,7 @@ mod readme_claims;
 mod readme_examples;
 mod readme_generate;
 mod readme_lex;
+mod readme_numbers;
 mod readme_taint;
 mod registry;
 mod resolve;

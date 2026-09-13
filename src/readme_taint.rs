@@ -9,7 +9,10 @@ use crate::readme_lex::{scan, Block, Stmt};
 /// through one differs between runs and machines, so it cannot be stated.
 /// Reached through an alias, an `exposing` list, a module-level function or a
 /// prelude binding just the same.
-const MACHINE_MODULES: &[&str] = &["Now", "Utc", "Clocks", "Env", "Random", "Locale", "Cli", "Stdin", "File", "Fs", "Cmd", "Subprocess"];
+const MACHINE_MODULES: &[&str] = &[
+    "Now", "Utc", "Clocks", "Env", "Random", "Locale", "Cli", "Stdin", "Streams", "Tty",
+    "File", "Fs", "Path", "OsPath", "StrPath", "Cmd", "Subprocess", "Tcp", "Udp", "Http",
+];
 
 /// What reads the machine: `Module.` prefixes (aliases included) and names.
 pub struct Taint {
@@ -39,13 +42,16 @@ impl Taint {
             prelude.iter().filter_map(|p| binding(p).map(|(names, _)| (names.join(" "), p.blanked.clone())))
         ).collect();
         loop {
-            let before = t.names.len();
+            let before = t.names.len() + t.prefixes.len();
             for (names, body) in &defs {
                 if t.reads(body) {
-                    t.names.extend(names.split(' ').filter(|n| !n.is_empty()).map(str::to_string));
+                    for n in names.split(' ').filter(|n| !n.is_empty()) {
+                        // A type module's method is reached as `Type.method`.
+                        if n.contains('.') { t.prefixes.insert(n.to_string()); } else { t.names.insert(n.to_string()); }
+                    }
                 }
             }
-            if t.names.len() == before { break }
+            if t.names.len() + t.prefixes.len() == before { break }
         }
         t
     }
@@ -68,13 +74,24 @@ impl Taint {
     }
 }
 
-/// A module-level block's column-0 definitions: `(name, its text)`.
+/// A module-level block's definitions, `(name, its text)`: column-0
+/// functions and values, and a type module's methods as `Type.method`. Any
+/// other column-0 line — an annotation — starts an unnamed chunk, so it is
+/// not read as part of the definition above it.
 fn definitions(b: &Block) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = vec![];
+    let mut type_module: Option<String> = None;
     for (_, l) in &b.lines {
         let blanked = scan(l).blanked;
-        match l.split_once(" = ") {
-            Some((lhs, _)) if !l.starts_with(char::is_whitespace) && is_ident(lhs.trim_end_matches('!')) => out.push((lhs.to_string(), blanked)),
+        let top = !l.starts_with(char::is_whitespace) && !l.trim().is_empty();
+        if top {
+            type_module = l.split_once(" :").filter(|(n, r)| n.starts_with(|c: char| c.is_ascii_uppercase()) && (r.starts_with(':') || r.starts_with('='))).map(|(n, _)| n.to_string());
+        }
+        let lhs = l.split_once(" = ").map(|(lhs, _)| lhs.trim()).filter(|lhs| is_ident(lhs.trim_end_matches('!')));
+        match (top, lhs, &type_module) {
+            (true, Some(name), _) => out.push((name.to_string(), blanked)),
+            (false, Some(name), Some(ty)) => out.push((format!("{ty}.{name}"), blanked)),
+            (true, _, _) => out.push((String::new(), blanked)),
             _ => if let Some(last) = out.last_mut() { last.1.push(' '); last.1.push_str(&blanked) },
         }
     }
@@ -112,6 +129,10 @@ mod tests {
             assert!(t.reads(&scan(line).blanked), "{line}");
         }
         assert!(!t.reads(&scan("jan1.add!({ days: 1 })?").blanked));
+        let typed = Block::for_test(&["Machine :: [].{", "\thome! = |{}|", "\t\tEnv.var_str!(\"HOME\")", "}", "greet = |n| n", "run : Cmd.Cmd => Try({}, _)"]);
+        let t = Taint::of(&BTreeSet::new(), &[&typed], &[]);
+        assert!(t.reads(&scan("Machine.home!({})?").blanked), "a type module's method");
+        assert!(!t.reads(&scan("greet(\"x\")").blanked), "an annotation below is not part of greet");
         assert!(!t.reads(&scan("MyNow.x").blanked), "a longer module name is not Now");
     }
     #[test]

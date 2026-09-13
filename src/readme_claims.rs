@@ -3,6 +3,8 @@
 //! value but is not a form listed here fails the run: a claim silently skipped
 //! reads the same as one checked.
 
+use crate::readme_numbers::{normal_number, normal_numbers};
+
 /// What a comment claims.
 #[derive(Debug, PartialEq)]
 pub enum Claim {
@@ -37,10 +39,22 @@ pub fn claim(comment: &str) -> Claim {
     if one_token && (is_number(head) || is_bool(head) || is_tag_name(head) || is_rendered_text(head)) {
         return Claim::Token(head.to_string());
     }
-    if looks_like_value(first) || (one_token && head.starts_with(|c: char| c.is_ascii_uppercase())) {
+    // `Bool.true`, `Some(x`: capitalised and value-shaped. `Note:` is prose.
+    let capital_value = one_token && head.starts_with(|c: char| c.is_ascii_uppercase()) && head.contains(['(', '.']);
+    if looks_like_value(first) || capital_value {
         return Claim::Unrecognised(head.to_string());
     }
     Claim::Prose
+}
+
+/// A comment on a line of its own below an expression. A bare tag name there
+/// is prose — `# TODO`, `# Deprecated` — and states a value only inline, on
+/// the expression's own line (`x.compare(y)   # LT`).
+pub fn claim_below(comment: &str) -> Claim {
+    match claim(comment) {
+        Claim::Token(t) if is_tag_name(&t) => Claim::Prose,
+        other => other,
+    }
 }
 
 fn before_prose(comment: &str) -> &str {
@@ -91,8 +105,9 @@ fn looks_like_value(word: &str) -> bool {
     let Some(c) = chars.next() else { return false };
     let next = chars.next();
     c.is_numeric()
-        || "\"'[{(→=".contains(c)
+        || "\"'[{(→⇒~=".contains(c)
         || (matches!(c, '-' | '+' | '.') && next.is_some_and(|n| n.is_ascii_digit() || n == 'P'))
+        || (c == '-' && next == Some('>'))
         || (c == 'P' && next.is_some_and(|n| n.is_ascii_digit() || n == 'T'))
         || is_bool(word.trim_end_matches(|c: char| c.is_ascii_punctuation()))
         || word.starts_with("Bool.")
@@ -156,8 +171,12 @@ pub fn matches(claim: &Claim, via_to_str: bool, inspected: &str) -> Result<bool,
         _ => inspected,
     };
     Ok(match claim {
-        Claim::Tag(t) => t == inspected,
-        Claim::Token(t) if is_number(t) => inspected.parse::<f64>().is_ok_and(|v| t.parse::<f64>().is_ok_and(|s| s == v)),
+        Claim::Tag(t) => normal_numbers(t) == normal_numbers(inspected),
+        // Exactly, as decimal text: an f64 made 18446744073709551000 equal
+        // U64's maximum. A number shown as text ("7") is the same claim.
+        Claim::Token(t) if is_number(t) => {
+            normal_number(t) == normal_number(inspected) || as_text(inspected).is_some_and(|s| &s == t)
+        }
         Claim::Token(t) if is_bool(t) => t.eq_ignore_ascii_case(inspected),
         Claim::Token(t) if is_tag_name(t) => t == inspected,
         Claim::Quoted(t) | Claim::Token(t) => as_text(inspected).is_some_and(|s| &s == t),
@@ -202,7 +221,11 @@ mod tests {
             assert_eq!(claim(token), Claim::Token(token.into()), "{token}");
         }
         assert_eq!(claim("OutOfRange(\"x\")"), Claim::Tag("OutOfRange(\"x\")".into()));
-        for near in ["2024-02-29, constrained", "359 days", "999 (paren after)", "[1, 2]", r##""x" and more"##, "3,000",
+        assert_eq!(claim("Note: this is prose"), Claim::Prose);
+        assert_eq!(claim("Deprecated"), Claim::Token("Deprecated".into()));
+        assert_eq!(claim_below("Deprecated"), Claim::Prose, "a tag name below the line is prose");
+        assert_eq!(claim_below("\"x\""), Claim::Quoted("x".into()));
+        for near in ["-> 3", "⇒ 3", "~3", "2024-02-29, constrained", "359 days", "999 (paren after)", "[1, 2]", r##""x" and more"##, "3,000",
                      "→ 3", "= 3", "=> 3", "'a'", "３", ".5", "Bool.true", "True, as it happens", "\"x\"."] {
             assert!(matches!(claim(near), Claim::Unrecognised(_)), "{near} should be unrecognised, got {:?}", claim(near));
         }
@@ -224,6 +247,11 @@ mod tests {
         assert!(!matches(&Claim::Quoted("10".into()), false, "Ok(\"10\")").unwrap(), "a Try the README wrote is not its text");
         assert!(matches(&Claim::Token("P359D".into()), true, "Ok(\"P359D\")").unwrap(), "a to_str trantor called may answer Ok");
         assert!(matches(&Claim::Tag("Ok(1)".into()), false, "Ok(1)").unwrap());
+        assert!(matches(&Claim::Tag("Ok(3)".into()), false, "Ok(3.0)").unwrap(), "numbers in a tag are normalised");
+        assert!(!matches(&Claim::Tag("Ok(\"3\")".into()), false, "Ok(\"3.0\")").unwrap(), "but not inside a string");
+        assert!(!matches(&Claim::Token("18446744073709551000".into()), false, "18446744073709551615").unwrap(), "no f64 rounding");
+        assert!(!matches(&Claim::Token("0.3".into()), false, "0.30000000000000001").unwrap());
+        assert!(matches(&Claim::Token("7".into()), false, "\"7\"").unwrap(), "a number shown as text");
     }
 
     #[test]
