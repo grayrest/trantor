@@ -46,6 +46,8 @@ pub fn main_contract(platform: &str) -> Result<MainContract, String> {
     let arity = if args.trim().is_empty() { 0 } else { top_level_commas(args) + 1 };
     let param = match arity {
         _ if args.trim() == "{}" => "{}".to_string(),
+        // `() => ...` takes no argument at all: `main! = || ...`.
+        _ if args.trim() == "()" => String::new(),
         0 | 1 => "_args".to_string(),
         n => (1..=n).map(|i| format!("_arg{i}")).collect::<Vec<_>>().join(", "),
     };
@@ -132,12 +134,18 @@ fn top_level_commas(s: &str) -> usize {
 
 pub fn app_main(name: &str, contract: &MainContract) -> String {
     format!(
-        "app [main!] {{ pf: platform \"../target/trantor/{name}/platform/main.roc\" }}\n\n{}\n\n{}\nmain! = |{}| {{\n\t{}\n}}\n",
+        "app [main!] {{ pf: platform \"../target/trantor/{}/platform/main.roc\" }}\n\n{}\n\n{}\nmain! = |{}| {{\n\t{}\n}}\n",
+        roc_str_body(name),
         contract.imports.iter().map(|i| format!("import {i}")).collect::<Vec<_>>().join("\n"),
         contract.signature,
         contract.param,
         contract.body,
     )
+}
+
+/// Text for inside a Roc string literal.
+fn roc_str_body(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$")
 }
 
 #[cfg(test)]
@@ -158,6 +166,8 @@ mod tests {
         assert_eq!(wrapped.imports, vec!["pf.IOErr", "pf.OsStr"], "a type named twice is imported once");
         let int = contract("\t\tmain! : {} => I32").unwrap();
         assert_eq!((int.param.as_str(), int.body.starts_with("crash")), ("{}", true));
+        assert_eq!(contract("\t\tmain! : () => Try({}, _)").unwrap().param, "", "no argument at all");
+        assert!(app_main("q\"x$", &contract("\t\tmain! : {} => Try({}, _)").unwrap()).contains("target/trantor/q\\\"x\\$/platform"));
         let two = contract("\t\tmain! : Str, List(Str) => Try({}, _)").unwrap();
         assert_eq!(two.param, "_arg1, _arg2");
         assert!(contract("\t\trun! : {} => {}").unwrap_err().contains("requires no `main!`"));

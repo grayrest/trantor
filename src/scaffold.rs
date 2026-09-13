@@ -36,9 +36,14 @@ fn workspace_toml(world: &str) -> String {
          # it at the composed crate. The path only exists after a compose, which\n\
          # is why `trantor new` runs one.\n\
          [patch.crates-io]\n\
-         trantor-abi = {{ path = \"target/trantor/{world}/abi\" }}\n"
+         trantor-abi = {{ path = {} }}\n",
+        crate::package_worlds::toml_str(&format!("target/trantor/{world}/abi"))
     )
 }
+
+/// Written first and removed last: its presence means a `new` was killed part
+/// way. It lists what that `new` created, and its owner holds an flock on it.
+const MARKER: &str = ".trantor-new";
 
 /// Write `app/main.roc` for a project whose platform is composed, if it has
 /// none yet. The signature comes from the platform, so the app typechecks
@@ -77,26 +82,55 @@ pub fn write_new(p: &Path, body: &str) -> Result<(), String> {
 /// what it wrote: it used to leave a world.toml behind, and then refuse to run
 /// again in a directory it said was "already a trantor project".
 pub fn new_project(dir: &Path, from: Option<&str>) -> Result<(), String> {
+    undo_interrupted(dir)?;
     if dir.join("world.toml").exists() {
         return Err(format!("{} is already a trantor project", dir.display()));
     }
-    let existed: Vec<(PathBuf, bool)> = [Path::new(""), Path::new("world.toml"), Path::new("Cargo.toml"), Path::new(".gitignore"),
-        Path::new(crate::registry::LOCK_FILE), Path::new("target"), Path::new("app")]
-        .iter()
-        .map(|p| (dir.join(p), dir.join(p).exists()))
+    let created: Vec<&str> = ["", "world.toml", "Cargo.toml", ".gitignore", crate::registry::LOCK_FILE, "target", "app"]
+        .into_iter()
+        .filter(|p| !dir.join(p).exists())
         .collect();
-    scaffold(dir, from).map_err(|e| {
-        for (p, was) in existed.iter().rev() {
-            if !was {
-                if p.is_dir() { std::fs::remove_dir_all(p).ok(); } else { std::fs::remove_file(p).ok(); }
-            }
+    std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let marker = std::fs::File::create(dir.join(MARKER)).map_err(|e| format!("create {}: {e}", dir.join(MARKER).display()))?;
+    crate::journal::try_lock(&marker);
+    std::fs::write(dir.join(MARKER), created.join("\n")).map_err(|e| format!("write {}: {e}", dir.join(MARKER).display()))?;
+    let result = scaffold(dir, from);
+    if result.is_err() {
+        remove_created(dir, &created);
+    }
+    std::fs::remove_file(dir.join(MARKER)).ok();
+    result.map_err(|e| format!("{e}\n(new wrote nothing that it left behind — fix that and run it again)"))
+}
+
+/// A `new` killed part way — a Ctrl-C during a long build — left its marker:
+/// remove what it created, so this one starts clean.
+fn undo_interrupted(dir: &Path) -> Result<(), String> {
+    let path = dir.join(MARKER);
+    let Ok(marker) = std::fs::File::open(&path) else { return Ok(()) };
+    if !crate::journal::try_lock(&marker) {
+        return Err(format!("another `trantor new` is running in {}", dir.display()));
+    }
+    let created: Vec<String> = std::fs::read_to_string(&path).unwrap_or_default().lines().map(str::to_string).collect();
+    remove_created(dir, &created.iter().map(String::as_str).collect::<Vec<_>>());
+    std::fs::remove_file(&path).ok();
+    eprintln!("trantor: an interrupted `trantor new` in {} was cleaned up", dir.display());
+    Ok(())
+}
+
+fn remove_created(dir: &Path, created: &[&str]) {
+    for p in created.iter().rev() {
+        let path = dir.join(p);
+        if p.is_empty() {
+            std::fs::remove_dir_all(dir).ok();
+        } else if path.is_dir() {
+            std::fs::remove_dir_all(&path).ok();
+        } else {
+            std::fs::remove_file(&path).ok();
         }
-        format!("{e}\n(new wrote nothing that it left behind — fix that and run it again)")
-    })
+    }
 }
 
 fn scaffold(dir: &Path, from: Option<&str>) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     // Composition keys output by the directory's resolved name, so a project
     // reached through a symlink is staged under the real one — and the
     // workspace patch and the app header have to name that one too.
@@ -110,6 +144,8 @@ fn scaffold(dir: &Path, from: Option<&str>) -> Result<(), String> {
         // An existing directory is a local baseline, however it is spelled;
         // recorded relative to the project, since that is where it is read from.
         Some(f) if Path::new(f).is_dir() => Baseline::Path(relative_to(Path::new(f), dir)?),
+        // Spelled like a path but not a directory: a typo, not a github repo.
+        Some(f) if looks_like_path(f) => return Err(format!("new --from {f:?}: there is no directory there")),
         Some(f) if f.split('/').count() == 2 && !f.split('/').any(str::is_empty) => Baseline::GitHub(f.to_string()),
         Some(f) => return Err(format!("new --from {f:?}: neither a directory nor <org>/<repo>")),
     };
@@ -120,7 +156,7 @@ fn scaffold(dir: &Path, from: Option<&str>) -> Result<(), String> {
     };
     write_new(&dir.join("world.toml"), &format!("[world]\nname = {}\n{body}", crate::package_worlds::toml_str(&name)))?;
     write_new(&dir.join("Cargo.toml"), &workspace_toml(&name))?;
-    write_new(&dir.join(".gitignore"), "# Everything trantor generates lives here (D-H7-38).\ntarget/\n")?;
+    write_new(&dir.join(".gitignore"), "# Everything trantor generates lives here (D-H7-38).\ntarget/\n# An interrupted add/update/remove's journal (D-T3-12).\n.trantor-edit/\n")?;
     if let Baseline::GitHub(slug) = &baseline {
         // `new` builds right after, so the compose that would validate this
         // happens there; fetching and pinning is all that is needed here.
@@ -150,6 +186,11 @@ fn scaffold(dir: &Path, from: Option<&str>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn looks_like_path(f: &str) -> bool {
+    let first = f.split('/').next().unwrap_or("");
+    f.starts_with(['.', '/', '~']) || f.split('/').count() != 2 || f.ends_with(".toml") || Path::new(first).is_dir()
 }
 
 enum Baseline {
