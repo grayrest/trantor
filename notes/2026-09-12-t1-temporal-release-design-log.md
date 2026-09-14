@@ -1069,6 +1069,14 @@ holds a pin only through a github dependency.
 
   The link table comes from the system's 2026c tzdata.zi against the pinned
   2025c, and agreed on every link temporal_rs resolves.
+- **D-T2-32 `PlainDate.to_str` prints the calendar annotation.** It printed
+  ISO fields alone, so a non-ISO date parsed back on `Iso` and compared unequal
+  to itself; `ZonedDateTime.to_str!` already annotated (D-T1-6). It now appends
+  `[u-ca=id]` for any calendar but `Iso`, as TC39's `calendarName: "auto"`
+  does. The identifier table is written in Roc so `to_str` stays pure, and
+  `tests/strings` holds it to the host's `calendar_id!` by round-tripping dates
+  on all sixteen calendars. `format` still prints ISO fields whatever the
+  calendar (D-T1-8).
 
 ## Still open (raised, not decided)
 
