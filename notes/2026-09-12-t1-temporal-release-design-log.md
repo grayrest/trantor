@@ -1124,6 +1124,16 @@ holds a pin only through a github dependency.
   anchored at dates on all fifteen calendars agree with the host on 5.7M
   checks. Totals are compared to 15 digits wherever a double cannot hold the
   spec's quotient exactly.
+- **D-T2-37 The fields record is swept as Roc receives it.** `date_fields!`
+  used to pick its placeholders inside lib.rs, out of the sweeps' reach: an
+  empty era, and 0 for an absent era year, week or week year. They now live
+  in `plain_dates::fields`. Every day from 1800 to 2200 on all sixteen
+  calendars agrees with ICU4C's table and model, and ISO with day numbers.
+  In-leap-year means thirteen months for Hebrew, Chinese and Dangi, and a
+  year longer than the shortest (365, or 354 for the Islamic calendars) for
+  the rest. One wrinkle stays documented rather than changed: ISO's week year
+  0 (the ISO year 0000) prints the same as the "no week numbering"
+  placeholder, and only `week_of_year` being nonzero tells them apart.
 
 ## Still open (raised, not decided)
 
