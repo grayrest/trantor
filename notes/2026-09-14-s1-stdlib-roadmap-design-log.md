@@ -215,6 +215,7 @@ the UCD tables). (User.)
 
 ## Still open
 
-- The exact structural layout of the hash format (leaf bytes, separators, `Dict`
-  order independence, float canonicalisation) is specified in the plan and
-  reviewed there before it is pinned by D-S1-6.
+- Moving the compiler fork's `local-fixes` off the hashing commits, and
+  merging the three consumer branches, wait on the user (plan step 9). The
+  structural layout is pinned (trantor-hash `3140140`) against a Rust model of
+  the documented table.
