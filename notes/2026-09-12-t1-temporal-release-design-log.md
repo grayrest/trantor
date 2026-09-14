@@ -997,6 +997,28 @@ holds a pin only through a github dependency.
   mutants; one mutant (DifferenceISODateTime without its sign adjustment)
   survived until unrounded differences were added to the sampled settings.
 
+- **D-T2-24 A duration string names each unit once.** temporal_rs 0.2.6 accepts
+  a repeated designator and keeps the last (`PT2H3H` is three hours); TC39's
+  grammar does not, so the host refuses repeats and out-of-order designators
+  before parsing. Found by a sweep of the parser against the spec's grammar.
+- **D-T2-25 A date outside 0000-9999 prints with a sign and six digits.**
+  `PlainDate.to_str` used strftime's `%Y`, so `-10000-01-01` printed a string
+  `date_from_str!` refused (357 of 717 sampled dates). Found by a Roc suite
+  round-tripping the package's printers through the host's parsers.
+  `PlainTime.to_str` printing whole seconds is documented and raised, not changed.
+- **D-T2-26 `%N` is the nanoseconds within the second.** Formatting passed only
+  the sub-microsecond field, so `.123456789` formatted as `000000789` while
+  parsing read it correctly (240 of 15,690 round trips).
+- **D-T2-27 The last coverage round.** Swept as well: sub-second and `reject`
+  zoned arithmetic in every zone (4.07M), both ends of the range in every zone
+  (132,978 — the spec's CheckISODaysRange means the first instants of a zone
+  behind UTC print a string that parses back only without its offset, and the
+  oracle's probes were clamped to the range), the functions no test called,
+  the pure Roc logic against arithmetic written in the test (499,713), plain
+  dates and durations on non-ISO calendars by invariant (442,425), and rounded
+  differences and calendars in every zone. The tzdb data is not compared with
+  the system's in the gate, since that would depend on each machine's tzdata.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
