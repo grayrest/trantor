@@ -30,5 +30,6 @@ main! = |_args| {
 	same = if zdt.epoch_ns!() == in_tokyo.epoch_ns!() { "yes" } else { "no" }
 	Stdout.line!("same-instant: ${same}")?
 
-	Stdout.line!("day-of-week: ${Temporal.plain_date({ year: 2024, month: 2, day: 29 }).day_of_week().to_str()}")
+	dow = Temporal.plain_date({ year: 2024, month: 2, day: 29 }).day_of_week() ? |_| DayOfWeek
+	Stdout.line!("day-of-week: ${dow.to_str()}")
 }

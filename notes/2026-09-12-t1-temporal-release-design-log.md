@@ -889,7 +889,7 @@ holds a pin only through a github dependency.
   Supersedes D-T1-23 and D-T1-25 (resolution, zoned `add` and start of day
   reimplemented in `zoned.rs`) and D-T2-11 (`round.rs`). Measuring `until_in!`
   found it wrong on 9,914 of 119,952 pairs per date unit near transitions, and
-  tracing it found the one cause behind every zoned defect so far: temporal_rs's
+  tracing it found the cause of every wall-clock defect so far: temporal_rs's
   compiled provider estimates the instants a local date-time can mean
   (`candidate_nanoseconds_for_local_epoch_nanoseconds`), and all wall-clock
   resolution goes through it; instant -> offset is exact. A provider wrapping
@@ -907,6 +907,29 @@ holds a pin only through a github dependency.
   sweep, `until` gains one. Zoned `since_rounded!` became `until` negated, as
   D-T2-12. Not swept: non-ISO calendars, rounded differences, and zones outside
   the twenty except for a day's start.
+
+- **D-T2-14 Transitions are offset changes, found with upstream's `Previous`.**
+  Found by review: upstream's `Next` returns the query instant from a zone's
+  last tzif entry (20 zones), so `next_transition!` answered `NoTransition`
+  with one to come — pinned wrong in the gate for Bucharest 1996 — and misses
+  transitions mid-table (27 over 1850-2100, Indiana/Petersburg 2007 among
+  them). Both directions report entries that keep the offset, which TC39's
+  definition excludes. `transition.rs` uses `Previous` (0 wrong in 128,552
+  queries), skips non-changes and bisects for the next. The sweep oracle had
+  walked with the same `Next` and skipped 11,142 zone-days while claiming every
+  zone; it scans offsets now, under bounds a gate test checks (no zone changes
+  offset twice within 12 hours, none reaches 17 hours of offset). The provider
+  probes +-18h every 6h on the same bounds, 3-5x stock cost instead of 15-58x.
+  Also from the review: `equals!` compares zones by primary identifier, and
+  `with_time_zone!` no longer leaks a value on an invalid zone. A boundary sweep
+  at every transition edge catches the two provider mutants (read back a second
+  off, truncate sub-second wall clocks) that passed every earlier sweep.
+- **D-T2-15 A weekday needs a date; difference helpers truncate.**
+  `PlainDate.day_of_week` returns `Try(U8, Err)`: after D-T2-8 it answered a
+  weekday for February 30 or a day outside Temporal's range, where every host
+  call refuses one (D-T1-5). `date_diff` and `zoned_diff` use `Trunc`, TC39's
+  default, which their docs claimed while they used `HalfExpand` — January 1 to
+  February 20 by months was P2M, now P1M. Both are breaking (user, 2026-09-13).
 
 ## Still open (raised, not decided)
 
