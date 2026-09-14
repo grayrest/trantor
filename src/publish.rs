@@ -73,10 +73,7 @@ pub fn publish(dir: &Path) -> Result<(), String> {
     // The composed platform is generated, so it is read from
     // `target/trantor/<world>` (D-H7-38); `dist/` is an artifact too and goes
     // beside it.
-    let gen = match crate::manifest::load_world(dir, "world.toml") {
-        Ok(w) => crate::manifest::out_dir(dir, &w),
-        Err(e) => return Err(e),
-    };
+    let gen = crate::manifest::out_dir(dir, &crate::manifest::load_world(dir, "world.toml")?);
     let dist = gen.join("dist");
     let _ = std::fs::remove_dir_all(&dist);
     std::fs::create_dir_all(dist.join("platform")).map_err(|e| e.to_string())?;
@@ -85,7 +82,7 @@ pub fn publish(dir: &Path) -> Result<(), String> {
     let pdir = gen.join("platform");
     for e in std::fs::read_dir(&pdir).map_err(|e| e.to_string())?.flatten() {
         let p = e.path();
-        if p.extension().map_or(false, |x| x == "roc") {
+        if p.extension().is_some_and(|x| x == "roc") {
             std::fs::copy(&p, dist.join("platform").join(p.file_name().unwrap()))
                 .map_err(|e| e.to_string())?;
         }
@@ -128,8 +125,8 @@ pub fn publish(dir: &Path) -> Result<(), String> {
                 std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
                 for a in std::fs::read_dir(t.path()).map_err(|e| e.to_string())?.flatten() {
                     let ap = a.path();
-                    let is_test = ap.file_name().and_then(|f| f.to_str()).map_or(false, |f| test_archives.contains(f));
-                    if ap.extension().map_or(false, |x| x == "a") && !is_test {
+                    let is_test = ap.file_name().and_then(|f| f.to_str()).is_some_and(|f| test_archives.contains(f));
+                    if ap.extension().is_some_and(|x| x == "a") && !is_test {
                         std::fs::copy(&ap, dest.join(ap.file_name().unwrap()))
                             .map_err(|e| e.to_string())?;
                     }

@@ -232,6 +232,9 @@ fn check_one_allocator(archives: &[(String, PathBuf, Vec<PathBuf>)]) -> Result<(
     Ok(())
 }
 
+/// Runs roc with its output capped, as `build::roc_capped` does.
+pub type RocRunner = dyn Fn(&[&str], &Path, &str) -> Result<(), String>;
+
 /// Step 5: scan the wasm archives, then check and link the app.
 pub fn link_app(
     dir: &Path,
@@ -240,7 +243,7 @@ pub fn link_app(
     work: &Path,
     app: Option<&str>,
     out: &str,
-    roc_capped: &dyn Fn(&[&str], &Path, &str) -> Result<(), String>,
+    roc_capped: &RocRunner,
 ) -> Result<(), String> {
     crate::scan::scan_archives(dir, world_file, work, Format::Wasm)?;
     let Some(app) = app else {

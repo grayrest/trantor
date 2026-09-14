@@ -91,7 +91,7 @@ fn script(steps: &Steps, suite: &Path, name: &str) -> Result<(), String> {
             .env("ROC", crate::build::roc_bin())
             .env("PKG", steps.root)
             .env("DEPS", deps_body(steps.root, steps.pkg, Deps::WithPackage)?)
-            .env("DEV_DEPS", deps_body(steps.root, steps.pkg, Deps::DevDeps)?)
+            .env("DEV_DEPS", deps_body(steps.root, steps.pkg, Deps::DevOnly)?)
             .env("TMP", &tmp),
         &format!("tests/{name}/test.sh"),
         &steps.scratch.join("runs"),

@@ -91,7 +91,6 @@ fn main() -> ExitCode {
 
 /// The one thing every CLI is asked for first. `trantor --help`, `-h` and
 /// `help` all used to print `trantor: missing <world-dir>` and nothing else.
-
 fn run(args: &[String]) -> Result<(), String> {
     let mut it = args.iter().skip(1);
     let Some(cmd) = it.next() else {

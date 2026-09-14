@@ -46,7 +46,7 @@ pub enum Deps {
     /// delta be skipped for any package without dev-deps.
     Baseline,
     /// The dev-deps alone, for a script's world.
-    DevDeps,
+    DevOnly,
 }
 
 pub fn deps_body(root: &Path, pkg: &Package, which: Deps) -> Result<String, String> {

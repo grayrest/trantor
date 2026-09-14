@@ -58,7 +58,7 @@ fn has_decref(glue: &str, ty: &str) -> bool {
         return false;
     };
     let body = &glue[at + 1..];
-    let end = body.find("\n}\n").map_or(body.len(), |e| e);
+    let end = body.find("\n}\n").unwrap_or(body.len());
     body[..end].contains("fn decref")
 }
 

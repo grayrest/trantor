@@ -263,7 +263,7 @@ fn set_default_features(cargo_toml: &str, features: &[String]) -> String {
             let mut replaced = false;
             let mut j = i + 1;
             while j < lines.len() && !lines[j].trim_start().starts_with('[') {
-                if lines[j].split('=').next().map_or(false, |k| k.trim() == "default") {
+                if lines[j].split('=').next().is_some_and(|k| k.trim() == "default") {
                     lines[j] = default_line.clone();
                     replaced = true;
                     break;

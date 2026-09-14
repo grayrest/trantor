@@ -102,16 +102,18 @@ impl Steps<'_> {
         let ran = self.trantor_ran(&["compose", s(&solo)])?;
         let said = format!("{}{}", ran.stdout, ran.stderr);
         let own = self.pkg.package.provides_driver.is_some();
-        match (driver_in_reach(self.root, self.pkg, 0), ran.ok()) {
-            (Reach::Yes, true) if own => Ok(println!("ok: a baseline, it composes alone on its own driver")),
-            (Reach::Yes, true) => Ok(println!("ok: it composes alone, on the driver its dependencies provide")),
+        let verdict: Result<&str, String> = match (driver_in_reach(self.root, self.pkg, 0), ran.ok()) {
+            (Reach::Yes, true) if own => Ok("ok: a baseline, it composes alone on its own driver"),
+            (Reach::Yes, true) => Ok("ok: it composes alone, on the driver its dependencies provide"),
             (Reach::Yes, false) => Err(format!("a driver is in reach, but it does not compose alone:\n{said}")),
             (Reach::No, true) => Err("no driver is in reach, yet it composed alone".into()),
             (Reach::No, false) if !said.contains("names no driver") => Err(format!("alone, it fails for the wrong reason:\n{said}")),
-            (Reach::No, false) => Ok(println!("ok: alone it says it has no driver")),
-            (Reach::Unknown(_), true) => Ok(println!("ok: it composes alone")),
+            (Reach::No, false) => Ok("ok: alone it says it has no driver"),
+            (Reach::Unknown(_), true) => Ok("ok: it composes alone"),
             (Reach::Unknown(why), false) => Err(format!("it does not compose alone, and whether it should is unknown ({why}):\n{said}")),
-        }
+        };
+        println!("{}", verdict?);
+        Ok(())
     }
 
     /// What the package stands on must not already provide what it exports, or

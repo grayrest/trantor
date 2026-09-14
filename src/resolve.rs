@@ -136,7 +136,7 @@ pub fn resolve(dir: &Path, world: &World, driver: &Driver) -> Result<Resolved, S
         }
     }
     // io and any hosted-less interface still ships a module (e.g. IOErr); record it.
-    for (name, _) in &world.interfaces {
+    for name in world.interfaces.keys() {
         if !interface_modules.contains_key(name) {
             if let Ok(iface) = crate::manifest::load_interface(dir, world, name) {
                 interface_modules.insert(name.clone(), iface.module);

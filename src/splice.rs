@@ -169,8 +169,7 @@ pub fn union_variants(text: &str, name: &str) -> Option<Vec<usize>> {
     let mut fields = 0usize;
     let mut in_variant = false;
     let mut in_comment = false;
-    let mut chars = text[after..].chars().peekable();
-    while let Some(c) = chars.next() {
+    for c in text[after..].chars() {
         if in_comment {
             if c == '\n' {
                 in_comment = false;
