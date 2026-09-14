@@ -931,6 +931,26 @@ holds a pin only through a github dependency.
   default, which their docs claimed while they used `HalfExpand` — January 1 to
   February 20 by months was P2M, now P1M. Both are breaking (user, 2026-09-13).
 
+- **D-T2-16 Every zone is swept, near five eras of transitions; one spec gap is
+  counted, not compared.** The dense sweeps sample twenty zones; add, round and
+  until are now also swept in all 597 within 30 hours of every transition of
+  1942-47, 1970-75, 1995-2000, 2021-26 and 2040-41 (7.8M operations, 0 wrong),
+  bringing the sweeps to about 75 s (user accepted, 2026-09-13). Round to a day
+  assumes an instant precedes the next date's start (TC39 asserts it); Creston's
+  clock read 1944-01-01 for a minute and went back to December 31, so 32 sampled
+  instants have no spec answer. `round!` keeps temporal_rs's answer there and
+  says so (user, 2026-09-13).
+- **D-T2-17 Rounded differences are checked against the spec's text, with one
+  step read as intended rather than literally.** The oracle transcribes
+  RoundRelativeDuration and its nudge operations from proposal-temporal's spec
+  source (downloaded with the user's permission; WebFetch returned paraphrase).
+  936,360 rounded differences agree. `ComputeNudgeWindow`'s "If r1 = 0, let
+  startEpochNs be originEpochNs" measures from the wrong date whenever a larger
+  unit remains in the start duration — -1 month -1 day -11 hours rounded to the
+  week would be -P1M1W — so the oracle uses the origin only for a zero start
+  duration, as temporal_rs does; 8,803 swept cases differ under the literal
+  reading. Likely a spec erratum worth reporting to TC39; not filed.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
