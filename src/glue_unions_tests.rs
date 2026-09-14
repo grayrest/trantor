@@ -39,3 +39,30 @@ fn only_the_blocks_own_field_and_exact_accessors_are_retyped() {
     assert!(out.contains("take_payload_bell_unchecked(&mut self) -> BellRingPayload {") && out.contains("take_payload_door_bell_unchecked(&mut self) -> u64"));
     assert!(!out.contains("wrong()") && out.contains("payload.decref(roc_host)"), "{out}");
 }
+
+/// Glue for `VaultEvent := [Answer({ seq : U64, body : Str })]` under an `Event`
+/// driver union: the record is an `AnonStruct`, and glue names the unwrapped
+/// union after it itself. `extra` is appended to the glue text.
+fn record_event_glue(extra: &str) -> String {
+    format!(
+        "pub struct AnonStruct3ea6 {{\n    pub seq: u64,\n    pub body: RocStr,\n}}\n\
+         impl Event {{\n    pub unsafe fn take_payload_vault_unchecked(&mut self) -> AnonStruct3ea6 {{\n        x\n    }}\n}}\n\
+         {extra}pub type VaultEventAnswer = AnonStruct3ea6;\n"
+    )
+}
+
+fn record_event_single() -> Single {
+    Single { module: "VaultEvent".into(), variant: "Answer".into(), fields: 1, block: "Event", wrapper: "vault".into() }
+}
+
+#[test]
+fn a_one_field_record_payload_already_named_by_glue_is_not_aliased_again() {
+    let out = repair(&record_event_glue("pub type VaultEvent = AnonStruct3ea6;\n"), &[record_event_single()], None).unwrap();
+    assert_eq!(out.matches("pub type VaultEvent =").count(), 1, "a second alias is E0428: {out}");
+}
+
+#[test]
+fn a_one_field_payload_is_aliased_when_glue_named_only_a_longer_name() {
+    let out = repair(&record_event_glue(""), &[record_event_single()], None).unwrap();
+    assert!(out.contains("pub type VaultEvent = AnonStruct3ea6;"), "`VaultEventAnswer` is not `VaultEvent`: {out}");
+}

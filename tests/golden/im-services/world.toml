@@ -4,13 +4,14 @@
 [world]
 name = "imsvc"
 driver = "imview"
-exports = ["Element", "Env", "Cmd", "Event", "Echo", "EchoEvent", "Tick", "TickEvent", "TickEnv", "Bell", "BellEvent", "Nudge", "NudgeEvent"]
+exports = ["Element", "Env", "Cmd", "Event", "Echo", "EchoEvent", "Tick", "TickEvent", "TickEnv", "Bell", "BellEvent", "Nudge", "NudgeEvent", "Chime", "ChimeEvent"]
 
 [interfaces.ui]
 [interfaces.echo]
 [interfaces.tick]
 [interfaces.bell]
 [interfaces.nudge]
+[interfaces.chime]
 
 [components.imview]
 kind = "driver"
@@ -40,8 +41,14 @@ kind = "host"
 lang = "rust"
 exports = ["nudge"]
 
+[components.svc-chime]
+kind = "host"
+lang = "rust"
+exports = ["chime"]
+
 [wiring]
 echo = "svc-echo"
 tick = "svc-tick"
 bell = "svc-bell"
 nudge = "svc-nudge"
+chime = "svc-chime"

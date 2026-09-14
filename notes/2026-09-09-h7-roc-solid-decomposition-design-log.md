@@ -1191,6 +1191,25 @@ unions, the repair fails loudly rather than guessing (it requires the wrapper
 field it replaces). `im-services`' `Bell` has a `Str`-first three-field command
 beside a two-field event; strings are long enough to be heap-allocated.
 
+## D-H7-45 — A one-field union whose field is a record is already named by glue (2026-09-13)
+
+Raised by wiring roc-solid-eink's vault service: `VaultEvent := [Answer({ seq
+: U64, last : Bool, ok : Bool, body : Str })]` failed the abi build with E0428,
+`VaultEvent` defined twice. D-H7-44's one-field repair appends `pub type
+{Module} = {payload type};` unconditionally, but for a record payload glue
+writes that alias itself (`pub type VaultEvent = AnonStruct…;`, beside
+`VaultEventAnswer`), naming the unwrapped union after its `AnonStruct`. The
+payload is typed right and its accessors and refcounts are glue's own, so
+nothing else needs repair.
+
+The one-field arm now adds no alias when glue's output already has a line
+starting `pub type {Module} =` — the whole name, so `VaultEventAnswer` does not
+count. `im-services` gains `Chime`, whose command and event are each one
+variant with one record field, end to end; `Nudge` keeps the plain one-field
+event. Rejected: checking the existing alias against the accessor type — glue
+derives both from the same layout, and a mismatch would fail the abi build
+loudly anyway.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

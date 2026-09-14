@@ -7,6 +7,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=TRANTOR_SERVICES");
     println!("cargo:rerun-if-env-changed=TRANTOR_WORLD");
     let services = std::env::var("TRANTOR_SERVICES").expect("trantor exports TRANTOR_SERVICES");
-    assert_eq!(services, "bell,echo,nudge,tick", "the wiring keys, sorted");
+    assert_eq!(services, "bell,chime,echo,nudge,tick", "the wiring keys, sorted");
     assert!(std::env::var("TRANTOR_WORLD").is_ok(), "trantor exports TRANTOR_WORLD");
 }

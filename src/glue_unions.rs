@@ -5,7 +5,9 @@
 //! and its refcounts are skipped. Measured on release-fast-10e922df:
 //!
 //! - one field (`[Shout(Str)]`): the wrapper's payload is typed correctly; only
-//!   the name is missing, so `pub type Echo = RocStr;` is all it needs.
+//!   the name is missing, so `pub type Echo = RocStr;` is all it needs. A
+//!   record field (`[Answer({ seq : U64 })]`) is the exception: glue names
+//!   the union after its `AnonStruct` itself, and trantor adds nothing.
 //! - no field (`[Stop]`): the payload is zero-sized and glue writes no
 //!   accessor; trantor adds a unit struct and the accessors the shim calls.
 //! - several fields (`[Ping(U64, Str, Str)]`): glue types the payload as its
@@ -88,6 +90,11 @@ pub fn repair(glue: &str, singles: &[Single], placeholder: Option<&str>) -> Resu
             }
             1 => {
                 let ty = accessor_type(&out, s).ok_or_else(|| format!("glue output has no accessor for `{}`'s payload in {}", s.module, s.block))?;
+                // A record payload is an `AnonStruct` glue already names the
+                // union after; a second alias is E0428.
+                if names_type(&out, &s.module) {
+                    continue;
+                }
                 appendix.push_str(&format!("\n/// `{m}` has one variant, `{v}`; glue passes its payload as is.\npub type {m} = {ty};\n", m = s.module, v = s.variant));
             }
             _ => {
@@ -103,6 +110,13 @@ pub fn repair(glue: &str, singles: &[Single], placeholder: Option<&str>) -> Resu
         out.push_str(&appendix);
     }
     Ok(out)
+}
+
+/// Whether glue itself wrote `pub type {name} = …;` — the whole name, so
+/// `VaultEventAnswer` is not `VaultEvent`.
+fn names_type(glue: &str, name: &str) -> bool {
+    let head = format!("pub type {name} =");
+    glue.lines().any(|l| l.starts_with(&head))
 }
 
 /// The type `impl {block}`'s `take_payload_{wrapper}_unchecked` returns.

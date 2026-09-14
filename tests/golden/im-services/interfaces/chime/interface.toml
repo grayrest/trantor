@@ -1,0 +1,3 @@
+module = "Chime"
+kind = "service"
+event_module = "ChimeEvent"

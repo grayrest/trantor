@@ -12,6 +12,8 @@ import pf.Bell
 import pf.BellEvent
 import pf.Nudge
 import pf.NudgeEvent
+import pf.Chime
+import pf.ChimeEvent
 
 Model : { label : Str, log : List(Str), outbox : List(Cmd) }
 
@@ -25,6 +27,7 @@ main = {
 			Cmd.Tick(Tick.Start(0, "tick-key", 3)),
 			Cmd.Bell(Bell.Ring("bell-key", 9, "ding, in a string long enough to live on the heap")),
 			Cmd.Nudge(Nudge.Poke),
+			Cmd.Chime(Chime.Strike({ key: "chime-key", n: 5 })),
 		],
 	},
 	view: |model, env| {
@@ -47,6 +50,7 @@ main = {
 			Event.Tick(TickEvent.Stopped) => "stopped"
 			Event.Bell(BellEvent.Rang(s, n)) => "rang:${s}:${n.to_str()}"
 			Event.Nudge(NudgeEvent.Poked(s)) => s
+			Event.Chime(ChimeEvent.Struck({ seq, last, ok, body })) => if last and ok { "struck:${seq.to_str()}:${body}" } else { "struck:wrong flags" }
 		}
 		{ ..model, log: List.append(model.log, line), outbox: [] }
 	},

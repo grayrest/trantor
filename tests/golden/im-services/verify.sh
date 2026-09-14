@@ -16,10 +16,10 @@ grep -q "imview driver HOST" "$FIX/components/imview/src/lib.rs" || { echo "FAIL
 if ! _b=$(./target/release/trantor build "$FIX" --app app --out imsvc 2>&1); then echo "FAIL: build imsvc" >&2; echo "$_b" >&2; exit 1; fi
 
 out=$("$FIX/target/trantor/im-services/bin/imsvc" 2>/dev/null)
-want="[hi | pong:hello | rang:ding, in a string long enough to live on the heap:9 | poked from a string long enough to live on the heap | tick:1 | tick:2 | tick:3 | ticks=3]"
+want="[hi | pong:hello | rang:ding, in a string long enough to live on the heap:9 | poked from a string long enough to live on the heap | struck:5:struck, in a string long enough to live on the heap | tick:1 | tick:2 | tick:3 | ticks=3]"
 [[ "$out" == "$want" ]] || { echo "FAIL: got '$out', want '$want'"; exit 1; }
 echo "ok: wrapper unions cross both ways; 3 async wakes completed on the runtime thread; env block read"
-echo "ok: one-variant service unions work — a three-field command whose first field is Str, beside a two-field event (Bell); a no-payload command and a one-field event (Nudge) (D-H7-44)"
+echo "ok: one-variant service unions work — a three-field command whose first field is Str, beside a two-field event (Bell); a no-payload command and a one-field event (Nudge) (D-H7-44); a one-record-field command and event glue names itself (Chime) (D-H7-45)"
 
 set +e
 "$FIX/target/trantor/im-services/bin/imsvc" echo-gate >/dev/null 2>&1; rc=$?
