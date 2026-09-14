@@ -1097,6 +1097,17 @@ holds a pin only through a github dependency.
   to those published starts. Two Dangi disagreements after 2050 are closer to
   midnight than predictions of Earth's rotation can resolve, and fall outside
   KASI's range anyway.
+- **D-T2-34 Leap-month arithmetic is held to the proposal over an ICU4C model.**
+  An oracle built on ICU4X would share temporal_rs's calendars. Instead, the
+  proposal's NonISODateAdd and NonISODateUntil (with ConstrainMonthCode,
+  MonthCodeToOrdinal, BalanceNonISODate and CompareSurpasses) are transcribed
+  over months read from the committed ICU4C table (D-T2-33). The oracle
+  declines any year it cannot vouch for: partial years at the table's edges,
+  Chinese or Dangi outside their published ranges, or a year holding a month
+  ICU4C misreads. The host agrees on 9.9M adds and differences, 1900-2100, on
+  all fifteen calendars. Planted bugs in the constrain direction and in the
+  month-code comparison each fail thousands of cases. The sweep adds about 37s
+  of wall-clock time to the gate, which now takes about 3.5 minutes.
 
 ## Still open (raised, not decided)
 
