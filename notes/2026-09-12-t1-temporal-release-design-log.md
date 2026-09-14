@@ -1077,6 +1077,26 @@ holds a pin only through a github dependency.
   `tests/strings` holds it to the host's `calendar_id!` by round-tripping dates
   on all sixteen calendars. `format` still prints ISO fields whatever the
   calendar (D-T1-8).
+- **D-T2-33 Calendar fields are checked against ICU4C, not ICU4X.**
+  temporal_rs reckons calendars with ICU4X (`icu_calendar` 2.3.0), so
+  comparing against the ICU4X in the cargo registry would compare it with
+  itself. ICU4C 78.3 is a separate implementation, and it is read through
+  Node's Intl into a committed table, so the gate needs neither Node nor ICU4C.
+  Every day from 1800 to 2200 agrees on era, era year, month code, day, month
+  length and months in year for every arithmetic and tabular calendar. Where
+  ICU4C departs from TC39's era and month-code proposal, the proposal decides:
+  - Japanese dates before 1873 use Gregorian eras.
+  - Chinese is compared only over 1900-2100 (Purple Mountain Observatory
+    data) and Dangi over 1900-2050 (KASI); outside those ranges the proposal
+    leaves them implementation-defined.
+
+  Inside those ranges ICU4C misplaces thirteen month starts, each a new moon
+  within minutes of midnight. On all twelve Chinese cases temporal_rs matches
+  the Hong Kong Observatory's published tables. On Dangi 2017 it matches the
+  new moon computed with Meeus's algorithm (23:57 KST). A second test holds it
+  to those published starts. Two Dangi disagreements after 2050 are closer to
+  midnight than predictions of Earth's rotation can resolve, and fall outside
+  KASI's range anyway.
 
 ## Still open (raised, not decided)
 
