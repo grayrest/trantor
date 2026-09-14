@@ -1146,14 +1146,15 @@ holds a pin only through a github dependency.
     saturates like `abs`.
   - **Slow calendars.** Calendars that step month by month slow faster than
     the span grows. A Chinese month difference takes 5 ms over 1,000 years,
-    0.33 s over 10,000, and an extrapolated few minutes over the whole range.
+    0.33 s over 10,000, and over the whole range it was still running when
+    stopped at ten minutes.
     The fuzz keeps those calendars within 1800-2200.
 
 ## Still open (raised, not decided)
 
 - **Lunisolar differences over long spans are effectively unbounded.** A
   hostile or careless `until_in!(…, Month)` across millennia on Chinese or
-  Dangi dates blocks the caller for seconds to minutes, inside
+  Dangi dates blocks the caller for seconds to tens of minutes, inside
   temporal_rs/ICU4X. The options: leave it, cap the span the package
   accepts on stepped calendars (a deviation from TC39), or raise it
   upstream.
