@@ -1,6 +1,9 @@
 # Standard library survey — Rust, Python, Elixir, Clojure
 
-Date: 2026-09-14. Status: survey, no decisions taken.
+Date: 2026-09-14. Status: survey. Decisions taken from it are in
+[`2026-09-14-s1-stdlib-roadmap-design-log.md`](2026-09-14-s1-stdlib-roadmap-design-log.md)
+(D-S1); the builtin gaps are split out into
+[`2026-09-14-upstream-builtin-gaps.md`](2026-09-14-upstream-builtin-gaps.md).
 
 Trantor packages are acting as the standard library for trantor Roc. This note
 lists candidate additions found by comparing four mature standard libraries

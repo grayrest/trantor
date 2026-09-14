@@ -1,0 +1,139 @@
+# S1 step 1 — `trantor-hash`
+
+**Design log:** `notes/2026-09-14-s1-stdlib-roadmap-design-log.md`, decisions
+D-S1-2 to D-S1-10. Repos: `~/dev/roc/trantor-hash` (new), `trantor` (docs),
+`~/dev/roc/tower-platform`, `~/dev/roc/roc-solid`, `~/dev/roc/roc-solid-eink`,
+`~/Repositories/roc` (branch `local-fixes`).
+
+## Why
+
+The compiler fork carries two patches (`2077175963`, `205f49cb94`) so user code
+can reach derived `to_hash` through `Hasher.new`/`finish`/`hash_of`. Upstream
+does not expose `Hasher`. Derived `to_hash` also blows up at compile time on
+nested models where derived `encoder_for` does not. A pure-Roc package that
+hashes through an `Encoding` format removes the patches and the blowup.
+
+## Surface (D-S1-10)
+
+```roc
+Hash :: [].{
+    Key : { k0 : U64, k1 : U64 }
+
+    ## SipHash-1-3 over the value's structure. For keys an attacker can influence.
+    of : a, Key -> U64 where [a.encoder_for : HashFormat -> (a, HashState -> Try(HashState, []))]
+
+    ## rapidhash v3 over the value's structure. For ids and tables; not attack-resistant.
+    fast : a, U64 -> U64 where [a.encoder_for : HashFormat -> (a, HashState -> Try(HashState, []))]
+}
+
+SipHash :: ...    # new : Key -> SipHash; write : SipHash, List(U8) -> SipHash;
+                  # write_u64 : SipHash, U64 -> SipHash; finish : SipHash -> U64
+RapidHash :: ...  # new : U64 -> RapidHash; write, write_u64, finish as above
+```
+
+`HashFormat` and `HashState` are implementation types. `HashState` wraps either
+hasher (`[Sip(SipHash), Rapid(RapidHash)]`) so one format serves both entry
+points. [ASSUMPTION: one format with a two-case state rather than two formats;
+if the tag dispatch per leaf costs measurably, split into two formats. That is
+an implementation detail within D-S1-3.]
+
+## Structural layout (pinned by D-S1-6 once reviewed)
+
+The static type fixes the shape, so leaves carry no type tags. What must be
+written is whatever keeps two different values of the same type from producing
+the same byte stream.
+
+| Leaf / container | Bytes fed |
+|---|---|
+| `U8`…`U64`, `I8`…`I64` | `write_u64` of the value, sign-extended for signed |
+| `U128`, `I128`, `Dec` | two `write_u64`: low then high (`Dec` by its attos) |
+| `F32`, `F64` | `write_u64` of `to_bits`, after `-0.0 → 0.0` and every NaN → the canonical quiet NaN |
+| `Bool` | `write_u64` 0 or 1 (the derive may route it through `encode_tag`; then it hashes as a tag, see below) |
+| `Str` | `write_u64` byte length, then `write` of the UTF-8 bytes |
+| null | `write_u64` of a fixed constant |
+| record | fields in derive order; no field names (the type fixes them) |
+| tuple | elements in order |
+| list | `write_u64` length, then each element |
+| tag | `write_u64` of the tag name's byte length, the name's bytes, then payloads in order |
+| dict | `write_u64` length, then `write_u64` of the unordered combination of per-entry hashes, each entry hashed from a fresh hasher with the same key or seed (mirrors builtin `Dict.to_hash`, so insertion order does not matter) |
+
+Unordered combination: wrapping sum of entry hashes. [ASSUMPTION: sum, not XOR;
+XOR cancels equal entries. The builtin's `combine_unordered_hashes` is the
+reference to read before choosing.]
+
+## Probes before implementation
+
+The derive is compiler-native, so these are checked on `10e922df83` by a probe
+app, not assumed:
+
+1. Does `Dict` reach `encode_dict`, and does `Set` reach `encode_list` (making
+   `Set` hashes order-dependent)? If `Set` arrives as a list, document that
+   `Hash.of` over a `Set` depends on insertion order, and add an expect
+   showing it.
+2. Does `Bool` reach `encode_bool` or `encode_tag` for this format?
+   (`playground/csv/Encode.roc` found `encode_tag` on an older compiler.)
+3. Does `Hash.of` type-check and lower when called from a platform module on a
+   type variable (tower's `Req.roc` case, which `hash_of` existed to solve)?
+   If it does not, stop and report: that is a design problem, not a detail.
+4. Compile time and memory of `Hash.of` over the K=5 probe model
+   (`roc-solid-eink/notes/probes/tohash/gen.py`), recorded in this plan.
+
+## Package layout
+
+```
+trantor-hash/
+  package.toml        # add-on; exports Hash, SipHash, RapidHash; [dev-deps] trantor-cli
+  README.md           # both hashes, which to pick, stability promise
+  components/hash/
+    Hash.roc          # of, fast, Key
+    HashFormat.roc    # the Encoding format and HashState
+    SipHash.roc
+    RapidHash.roc
+  tests/
+    vectors/          # Cargo.toml: siphasher + rapidhash crates generate expected outputs
+    layout/           # main.roc + expected: exact hashes of sample values
+```
+
+`package.toml` follows trantor-temporal's comment style. No interfaces, no host
+components.
+
+## Work — commit at each
+
+1. **`SipHash.roc`** with expects against the SipHash-1-3 reference vectors
+   (64-byte message prefixes `0..63`, key `00..0f`). Vectors come from the
+   `siphasher` crate (`SipHasher13`), pinned version, generated by
+   `tests/vectors`.
+2. **`RapidHash.roc`** (v3) with expects against vectors from the pinned
+   `rapidhash` crate, including lengths 0, 1–3, 4–16, 17–112 and >112.
+3. **Probes 1–4** in a scratch app; record results in this plan's
+   "Implementation notes" section before continuing.
+4. **`HashFormat.roc` + `Hash.roc`.** Expects: equal values hash equal;
+   `["ab","c"]` ≠ `["a","bc"]`; `[[1],[]]` ≠ `[[],[1]]`; `Ok(0)` ≠ `Err(0)` for
+   a shared payload type; two `Dict`s with the same entries in different
+   insertion order hash equal; `-0.0` and `0.0` hash equal; different keys
+   give different `Hash.of`.
+5. **`tests/layout`**: exact `U64` outputs for a fixed record, list, tag,
+   dict and string under a fixed key and seed. This pins D-S1-6.
+6. **`package.toml`, README**; `trantor test .` passes.
+7. **tower-platform**: vendor `SipHash.roc`, `HashFormat.roc` and `Hash.roc`
+   into `platform/` with a header naming the trantor-hash commit (D-S1-8).
+   `Host.hash_seed!` returns `Hash.Key` (both halves; update the host side and
+   glue). Replace `Hasher.hash_of` at `Req.roc:114,173`; delete the
+   `Hasher.new(...).finish()` expects at `Req.roc:480-486` and replace them
+   with expects over `Hash.of`. Build and test.
+8. **roc-solid and roc-solid-eink**: vendor `RapidHash.roc`, `HashFormat.roc`
+   and `Hash.roc` into `crates/host-im/roc/`; `Id.hash = |s|
+   U64.to_u32_wrap(Hash.fast(s, 0))`. Build and test. Check whether any golden
+   or snapshot contains an `Id.hash` value; regenerate if so and say so in the
+   commit.
+9. **Compiler**: on a new branch from `local-fixes`, drop `2077175963`,
+   `205f49cb94`, `7d864f0352`, `10e922df83`; re-refresh the node-id snapshot
+   if it changes. Rebuild `roc`; rebuild and test steps 7–8's consumers
+   against it (D-S1-9). Only then move `local-fixes` to that branch.
+   `hasher-only` is deleted. Ask before rewriting `local-fixes`.
+10. **trantor docs**: survey note and design log point at the landed package;
+    record implementation notes here.
+
+## Implementation notes
+
+(Filled in during work.)
