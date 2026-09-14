@@ -983,6 +983,20 @@ holds a pin only through a github dependency.
   with AM/PM, so `13 PM` parsed as 1 PM. `BadInput` otherwise (user,
   2026-09-13; breaking).
 
+- **D-T2-23 The remaining unswept paths are swept, and host logic lives where
+  the sweeps compile it.** From the coverage review (user, 2026-09-13):
+  fixed-offset zones, which temporal_rs resolves without a provider (1,295,973
+  checks across the whole range); a leak suite that takes both paths through
+  every host call on a zoned value under `TRANTOR_RESOURCE_TRACE` and requires as
+  many releases as creations, failing with the `with_time_zone!` leak restored;
+  plain-date add, until and rounded until against the spec's ISO arithmetic on
+  day numbers of the oracle's own (790,915 checks); and durations rounded,
+  totalled and compared from a date or none against the spec (254,592). None
+  found a defect. Plain-date and duration logic moved from lib.rs into
+  `plain_dates.rs` and `durations.rs`. Each sweep was checked against plausible
+  mutants; one mutant (DifferenceISODateTime without its sign adjustment)
+  survived until unrounded differences were added to the sampled settings.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
