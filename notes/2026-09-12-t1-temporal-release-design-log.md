@@ -971,6 +971,14 @@ holds a pin only through a github dependency.
   defect so far has been. 325,962 checks; the sweep fails if the oracle
   substitutes ISO arithmetic, so it samples cases the calendar changes.
 
+- **D-T2-21 A parsed date must exist.** Supersedes D-T1-5 for parsing only: a
+  record literal is still checked when used, but `date_parse_in` (and
+  `Now.date_parse!`) answer `BadInput` for a date that does not exist —
+  `2026-00-10` had parsed, contradicting D-T1-10's strict parsing and leaving
+  `day_of_week` to refuse it later (raised by the behaviour audit; user,
+  2026-09-13; breaking). `time_parse` still accepts `25:00` and `23:60`: raised,
+  not decided.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
