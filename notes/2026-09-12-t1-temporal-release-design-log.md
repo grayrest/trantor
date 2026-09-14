@@ -919,7 +919,9 @@ holds a pin only through a github dependency.
   walked with the same `Next` and skipped 11,142 zone-days while claiming every
   zone; it scans offsets now, under bounds a gate test checks (no zone changes
   offset twice within 12 hours, none reaches 17 hours of offset). The provider
-  probes +-18h every 6h on the same bounds, 3-5x stock cost instead of 15-58x.
+  probes +-18h every 6h on the same bounds: resolution costs 7-10x stock (it was
+  15-58x), a compound operation such as resolve then start of day 4-5x, and a
+  transition lookup 2.5-15 µs where upstream's is 16-100 ns.
   Also from the review: `equals!` compares zones by primary identifier, and
   `with_time_zone!` no longer leaks a value on an invalid zone. A boundary sweep
   at every transition edge catches the two provider mutants (read back a second
@@ -936,7 +938,10 @@ holds a pin only through a github dependency.
   until are now also swept in all 597 within 30 hours of every transition of
   1942-47, 1970-75, 1995-2000, 2021-26 and 2040-41 (7.8M operations, 0 wrong),
   bringing the sweeps to about 75 s (user accepted, 2026-09-13). Round to a day
-  assumes an instant precedes the next date's start (TC39 asserts it); Creston's
+  assumes an instant precedes the next date's start (TC39 asserts it); a zone
+  with a transition at 00:01 local breaks that — Creston, Phoenix, MST and
+  US/Arizona in 1943-44, Newfoundland, Moncton and Goose Bay in 1995-2000 (64
+  sampled instants after off-minute sampling); Creston's
   clock read 1944-01-01 for a minute and went back to December 31, so 32 sampled
   instants have no spec answer. `round!` keeps temporal_rs's answer there and
   says so (user, 2026-09-13).
@@ -948,7 +953,8 @@ holds a pin only through a github dependency.
   startEpochNs be originEpochNs" measures from the wrong date whenever a larger
   unit remains in the start duration — -1 month -1 day -11 hours rounded to the
   week would be -P1M1W — so the oracle uses the origin only for a zero start
-  duration, as temporal_rs does; 8,803 swept cases differ under the literal
+  duration, as temporal_rs and the spec's reference polyfill do; 8,803 checks in
+  `until_rounded` alone, and some in every other rounding sweep, differ under the literal
   reading. Likely a spec erratum worth reporting to TC39; not filed.
 
 - **D-T2-18 `iso_day_of_year` needs a date.** Same defect as D-T2-15's
@@ -980,7 +986,7 @@ holds a pin only through a github dependency.
 - **D-T2-22 A parsed time must exist.** `%H`, `%I`, `%M` and `%S` read within
   0-23, 1-12, 0-59 and 0-59, and an hour paired with `%p` must be 1-12:
   `time_parse` had accepted `25:00` and `23:60`, and reduced an hour modulo 12
-  with AM/PM, so `13 PM` parsed as 1 PM. `BadInput` otherwise (user,
+  with AM/PM, so `13 AM` parsed as 01:00. `BadInput` otherwise (user,
   2026-09-13; breaking).
 
 - **D-T2-23 The remaining unswept paths are swept, and host logic lives where
@@ -1022,6 +1028,28 @@ holds a pin only through a github dependency.
   `%H:%M:%S`, dropping sub-second fields, so a printed time did not read back as
   itself. It now follows TC39's `toString` with default precision: the fraction
   when there is one, trailing zeros trimmed (`09:30:00.5`) (user, 2026-09-14).
+
+- **D-T2-29 A strftime pattern reads each field once, and `%p` is 12-hour.** A
+  field read twice kept its last value (`%H %H` on "09 13" was 13:00), `%L` with
+  `%N` merged the fraction, and `%p` with no hour read as midnight: all
+  `BadPattern` now, as `%j` with `%m` already was. An hour with `%p` stays 1-12,
+  so a pattern pairing `%H` with `%p` formats `13 PM` and does not parse it —
+  chosen over reading `%H` with an agreeing `%p` (user, 2026-09-14).
+- **D-T2-30 The third review round.** Two crashes introduced by D-T2-25/26/28
+  (a year of more than six digits, a millisecond of 1000 or more — records are
+  not validated) are fixed and pinned. Provider lookup errors now surface
+  instead of dropping an offset; out-of-range candidates are kept, since the
+  spec lists them and then throws (removing them was tried and broke the range
+  edges). `provider_bounds` asserts the 42-hour spacing the gap search needs,
+  over 1800-2600 and the range's last years. Sweep fixes: thinned every-zone
+  samples now keep the off-the-minute instants (they had sampled whole hours
+  alone), the fixed-offset add and transition sweeps no longer skip their
+  refusals and nones, the leap-year invariant is real, the upper range limit and
+  more leak paths are tested, and printed durations are compared with the spec's
+  printer. One question stays open: in NudgeToCalendarUnit, when the window was
+  shifted and rounding keeps r1, the spec text and temporal_rs nudge to the
+  window's start where the polyfill nudges to its end; an oracle following the
+  polyfill passes every sweep too, so no sampled input tells them apart.
 
 ## Still open (raised, not decided)
 
