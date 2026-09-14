@@ -1113,8 +1113,11 @@ holds a pin only through a github dependency.
   `Reckoning`: ISO's oracle, temporal_rs, or the proposal's arithmetic over the
   model (D-T2-34). A plain-date rounded difference on a non-ISO calendar
   therefore takes nothing from ICU4X. 11M checks agree over 1900-2100 on all
-  fifteen calendars. The zoned calendar sweep still uses temporal_rs's
-  arithmetic, as its header says.
+  fifteen calendars. The zoned calendar sweep followed: its adds, differences
+  and rounded differences use the model too. The temporal_rs path is
+  removed, so no oracle takes date arithmetic from temporal_rs. Answers that
+  reach a Chinese year ICU4C misreads are skipped and counted (11,727 and
+  7,070 instants).
 
 ## Still open (raised, not decided)
 
