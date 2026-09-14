@@ -1134,8 +1134,29 @@ holds a pin only through a github dependency.
   the rest. One wrinkle stays documented rather than changed: ISO's week year
   0 (the ISO year 0000) prints the same as the "no week numbering"
   placeholder, and only `week_of_year` being nonzero tells them apart.
+- **D-T2-38 Option tables and panic-freedom are tested; slow calendars are
+  bounded in the fuzz, not in the package.**
+  - **Option tables.** The Roc-tag-to-temporal_rs tables in lib.rs had no
+    sweep. `tests/since` compared paths that share them, so a swapped arm
+    would have passed everything. `tests/options` pins each tag to answers
+    derived from TC39's definitions, and seven planted swaps each fail it.
+  - **Panics.** Seeded fuzzing makes 1.5M calls into the host's compiled
+    operations and exercises every Roc entry point with records past their
+    limits. It found one abort, `Duration.negate` on I64's minimum, which now
+    saturates like `abs`.
+  - **Slow calendars.** Calendars that step month by month slow faster than
+    the span grows. A Chinese month difference takes 5 ms over 1,000 years,
+    0.33 s over 10,000, and an extrapolated few minutes over the whole range.
+    The fuzz keeps those calendars within 1800-2200.
 
 ## Still open (raised, not decided)
+
+- **Lunisolar differences over long spans are effectively unbounded.** A
+  hostile or careless `until_in!(…, Month)` across millennia on Chinese or
+  Dangi dates blocks the caller for seconds to minutes, inside
+  temporal_rs/ICU4X. The options: leave it, cap the span the package
+  accepts on stepped calendars (a deviation from TC39), or raise it
+  upstream.
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
   builds and 9 suite runs; five hypotheses falsified (above). If it recurs, the
