@@ -1154,6 +1154,15 @@ holds a pin only through a github dependency.
   temporal_rs/ICU4X. It is left as it is: no cap and no upstream report,
   because spans that long are outside the 1800-2200 range the package is
   meant for (user, 2026-09-14).
+- **D-T2-40 The all-zone sweeps cover every transition of 1800-2041.** They
+  previously sampled five eras (9,368 transitions), leaving the switch from
+  local mean time, the First World War and later rule churn unswept for
+  zoned arithmetic. Every transition from 1800 to 2041 is now sampled
+  (41,650): within 30 hours in the old eras and within 6 hours elsewhere.
+  2060, 2100, 2150 and 2199-2200 stand in for the 61,804 rule-generated
+  transitions past 2041. Nothing disagreed. A planted pre-1900 bug fails at
+  Manila's 1844 date-line change. The gate grows from about 4 to about 5
+  minutes.
 
 ## Still open (raised, not decided)
 
