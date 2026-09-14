@@ -951,6 +951,26 @@ holds a pin only through a github dependency.
   duration, as temporal_rs does; 8,803 swept cases differ under the literal
   reading. Likely a spec erratum worth reporting to TC39; not filed.
 
+- **D-T2-18 `iso_day_of_year` needs a date.** Same defect as D-T2-15's
+  `day_of_week`: it answered for February 30. It returns `Try(U16, Err)`
+  (user, 2026-09-13; breaking).
+- **D-T2-19 The host's multi-step zoned operations live where the sweeps can
+  compile them.** Building from a wall clock, moving date or zone, IXDTF parse
+  and print moved from lib.rs's extern functions into `zoned_ops.rs`, and
+  `host_ops.rs` sweeps them in every zone near five eras (4,649,056 checks:
+  parsing by TC39's offset matching with reject, printing and back, moving,
+  building on a calendar), failing for four plausible mutants. Behaviour
+  expectations were audited independently of the code: none of 80 wrong, and
+  one new line covers the cases the audit found weak.
+- **D-T2-20 Calendars are swept for how they meet zones, not for their own
+  arithmetic.** `calendars.rs` checks seven calendars near transitions: instants
+  that must equal ISO, and add, until and rounded until by the spec over the
+  oracle's resolution with the calendar's CalendarDateAdd/CalendarDateUntil
+  taken from temporal_rs (ICU4X). No independent implementation of those
+  calendars is available; that arithmetic knows no zones, which is where every
+  defect so far has been. 325,962 checks; the sweep fails if the oracle
+  substitutes ISO arithmetic, so it samples cases the calendar changes.
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
