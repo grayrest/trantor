@@ -976,8 +976,12 @@ holds a pin only through a github dependency.
   `Now.date_parse!`) answer `BadInput` for a date that does not exist —
   `2026-00-10` had parsed, contradicting D-T1-10's strict parsing and leaving
   `day_of_week` to refuse it later (raised by the behaviour audit; user,
-  2026-09-13; breaking). `time_parse` still accepts `25:00` and `23:60`: raised,
-  not decided.
+  2026-09-13; breaking).
+- **D-T2-22 A parsed time must exist.** `%H`, `%I`, `%M` and `%S` read within
+  0-23, 1-12, 0-59 and 0-59, and an hour paired with `%p` must be 1-12:
+  `time_parse` had accepted `25:00` and `23:60`, and reduced an hour modulo 12
+  with AM/PM, so `13 PM` parsed as 1 PM. `BadInput` otherwise (user,
+  2026-09-13; breaking).
 
 ## Still open (raised, not decided)
 
