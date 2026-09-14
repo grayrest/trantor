@@ -1118,6 +1118,12 @@ holds a pin only through a github dependency.
   removed, so no oracle takes date arithmetic from temporal_rs. Answers that
   reach a Chinese year ICU4C misreads are skipped and counted (11,727 and
   7,070 instants).
+- **D-T2-36 Duration rounding and totals from non-ISO dates use the ICU4C model.**
+  The duration oracle's CalendarDateAdd and CalendarDateUntil come from a
+  `Reckoning`, as the rounding oracle's do (D-T2-35). Round, total and compare
+  anchored at dates on all fifteen calendars agree with the host on 5.7M
+  checks. Totals are compared to 15 digits wherever a double cannot hold the
+  spec's quotient exactly.
 
 ## Still open (raised, not decided)
 
