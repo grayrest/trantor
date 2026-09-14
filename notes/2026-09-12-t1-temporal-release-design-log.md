@@ -1050,6 +1050,25 @@ holds a pin only through a github dependency.
   shifted and rounding keeps r1, the spec text and temporal_rs nudge to the
   window's start where the polyfill nudges to its end; an oracle following the
   polyfill passes every sweep too, so no sampled input tells them apart.
+- **D-T2-31 Annotations are read by TC39's grammar before temporal_rs parses.**
+  ixdtf 0.6.6 checks each annotation character against the next one, so it
+  refused valid `[f=ab]` and `[foo=ab-c]` and accepted invalid `[foo=-ab]` and
+  `[foo=a--b]`. The host (`annotations.rs`) now refuses a malformed
+  `key=value` annotation and drops a well-formed non-critical unknown one, which
+  the spec ignores. It leaves the calendar, critical flags and zone order to
+  temporal_rs, which a 673,680-string sweep shows it handles as
+  ParseISODateTime does. The same round added three more sweeps, none of which
+  found a defect:
+  - `equals` against ECMA-402 §6.5 primary identifiers. temporal_rs follows
+    CLDR-style country rules, not raw IANA links: Oslo is not Berlin, and
+    Iceland resolves to Reykjavik. Ten same-country links are checked by hand.
+    Pacific/Johnston stays on Honolulu, since no UM primary keeps Hawaii time.
+  - Rounded `since` as negated `until` with the mode negated, checked against
+    temporal_rs's own `since` and in Roc.
+  - Zoned `format!` in LMT-offset zones and at extreme years.
+
+  The link table comes from the system's 2026c tzdata.zi against the pinned
+  2025c, and agreed on every link temporal_rs resolves.
 
 ## Still open (raised, not decided)
 
