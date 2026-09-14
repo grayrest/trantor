@@ -271,7 +271,7 @@ fn dispatch_fn(services: &[Service]) -> String {
         s.push_str("    let _ = (cmd, request);\n    None\n}\n\n");
         return s;
     }
-    s.push_str("    let host = host();\n    match cmd.tag {\n");
+    s.push_str("    match cmd.tag {\n");
     for svc in services {
         let p = svc.symbol_prefix();
         let field = snake_case(&svc.module);
@@ -282,6 +282,7 @@ fn dispatch_fn(services: &[Service]) -> String {
         if svc.event_module.is_some() {
             s.push_str(&format!(
                 "            let answers = unsafe {{ {p}cmd(request, payload) }};\n\
+                 \x20           let host = host();\n\
                  \x20           let mut out = Vec::with_capacity(answers.len());\n\
                  \x20           for a in answers.as_slice() {{\n\
                  \x20               out.push((a.route_key, {}));\n\
@@ -429,5 +430,21 @@ mod tests {
         assert!(s.contains("pub data_dir: extern \"C\" fn(*mut usize) -> *const u8,"));
         assert!(s.contains("pub fn set_data_dir(dir: &str)"));
         assert_eq!(s.matches("release_group, data_dir }").count(), 2, "one per component's static HostCtx");
+    }
+
+    /// A world of fire-and-forget services never reads `host` in `dispatch` or
+    /// `on_wake`, so neither binds it (an unused binding warns in the abi crate).
+    #[test]
+    fn fire_and_forget_world_binds_host_only_in_gate() {
+        let r = world_with(vec![Service { component: "svc-audio".into(), module: "Audio".into(), event_module: None, env_module: None }]);
+        let s = services_rs(&r, false).unwrap();
+        assert_eq!(s.matches("let host = host();").count(), 1, "only the gate chain uses host");
+    }
+
+    #[test]
+    fn event_service_binds_host_in_its_dispatch_arm() {
+        let r = world_with(vec![Service { component: "svc-echo".into(), module: "Echo".into(), event_module: Some("EchoEvent".into()), env_module: None }]);
+        let s = services_rs(&r, false).unwrap();
+        assert!(s.contains("trantor__svc_echo__cmd(request, payload) };\n            let host = host();\n"));
     }
 }
