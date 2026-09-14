@@ -1108,6 +1108,13 @@ holds a pin only through a github dependency.
   all fifteen calendars. Planted bugs in the constrain direction and in the
   month-code comparison each fail thousands of cases. The sweep adds about 37s
   of wall-clock time to the gate, which now takes about 3.5 minutes.
+- **D-T2-35 Rounded non-ISO differences use the same ICU4C model.** The
+  rounding oracle's CalendarDateAdd and CalendarDateUntil now come from a
+  `Reckoning`: ISO's oracle, temporal_rs, or the proposal's arithmetic over the
+  model (D-T2-34). A plain-date rounded difference on a non-ISO calendar
+  therefore takes nothing from ICU4X. 11M checks agree over 1900-2100 on all
+  fifteen calendars. The zoned calendar sweep still uses temporal_rs's
+  arithmetic, as its header says.
 
 ## Still open (raised, not decided)
 
