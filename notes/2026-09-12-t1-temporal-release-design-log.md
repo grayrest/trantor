@@ -1005,7 +1005,6 @@ holds a pin only through a github dependency.
   `PlainDate.to_str` used strftime's `%Y`, so `-10000-01-01` printed a string
   `date_from_str!` refused (357 of 717 sampled dates). Found by a Roc suite
   round-tripping the package's printers through the host's parsers.
-  `PlainTime.to_str` printing whole seconds is documented and raised, not changed.
 - **D-T2-26 `%N` is the nanoseconds within the second.** Formatting passed only
   the sub-microsecond field, so `.123456789` formatted as `000000789` while
   parsing read it correctly (240 of 15,690 round trips).
@@ -1018,6 +1017,11 @@ holds a pin only through a github dependency.
   dates and durations on non-ISO calendars by invariant (442,425), and rounded
   differences and calendars in every zone. The tzdb data is not compared with
   the system's in the gate, since that would depend on each machine's tzdata.
+
+- **D-T2-28 `PlainTime.to_str` prints the fraction of a second.** It printed
+  `%H:%M:%S`, dropping sub-second fields, so a printed time did not read back as
+  itself. It now follows TC39's `toString` with default precision: the fraction
+  when there is one, trailing zeros trimmed (`09:30:00.5`) (user, 2026-09-14).
 
 ## Still open (raised, not decided)
 
