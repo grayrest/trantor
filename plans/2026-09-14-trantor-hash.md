@@ -136,4 +136,102 @@ components.
 
 ## Implementation notes
 
-(Filled in during work.)
+Repos and commits: trantor-hash `1e27674` (SipHash), `8e72562` (RapidHash),
+`41815ee` (format + `Hash`), `3140140` (layout pin), `c1defad` (manifest,
+README), `eca1974` (README: which values hash). tower-platform branch
+`trantor-hash`: `cbf3f11` (unrelated clippy 1.98 fix that blocked `just
+check`), `8d2e059` (migration).
+
+- **One format, two-case state** as assumed. `HashFormat.State` holds the
+  hasher being fed and the untouched hasher a dict entry restarts from.
+  Nested types (`State`, `Container`, `Bytes`) live inside `HashFormat`'s
+  body: a type module exposes only its main type, so `Hash` names
+  `HashFormat.State`. `Box` and `Hasher` were avoided as names (builtin
+  `Box`; the fork's `Hasher`). `HashFormat.sip`/`rapid` build the state,
+  because `Hash` cannot construct `HashFormat`'s opaque `Bytes`.
+- **Dict entries are summed** (wrapping add). The builtin
+  `combine_unordered_hashes` is XOR, which is sound there because keys are
+  unique; sum costs nothing and does not cancel.
+- **RapidHash streams** like the crate's `RapidStreamHasherV3` (112-byte
+  chunks, the last chunk always kept for `finish`, a 16-byte `prev` tail), so
+  leaf-by-leaf writes equal the one-shot reference. Seeds go through the C++
+  `rapidhash_withSeed` mixing (`RapidSecrets::seed_cpp`).
+- **Vectors:** `tests/vectors` (siphasher `=1.0.3`, rapidhash `=4.5.1`,
+  both already in the local cargo cache) writes `HashVectors.roc` and
+  `tests/layout/expected`. The layout's expected output comes from a Rust
+  model of the documented table, not from the Roc output; its first run
+  caught a test bug (unannotated `[True, False]` is a tag list, not `Bool`s).
+- **README examples are not checked by `trantor test`** (help text says so);
+  `tests/readme` compiles them.
+- **Dict keys** need `encode_key_*` methods with the format as first
+  argument; they hash as the same scalar would.
+
+Probes (roc `10e922df83`):
+
+1. `Dict` reaches `encode_dict`, in insertion order; keys through
+   `encode_key_*`. `Set` reaches `encode_list` in insertion order, so a
+   `Set` hash follows insertion order (documented, not fixed).
+2. `Bool` reaches `encode_bool`.
+3. `Hash.of` on a type variable inside a platform module lowers: tower's
+   `Req.json_body!`/`query_record!` build and run. Two things block a
+   value from hashing, both found in tower:
+   - `Try(a, Str)` (non-union error) has no encoder; `Try(I64, [Missing])`
+     does, so tower's optional query params hash.
+   - A nominal whose hand-written `encoder_for` names one format
+     (`NullableStr`, `NullableI64`, `JsonBool` were `JsonEnc`-only) cannot
+     serve `HashFormat`. The compiler panic that forced that
+     (`examples/repro/GenericEncoderTwoFormats.roc`) no longer reproduces, so
+     all three became format-generic. Derived `to_hash` had hashed them
+     structurally.
+4. Compile cost, trantor-cli world, `roc build --opt=speed`, `Hash.fast` and
+   `Hash.of` over the conduit-shaped model: K=8 0.16 s / 251 MB, K=12 0.29 s
+   / 285 MB. `trantor build` K=5/6/8 with and without hashing all ~0.9 s,
+   ~250 MB.
+
+tower-platform: `Host.hash_seed!` returns `{ k0 : U64, k1 : U64 }` (glue
+names it `HostHashSeed`), filled from `getrandom`. `just check` passes; a
+realworld smoke run decoded and hashed a query (`?offset=0&junk=1&limit=2`)
+and a JSON body with `NullableStr` fields, and still wrote `"bio":null`.
+
+roc-solid (branch `trantor-hash`: `0326beed` clippy 1.98, `016d761b` glue
+path, `a14b2339` migration, `52c017f1` im-funnel, `195a166e` im-jsonquad):
+
+- The vendored modules must be in host-im's component `exports`
+  (`crates/host-im/driver.toml`, and `platform/dom/world.toml`'s
+  `im-contract`), not the world exports: a module a component ships but does
+  not export is not copied into the composed platform.
+- Two pre-existing breakages stopped `just check` before any gate ran and
+  were fixed first (user: "fix clippy first"): rust 1.98 clippy lints, and
+  the `glue` recipe still pointing at `./platform/main.roc`, moved to
+  `platform/signals/main.roc` in `5633b566`.
+- Two gates built probe apps calling `Hasher.hash_of`, which the earlier
+  search missed (file names built from shell variables): `im-funnel`
+  (`stage1-*.roc`, leaves now allocation-free values, bytes per leaf
+  unchanged) and `im-jsonquad` (`json-*.roc`, a display-only hash text node,
+  now a constant). 36 more `tests/integration/im-layout` probes call
+  `Hasher.hash_of` but no gate builds them; they stay as research record and
+  will not compile on an unpatched compiler.
+- Pre-existing failures on both compilers: `im-filter` (its probe script was
+  deleted by `a528eb58`), `im-handlers` (120.13 MB per frame, identical with
+  the old `Id.roc`).
+
+roc-solid-eink is a worktree of the same repo on `host-eink`, which another
+session is committing to. The same commits are cherry-picked onto branch
+`trantor-hash-eink` (`6decd598`, `87b633c1`, `d0279b69`, `0ad04add`,
+`536d26ac`) in `~/dev/roc/roc-solid-trantor-hash-eink` (beside the repo: host
+crates reach `../../rust/solid-signals`). Pre-existing there: `crates/host-eink`
+does not compile on macOS (`libc::ioctl` request type), which fails `lint` and
+`test`; `im-doc` fails on both compilers; `im-handlers` as above.
+
+Gate D-S1-9 on `local-fixes-no-hasher` (`e180a58bce`: upstream `697ada7ba3` +
+`22abc8c425`, `aeb2e1f473`, `705c7ea9a3`; `Hasher.hash_of` does not exist):
+
+| Consumer | Result on the unpatched compiler |
+|---|---|
+| trantor-hash | `trantor test .` PASS |
+| tower-platform | `just check` passes; regenerated glue identical |
+| roc-solid | `just check` passes; conduit-tests pass; im-check 131/133, the two pre-existing |
+| roc-solid-eink | every `check` gate except the two host-eink ones; im-check all but `im-doc`, `im-handlers` |
+
+Not done without asking (plan step 9): moving `local-fixes`, deleting
+`hasher-only`, merging the three consumer branches.
