@@ -1149,15 +1149,13 @@ holds a pin only through a github dependency.
     0.33 s over 10,000, and over the whole range it was still running when
     stopped at ten minutes.
     The fuzz keeps those calendars within 1800-2200.
+- **D-T2-39 Long lunisolar spans stay unbounded.** A month difference across
+  millennia on Chinese or Dangi dates can block the caller for minutes inside
+  temporal_rs/ICU4X. It is left as it is: no cap and no upstream report,
+  because spans that long are outside the 1800-2200 range the package is
+  meant for (user, 2026-09-14).
 
 ## Still open (raised, not decided)
-
-- **Lunisolar differences over long spans are effectively unbounded.** A
-  hostile or careless `until_in!(…, Month)` across millennia on Chinese or
-  Dangi dates blocks the caller for seconds to tens of minutes, inside
-  temporal_rs/ICU4X. The options: leave it, cap the span the package
-  accepts on stepped calendars (a deviation from TC39), or raise it
-  upstream.
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20
   builds and 9 suite runs; five hypotheses falsified (above). If it recurs, the
