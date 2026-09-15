@@ -544,6 +544,52 @@ leftover names what was happening.
 guarantee exactly there); shortening the destination name into the temporary
 (UTF-8 boundaries, and long names sharing a prefix contend).
 
+### D-S2-29 The generated driver opens closed standard fds on `/dev/null`
+
+Before `roc_main`, trantor's generated driver `main` opens `/dev/null` for any
+of fds 0, 1 and 2 the process started without, as Rust's startup does. (User.)
+
+Found in the fourth independent review: the driver's `main` is exported to C
+and skips Rust's startup, so in `app <&-` the next file opened took fd 0. A
+spawn's close-on-exec pipe landed there, the child's `dup2(0, 0)` kept
+close-on-exec, and exec closed the child's stdin; `collect!` returned `Ok` with
+the input lost, and `Cmd.exec_output!` failed the same way.
+
+**Why:** one fix at process start covers every component and every later
+open; it is what basic-cli apps get from Rust's runtime.
+
+**Rejected:** working around it at each spawn (every other component that
+opens a file still takes the number).
+
+### D-S2-30 A followed link out of a confined root is a link, not a failed walk
+
+With `follow_symlinks: True`, a link whose target cap-std refuses
+(`PermissionDenied`, how it reports an escape) is reported `IsSymLink` and not
+descended, as a link that leads nowhere is. A real EACCES on a link's target is
+treated the same. (User.)
+
+Found in the fourth independent review: any tree holding an absolute link could
+not be walked with follow under `fs-confined`, even at `max_depth: 1`.
+
+**Rejected:** failing the walk (the confinement is working; the rest of the
+tree is still walkable).
+
+### D-S2-31 A seek-to-end append stream cannot be handed to a child
+
+`append_via_stream!` on a descriptor opened without `append` records no fd, so
+`FdHandoff.output_fd!` answers `NotAFile` and `Subprocess.spawn!` refuses it as
+a redirect. (User.)
+
+Found in the fourth independent review: the handed fd carries no `O_APPEND`, so
+the child wrote at the shared cursor and overwrote the file the stream was
+appending to (`0123456789` became `X123456789P`).
+
+**Why:** the stream's promise is that every write lands at the end; a child
+given its fd could not keep it. `File.open_append!`'s descriptor has `append`,
+so redirecting to it works.
+
+**Rejected:** documenting the mismatch (a redirect that silently corrupts).
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7

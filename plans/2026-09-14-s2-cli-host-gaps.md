@@ -431,3 +431,46 @@ code or reproduced before fixing.
     unlistable-skipped and `./` duplicate cases; `copy` gains a 240-byte name
     overwritten on both worlds.
 
+### Fourth review round (2026-09-15; decisions D-S2-29..31)
+
+- **trantor `f42086a` (`src/codegen.rs`):**
+  - D-S2-29: the generated driver's `fill_closed_stdio` probes fds 0–2 with a
+    `ManuallyDrop` `File::from_raw_fd(...).metadata()` for `EBADF` (9) and
+    opens `/dev/null` read-write, leaking it onto the lowest free number.
+  - `~/.bin/trantor` links to `target/release/trantor`, so the package suites
+    use it after `cargo build --release`; trantor's `cargo test --release`
+    passes (96).
+  - The generated `main-driver` has 5 pre-existing `missing_safety_doc` clippy
+    errors; the count is unchanged by this commit.
+- **trantor-cli `fb7313b`:**
+  - `EndWriter` skips `ESPIPE`.
+  - `stream_result` takes `Option<RawFd>`; a seek-to-end append stream is
+    minted with `output_stream` (no fd), so FdHandoff answers `NotAFile`
+    (D-S2-31).
+  - `fs-write-modes` appends through `fifo2` opened without `append`.
+  - The `fd-handoff` stdin-closed run can no longer fail from the floor alone,
+    since fd 0 is `/dev/null` now; its comment says so, and trantor-process's
+    `<&-` spawn run covers the driver fill.
+- **trantor-process `9b98c41`:**
+  - `captured!` waits on the child when `collect!` fails with `Io`.
+  - `sigpipe_run!` writes one byte into `head -c 2` before spawning `yes`, and
+    all 3 runs must be `Signaled(13)`.
+  - The spawn suite runs twice, the second time with `<&-`.
+  - The regressions case asserts `ToStream` of a seek-to-end append stream is
+    refused.
+- **trantor-files `5aa49e5`:**
+  - `Below.id` is `[Known(Identity), Unread]`; a real directory's identity is
+    read at descent. `descent!` adds `PermissionDenied` to leads-nowhere
+    (D-S2-30).
+  - `Tree.relative` uses no separator after an empty root.
+  - `replace_attempt!` answers `AlreadyExists` on the last collision without
+    deleting.
+  - `GlobPattern.literal_paths` and `Glob.existing!` check literal
+    alternatives by name.
+  - `without_dot_components` replaces `without_dot_slash`.
+  - `expand_from!` treats `NotADirectory`, and `Other(_)` behind a link start,
+    as no match.
+  - Tests: `walk-glob` gains dot-components, unsearchable-dir, file-in-start,
+    looped-start and literal-starts; `copy` gains copy-from-empty and a
+    followed escape (`dir` unconfined, `link` confined).
+
