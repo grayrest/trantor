@@ -644,6 +644,8 @@ one escape disagree).
 
 ### D-S2-35 A glob start link out of a confined root is no match
 
+*(Superseded by D-S2-37.)*
+
 A start directory reached through a link whose listing cap-std refuses
 (`PermissionDenied`) is no match, as D-S2-30 has the walk treat such a link. A
 start spelled with `..` out of the root still fails. (User.)
@@ -690,6 +692,30 @@ that costs the clone fast path.
 **Rejected:** check the path is under the root, then use it through `std::fs`
 everywhere (simpler, keeps `std::fs::copy`'s fast paths, and makes a privileged
 confined tool escapable by a local user).
+
+### D-S2-37 A glob start that reaches outside the root errors, through a link or `..`
+
+D-S2-35's special case is dropped: a start link whose listing fails with
+`PermissionDenied` fails the expansion like any other refused start. Only a
+missing target, a file on the way, or a loop of links is no match. The walk's
+D-S2-30 is unchanged: it reports such a link as a link rather than hiding a
+refusal. (User, choosing (b).)
+
+Found in the seventh independent review: nothing tells trantor-files which
+backend it is on, and cap-std reports an escape as plain `PermissionDenied`,
+so the rule also fired unconfined (`lz/*`, a link to a mode-000 directory,
+silently matched nothing while the directory itself errored, and `lx/f` lost
+its name-check fallback), and it missed a link one level into the start
+(`outlink/sub/*` errored).
+
+**Why:** D-S2-34's reason — a refusal reported as no match is how a caller
+comes to believe a file does not exist — and the exception cannot be told from
+an ordinary permission failure without new trantor-cli surface.
+
+**Rejected:** `Fs.is_confined!` so the rule fires only when confined (a
+primitive with no WASI counterpart that apps could branch on); a distinct
+escape error from the confined backend (a string contract, and a changed error
+kind for every confined caller).
 
 ## Still open
 
