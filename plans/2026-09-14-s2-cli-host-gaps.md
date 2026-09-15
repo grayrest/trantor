@@ -585,3 +585,75 @@ and found older backend disagreements that reading diffs had not.
     `env PATH=/nope:` from a directory holding `local-tool`, expecting
     `True local-tool`.
 
+### Eighth review round (2026-09-15; decisions D-S2-38..41)
+
+Three reviewers ran probe apps on both backends. None of the findings changed
+a recorded decision, but three of the fixes needed one: D-S2-38, D-S2-39 and
+D-S2-41. D-S2-40 came up during implementation: executability can only follow
+links if `stat_at!` can.
+
+- **trantor-cli `ff906b2`, `eca456e`, `6951d74`:**
+  - `relative_to_root` re-appends the trailing spelling that `strip_prefix`
+    drops, through `trailing_spelling`: `/.` if a `.` component ended the path,
+    otherwise `/`. `names_directory` (ends in `/` or `/.`) replaces
+    `ends_in_slash`. Before the fix, confined `keep.txt/.` overwrote the file
+    and `filelink/.` deleted the link.
+  - `beneath_lstat` follows a link for a directory name. It is used by
+    `stat_of`, by `metadata_hash_at` without follow, and by the rename check;
+    cap-std's `symlink_metadata("dirlink/")` is ENOTDIR.
+  - `open_non_directory` refuses create or exclusive at a directory name
+    (`NotADirectory`, not `NotFound`/`EINVAL`).
+  - `copy.rs`: `open_source` uses `O_NONBLOCK` (a FIFO hung both backends in
+    open). `remove_if_same` removes a partial copy only if (dev, ino) still
+    matches the created file.
+  - D-S2-41: `sync_io_core::Handoff`, `input_stream_failed`. The `Failed`
+    reader moved from fs-core to sync-io-core. `dup_owned` returns the
+    result, `handoff_io` builds `IoOrNotAFile::Io(FdHandoffIOErr)`: the glue
+    names, confirmed by building.
+  - D-S2-39: `copy_dir_at!` in `copy.rs` (`copy_dir`, `create_dir` with
+    `DirBuilder` mode 0o700, `O_DIRECTORY|O_NOFOLLOW` or `open_dir_nofollow`,
+    `set_permissions`, and `remove_dir` if that fails). Exposed as
+    `FsOps.copy_dir!`.
+  - D-S2-40: `stat_at!` takes `HashFlags`; `FsOps.executable!` follows.
+  - `backends-agree` grows to 33 operations:
+    - `/.` cases, `dirlink` `/` and `/.` kinds, the hash;
+    - `sub/q/` rename (the link target moves, and the link stays);
+    - create at `oc/`, a FIFO copy;
+    - `copy_dir_at!` on 0700/0555/2750 directories, a link and a file source,
+      an existing destination;
+    - executability of dangling, non-executable and executable links.
+
+    The script checks modes 700/755/750 under `umask 022`. `fd-handoff` adds
+    an `exhaust` mode (opens until refused under `ulimit -n 64`) expecting
+    `io`.
+- **trantor-process `517915c`:**
+  - Linux `without_sigpipe` records whether SIGPIPE was pending before the
+    write. It takes a newly pending one with a zero-timeout `sigtimedwait`,
+    whatever the write returned; `sigpipe_pending` is the helper. Checked
+    with `cargo check`/`clippy --target x86_64-unknown-linux-gnu`; it cannot
+    run here.
+  - `collect` kills on a reader failure only if `try_wait` showed the child
+    unreaped at entry.
+  - `Subprocess.first_failure` picks spawn's error from the redirects.
+  - `Cmd.not_directory!` checks `candidate.join(".")`.
+  - Docs: `wait!` on unread pipes, `collect!` with a grandchild on stdin.
+  - `cmd-results` `check` mode covers five tools: plain, dangling link, link
+    to 0644, link to the tool, link to a directory. Each must agree between
+    `check_available!` and a spawn.
+- **trantor-files `3ac4aa2`, `b9d6277`:**
+  - D-S2-38: `is_directory!` falls back to `metadata_hash_at! {follow}` on
+    `PermissionDenied`.
+  - `Temp.after_cleanup` treats `NotFound` as a clean cleanup.
+  - `Tree.make_dir!` takes the source and calls `FsOps.copy_dir!`.
+  - `Walk.descent!` stays only on `is_link_loop` among `Other` errors.
+  - `GlobParse.class` returns `Try`: a reversed range and an un-negated
+    class of only `/` are `InvalidGlob`.
+  - Tests:
+    - `walk-glob` gains `p2/` (`shut` 000, `lfile`, `ldang`) and two class
+      cases;
+    - `temp` gains `moved!`;
+    - `copy`'s snapshot prints directory modes, and its fixture has
+      `src/private` 700.
+  - Docs: `Tree`, `Glob.expand!`, README.
+- A trantor-terminal run alongside trantor-net failed the two pty signal tests
+  again. Run alone, it passed. trantor-net and b8 pass.
