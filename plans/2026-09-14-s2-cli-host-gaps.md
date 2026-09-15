@@ -357,3 +357,43 @@ code or reproduced before fixing.
   depth" hole is closed for the link itself; renaming a directory that holds
   relative links is still not checked.
 
+### Second review round (2026-09-15; decisions D-S2-23..26)
+
+- **trantor-cli `251aa20`:**
+  - D-S2-23: `write_via_stream!` ignores `ESPIPE` from its seek; the shared
+    cursor is documented on `Fs`.
+  - D-S2-24: `link_stays_inside` returns early for absolute contents and for
+    `from.parent() == to.parent()`, and maps a failed target check to
+    `PermissionDenied`.
+  - D-S2-25: `Fs.metadata_hash_at!(d, path, { follow_symlinks })` returns
+    `{ lower, upper }`, two `DefaultHasher` passes over `(dev, ino)` salted 0
+    and 1.
+  - Tests:
+    - `fs-write-modes`: a FIFO with a background `cat`, and identity through
+      a link.
+    - `confined-race` planted: allowed moves (absolute in place, dangling in
+      place, relative across directories) and a refused dangling
+      cross-directory move.
+    - `fd-handoff`: runs again with `<&-`.
+- **trantor-process `c8a66e2`:** D-S2-26 `without_sigpipe(fd, write)` is
+  per-platform: on macOS `F_SETNOSIGPIPE` 1 before the write and 0 after, no
+  `sigwait`; elsewhere the thread block and consume. The flag is no longer set
+  at spawn. `tests/spawn` asserts `yes` into another child's stdin pipe ends
+  `Signaled(13)`.
+- **trantor-files `88c004a`:**
+  - `Walk` threads `Inside : List(Identity)` when following. A directory, real
+    or behind a link, whose identity is in it is not descended.
+    `descent!` keeps a followed link's listing.
+  - `GlobPattern.starts` groups alternatives by literal prefix;
+    `Glob.expand!` walks each group and merges, sorting by bytes and dropping
+    duplicates.
+  - `GlobParse`: empty non-leading components dropped; `joins_stars` checks
+    each brace join (unescaped trailing `*` meeting a leading `*`).
+  - `prefix_from` gives `could_contain` the last-`**` restart.
+  - `Tree.replace!` makes the new file or link at
+    `<to>.trantor-replace-<random>` and renames it over; `make_room!` is gone.
+- **Not testable here, left as notes:**
+  - `copy_beneath`'s partial-copy removal: no read failure can be forced on a
+    regular file.
+  - The Linux SIGPIPE path: the development machine is macOS.
+
