@@ -397,3 +397,37 @@ code or reproduced before fixing.
     regular file.
   - The Linux SIGPIPE path: the development machine is macOS.
 
+### Third review round (2026-09-15; decisions D-S2-27..28)
+
+- **trantor-cli `724a267`:**
+  - D-S2-27: `OpenFlags` gains `append` (glue record renamed:
+    `AnonStructF1bdbf0aafca74e5`); `append` implies `write` in `open_flags`,
+    like `exclusive` implies `create`; `append` with `truncate` or `directory`
+    is `Unsupported`.
+  - Both backends call `.append(f.append)`. `append_via_stream` reads
+    `F_GETFL`: with `O_APPEND` the stream is the plain clone, otherwise an
+    `EndWriter` seeks to the end per write. `FsOps.writer_at!` Append opens
+    with `append: True`.
+  - `tests/fd-handoff` hands off stdout before opening any file. Negative
+    control run: with `FIRST_NON_STDIO_FD = 0` the stdin-closed run fails
+    (`stdio-number:0`).
+  - `fs-write-modes` asserts `XYllo!,XYllo!?`: an append stream then an
+    offset stream on a plain descriptor, then an offset stream on an append
+    descriptor.
+- **trantor-process `ad19ba2`:** the pipeline check drops the parent's write
+  into `head`'s stdin, and runs 5 pipelines requiring at least one
+  `Signaled(13)`.
+- **trantor-files `50f9a9f`:**
+  - `descent!` treats `NotFound`, `NotADirectory` and `Other(_)` from the
+    followed identity as leading nowhere (`IOErr` has no ELOOP variant), and
+    defers a followed listing error as `Descend … Unlisted`.
+  - `Glob.expand!` strips a leading `./` from every result before sorting and
+    dropping duplicates.
+  - `Tree.replace!` retries up to 8 random `.copy-in-progress-<16 hex>` names
+    in `FilesPath.parent(to)` and deletes the temporary on any failure except
+    `AlreadyExists`.
+  - `FilesPath.hex` and `FilesPath.parent` are shared by `Temp` and `Tree`.
+  - `walk-glob` gains loop, through-a-file, unlistable-at-max-depth,
+    unlistable-skipped and `./` duplicate cases; `copy` gains a 240-byte name
+    overwritten on both worlds.
+
