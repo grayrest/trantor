@@ -657,3 +657,67 @@ links if `stat_at!` can.
   - Docs: `Tree`, `Glob.expand!`, README.
 - A trantor-terminal run alongside trantor-net failed the two pty signal tests
   again. Run alone, it passed. trantor-net and b8 pass.
+
+### Ninth review round (2026-09-15; decisions D-S2-42..43)
+
+Four findings were regressions from rounds 7 and 8: directory names ending in
+`/` confined, `copy_dir_at!`'s confined source, a walk over a link to an
+over-long name, and a temp leak. Two were older: redirect fds an app could
+close, and a stdin deadlock.
+
+- **trantor-cli `a5c4b3c`, `2fad58c`:**
+  - fs-core directory names:
+    - `slashes_stripped` (a name ending in slashes and not `.`/`..`).
+    - `Target::with_path`/`path` (replace `target_path`).
+    - `existing_directory_name` for `remove_dir_at`/`remove_dir_all_at`: a
+      link or file is `NotADirectory`. Confined `remove_dir("tree/")` had
+      been EINVAL after emptying the tree, and macOS removed a link's target.
+    - `new_directory_name` for `create_dir_at` and `copy_dir`: anything at
+      the name is `AlreadyExists`, where macOS made `dangling/`'s target.
+  - `names_directory` no longer counts a bare `.`: the root named without a
+    slash gets the OS's answer on both backends. Confined exclusive creation
+    over a directory maps cap-std's `IsADirectory` to `AlreadyExists`
+    (`root-copy-onto`).
+  - `open_non_directory`: `IsADirectory` for an existing directory
+    (`metadata_followed`).
+  - `copy_dir`:
+    - reads the source through `metadata_as_named` (`beneath_lstat`);
+    - makes and opens the stripped name (`make_owner_only`, `open_made`), so
+      `O_NOFOLLOW` applies;
+    - removes the directory if the open or chmod fails, so a `umask 0400`
+      probe leaves nothing.
+  - `cli-host` `SharedStdin`: locks `stdin()` per `read`, holds the lock only
+    from `fill_buf` to `consume`, and drops it on a failed fill.
+  - Tests:
+    - `backends-agree` +13 cases (46): slash removals, links, dangling mkdir,
+      copy_dir slash source and destinations, create at `adir/`, root
+      write/copy/symlink;
+    - `confined-race` +`copy_dir` and `stat_followed` (12 ops);
+    - new `tests/stdin-streams`: two streams and `Stdin.line!` interleaved,
+      `1 2 3 4 5`.
+- **trantor-files `10892cc`:**
+  - D-S2-42: `FilesPath.is_name_too_long` (63/36) and `leads_nowhere`, used
+    by `Walk.descent!` and Glob's three sites.
+  - `Temp.with_*_in!` resolve the made path at creation, and clean up by it
+    through `FsOps.delete!`/`delete_all!`.
+  - `GlobParse.class` also refuses `Range('/', '/')`.
+  - Docs: `Tree.copy!` and the README say a failed copy leaves what it made.
+  - Tests: `walk-glob` adds `long/toolong` (walk, glob through, 300-byte start,
+    literal in braces) and `[/-/]`; `temp` adds `moved_cwd!`.
+- **trantor-process `47211ed`:**
+  - `redirect!`, `release!` and `first_failure` move to module level.
+    `spawn!` releases its FdHandoff fds after `spawn_redirected!` either way.
+  - The host's `stdio` duplicates an `Fd` (`F_DUPFD_CLOEXEC` ≥ 3) and never
+    closes the caller's.
+  - D-S2-43: the `can_execute!` leaf (OsStr; `executable_by_user` in lib.rs).
+  - `Cmd`:
+    - `candidate_available!` returns `[Found, Missing, Stop]`, and
+      `search_*` take `os`;
+    - `not_directory!` counts only `PathErr(NotADirectory)` as a file. `Path`
+      here is basic-cli-lib's, whose errors are `PathErr`.
+  - `collect` makes threads with `Builder::spawn_scoped`. On a failed reader
+    spawn it kills an unreaped child and joins the writer (`kill_unreaped`).
+    Docs: `collect!` after `Io`, `check_available!`.
+  - Tests: `spawn` adds a `borrowed` mode (`Fd(1)` to the raw leaf, then
+    `Stdout.line!`: `child parent`); `cmd-results` adds `group-only` (mode 654).
+- trantor-net, trantor-terminal (run on its own) and b8 pass.
