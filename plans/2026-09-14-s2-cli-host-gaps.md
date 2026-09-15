@@ -508,3 +508,40 @@ code or reproduced before fixing.
   case-sensitive matcher; the fallback name check is filesystem-resolved, as a
   shell's literal word is.
 
+### Sixth review round (2026-09-15; decisions D-S2-32..35)
+
+- **trantor-files `22e14e5`:**
+  - `Segment` gains `DirectoryOnly`, appended by `GlobParse.segments` for a
+    trailing empty component. `GlobPattern.content` strips it before matching
+    or literal checks. `match_kind` answers `[NoMatch, Match, IfDirectory]`,
+    and `search!`/`existing!` resolve `IfDirectory` with `is_directory!`
+    (`IsDir`, or a link that lists) (D-S2-33).
+  - `no_dots_after_wildcards` makes `.`/`..` after a non-literal segment
+    `InvalidGlob` (D-S2-32).
+  - `existing!` returns `Try`: `NotFound`, `NotADirectory` and
+    `FilesPath.is_link_loop` (message containing `(os error 62)` or
+    `(os error 40)`) are no match; other errors fail (D-S2-34).
+  - The start `lstat` and link-start listing treat a loop, and for a link
+    `PermissionDenied`, as no match (D-S2-35).
+  - `starts` keeps literal alternatives in their own group. `{xo/f,xo/*}`
+    still fails, correctly: `xo/*` cannot be expanded.
+  - Tests: `walk-glob` covers directories-only, a file with a slash, `..`
+    after a wildcard, and a loop in a start prefix. `copy` checks
+    `../outside/f`, `../outside/*` and `outlink/*` on both worlds
+    (unconfined: found; confined: `PermissionDenied`, `PermissionDenied`,
+    none).
+- **trantor-process `55672d8`:**
+  - `check_available!` uses `default_search_path` `/usr/bin:/bin` for an
+    unset PATH.
+  - `explain_missing_cwd` turns a spawn's `NotFound` into
+    `Other("the working directory … no longer exists")` when the userland cwd
+    is not a directory.
+  - `collect` borrows the input slice (decref after), drops each output `Vec`
+    after its `RocList` copy, and `stop_on_failure` SIGKILLs the unreaped
+    child when a reader fails.
+  - `cmd-results` runs again under `env -u PATH` and checks the removed cwd.
+  - Untested here: the reader-failure kill (no pipe read error can be forced).
+- **All three `tests/lib.sh` (`55672d8`, `1d2ec5b`, `82e6979`):** `capped` is
+  `exec { $ARGV[0] } @ARGV or die`. trantor-cli's Fs `interface.toml`
+  comment now describes kinded listings.
+
