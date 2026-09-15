@@ -15,8 +15,9 @@ B=tests/golden/b8-basic-cli
 PKG=$PWD/../trantor-cli
 NET=$PWD/../trantor-net
 TERMINAL=$PWD/../trantor-terminal
-[[ -f "$PKG/package.toml" && -f "$NET/package.toml" && -f "$TERMINAL/package.toml" ]] || {
-	echo "SKIP: this fixture consumes the trantor-cli, trantor-net and trantor-terminal packages,"
+PROCESS=$PWD/../trantor-process
+[[ -f "$PKG/package.toml" && -f "$NET/package.toml" && -f "$TERMINAL/package.toml" && -f "$PROCESS/package.toml" ]] || {
+	echo "SKIP: this fixture consumes the trantor-cli, trantor-net, trantor-terminal and trantor-process packages,"
 	echo "      which are not all checked out beside this repo."
 	exit 0
 }
