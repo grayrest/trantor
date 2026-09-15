@@ -161,4 +161,55 @@ Docs:
 
 ## Implementation notes
 
-(Filled in during work.)
+### trantor-cli (steps 1–6: `bdc5f2e`..`1c038ac`)
+
+- **Gate.** `trantor test .` in the package; clippy on the composed world's
+  crates only: `cargo clippy --release --no-deps -p fs-core -p sync-io -p …
+  -- -D warnings` inside `target/trantor/<world>` (a plain workspace clippy
+  lints the generated `trantor-abi` and fails there). `subprocess-host` fails
+  `wrong_self_convention` at `1c51dc7` already; it is rewritten in step 9.
+- **A hosted leaf must be declared above a Roc body that calls it** in the same
+  interface module, or the body reports the leaf as not existing. `Fs.roc`
+  lists `open_with_flags_at!` before `open_at!`; `FdHandoff.roc` its leaves
+  before `descriptor_fd!`.
+- **`open_with_flags_at!` stays visible** in `Fs` (the plan's assumption): an
+  exported interface module has no per-leaf hiding.
+- **`IOErr` has no equality**, so the open-flag expects compare through a
+  `settled` helper that maps the refusal to a plain tag.
+- **Writers open with `read: False`**, or a write-only file is refused.
+  `write_via_stream!` writes with `pwrite` at its own offset;
+  `append_via_stream!` sets `O_APPEND` on the open file (documented: later
+  offset streams on that descriptor append too).
+- **`File.Writer` is opaque (`::`)**, so `StrPath`/`OsPath` build one through
+  `File.Writer.from_host`. Their new methods keep those modules' closed
+  `[FileErr(IOErr)]` unions.
+- **`FsOps.entries!`** returns the kinded entries (for trantor-files' walk);
+  `FsOps.list!` maps it to names. `FsOps.Reader`/`Writer` records carry the
+  descriptor beside the stream; `Host.FileReader` is `FsOps.Reader`.
+- **cap-std's `Dir::copy` escapes on macOS.** It tries
+  `fclonefileat(src, root_fd, "sub/name")`, which resolves the destination's
+  directories itself: 108 of 2000 raced copies landed outside the root. The
+  confined copy opens both files through cap-std (`create_new` + mode), copies
+  with `std::io::copy` and sets the permissions; unconfined keeps
+  `std::fs::copy` after a `symlink_metadata` existence check.
+- **D-S2-22 (user, during step 5):** under confinement `symlink_at!` resolves
+  the target from the link's directory beneath the root and refuses a missing
+  one. `Tree.copy!` (step 13) must create links after their targets.
+- **`confined-race`** runs 10 operations × 2000 against the swapper, per-op
+  escape count plus both controls, then diffs the outside directory (what the
+  writes left) and checks a confined copy kept mode 750.
+- **`FdHandoff` is provided by `sync-io` alone.** One interface is wired to one
+  component, so the fs components cannot implement `descriptor_fd!` beside
+  sync-io's stream leaves. `descriptor_fd!` is a Roc body:
+  `input_fd!(Fs.read_via_stream!(d))` — a directory descriptor's stream has no
+  fd, so `NotAFile`. `Input`/`Output` gained an `Option<RawFd>` field set at
+  mint (files, stdio).
+- **Every handed-off fd is an owned `F_DUPFD_CLOEXEC` duplicate**, taken
+  inside `resource::with`: the first version duped after the borrow and got a
+  closed fd, because a stream minted for the call is dropped on release. Added
+  `close_fd! : I32 => {}` so a caller can release an fd it did not hand on
+  (trantor-process needs it when a second redirect fails after the first
+  succeeded).
+- **Step 6 is an integration suite, not expects:** expects cannot make hosted
+  calls. `tests/fd-handoff` adds `FdHandoff` to its world's `exports` and reads
+  the handed fd back through `/dev/fd/N`.
