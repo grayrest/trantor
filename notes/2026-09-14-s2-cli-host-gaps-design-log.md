@@ -501,6 +501,49 @@ when the pipe is handed to a child (the parent's later writes can then kill the
 app); ignoring it process-wide around each write (a global mutation that loses
 another thread's signal).
 
+### D-S2-27 Append is an open flag; `append_via_stream!` never changes the open file
+
+`Fs.open_at!` gains `append ?: Bool` (`O_APPEND`, default `False`); `truncate`
+or `directory` with `append` is `Unsupported`. `FsOps.open_append!`/`append!`
+(behind `File.open_append!` and `Path.append_*`) open with `append: True`. On a
+descriptor opened with it, `append_via_stream!` writes plainly and every write
+is atomic at the end; on any other descriptor each write seeks the shared
+cursor to the end first, which is not atomic against other appenders. Nothing
+sets `O_APPEND` after open. (User.)
+
+Found in the third independent review: `append_via_stream!` set `O_APPEND` on
+the dup's open file, which the descriptor shares, so later `write_via_stream!`
+offsets were ignored and a child handed the descriptor appended — for good.
+
+**Why:** only `O_APPEND` gives the "including when other processes append"
+promise `File.open_append!` makes, and setting it at open touches no shared
+state. The flag departs from WASI's open flags, which D-S2-2 left open "until
+something needs them"; this needs it.
+
+**Rejected:** reopening the file by a path recorded at open (an open-by-name
+race inside a descriptor API: a renamed or replaced file gets the appends or
+the call fails); a seek to the end before every write everywhere (breaks the
+multi-process promise).
+
+### D-S2-28 Tree overwrite builds the replacement at `.copy-in-progress-<16 hex>`
+
+`Tree.copy!` with `overwrite: True` makes each replacement file or link in the
+destination's directory under `.copy-in-progress-` and 16 hex digits from the
+OS entropy source, retried on `AlreadyExists`, then renames it over. A copy
+that fails part way removes its partial file. (User, choosing the prefix.)
+
+Found in the third independent review: the name `<to>.trantor-replace-<u64>`
+added up to 37 bytes, so a destination name over about 218 bytes could be
+copied but never overwritten.
+
+**Why:** 34 bytes whatever the destination is called, one code path, and the
+replacement-exists-before-the-old-one-goes guarantee for every name; a crash
+leftover names what was happening.
+
+**Rejected:** falling back to delete-then-create for long names (loses the
+guarantee exactly there); shortening the destination name into the temporary
+(UTF-8 boundaries, and long names sharing a prefix contend).
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
