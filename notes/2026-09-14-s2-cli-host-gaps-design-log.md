@@ -594,6 +594,63 @@ so redirecting to it works.
 
 **Rejected:** documenting the mismatch (a redirect that silently corrupts).
 
+### D-S2-32 `.` and `..` after a wildcard are not supported
+
+A pattern with a `.` or `..` component after any component containing glob
+syntax (`tree/*/../a.txt`, `*/.`) is `InvalidGlob`. `.` and `..` in the literal
+leading directories (`../*.txt`, `a/./b/*`) keep working. (User: unsupported.)
+
+Found in the sixth independent review: a walk never yields `.` or `..` entries,
+so such a pattern silently matched nothing while `Glob.matches` accepted the
+same path, and `*/../x` still walked every directory.
+
+**Why an error:** "unsupported" as an empty result looks like "nothing there".
+
+**Rejected:** expanding up to the wildcard and resolving the rest by name
+(a second matching mode for a spelling globset does not support either).
+
+### D-S2-33 A trailing `/` matches directories only
+
+`tree/*/` and `tree/sub/` match only directories and links to directories, as
+a shell does; results are spelled without the slash. `Glob.matches`, having no
+filesystem, ignores the slash. (User.)
+
+Found in the sixth independent review: the empty last component was dropped,
+so `tree/*/` returned files and `tree/a.txt/` returned the file.
+
+### D-S2-34 A literal name that cannot be checked is an error, not a non-match
+
+The name check behind literal alternatives (`.`, `tree/..`, `/`, and the
+fallback for a start that can be searched but not listed) treats only
+`NotFound`, `NotADirectory` and a symlink loop as no match; any other error
+fails the expansion. The fallback swallows only the walk's listing failure.
+(User, choosing (a).)
+
+Found in the sixth independent review: every error on a literal was no match,
+so under `fs-confined` `../outside/d/f` silently found nothing while
+`../outside/d/*` failed with `PermissionDenied`, and an I/O error on a literal
+vanished.
+
+**Why:** a dropped confinement refusal or I/O error is how a caller comes to
+believe a file does not exist. The one silent refusal is the deliberate one in
+D-S2-35. `IOErr` has no loop variant, so a loop is recognised by its OS error
+number in `Other`'s message (62 on macOS, 40 on Linux, neither of which a path
+lookup otherwise returns there).
+
+**Supersedes** the fifth review's "any check error is no match".
+
+**Rejected:** silent no match for literals (literal and wildcard spellings of
+one escape disagree).
+
+### D-S2-35 A glob start link out of a confined root is no match
+
+A start directory reached through a link whose listing cap-std refuses
+(`PermissionDenied`) is no match, as D-S2-30 has the walk treat such a link. A
+start spelled with `..` out of the root still fails. (User.)
+
+Found in the sixth independent review: `outlink/*` failed under `fs-confined`
+while a walk reported the same link as a link.
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
