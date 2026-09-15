@@ -651,6 +651,46 @@ start spelled with `..` out of the root still fails. (User.)
 Found in the sixth independent review: `outlink/*` failed under `fs-confined`
 while a walk reported the same link as a link.
 
+### D-S2-36 One copy for both backends, between opened handles; `fs-confined` holds against concurrent writers
+
+`copy_file_at!` has one implementation. Each backend only opens: the source
+(required to be a regular file) and the destination with `create_new`,
+unconfined through `std::fs`, confined through cap-std. The bytes then move
+handle to handle (`std::io::copy`); permission bits are set without
+setuid/setgid; a partial destination is removed on failure. No timestamps, no
+xattrs, one error order and one set of messages on both backends. No clone fast
+path until something measures a need; one would be `fclonefileat` against a
+cap-std parent directory handle with a single-component name. (User, choosing
+(a).)
+
+Found in the seventh independent review, which ran the APIs end to end:
+unconfined `std::fs::copy` kept timestamps on APFS and dropped setuid, the
+confined handle copy did neither, and the two refused a bad copy in a different
+order with different messages. The split was accidental: step 4 used
+`std::fs::copy` and cap-std's `Dir::copy`, and step 5 replaced only the
+confined one after the race test found it escaping.
+
+**The threat model, asked while deciding.** The user asked why the confined side
+cannot check the destination is under the root and pass the path to
+`std::fs::copy`, how an outside symlink would appear, and whether a process able
+to coordinate that means the machine is already compromised. Answer recorded:
+a check and a later use resolve the path twice, and a directory swapped for a
+symlink in between escapes (the pre-cap-std root measured 192–970 of 20,000
+reads outside; `Dir::copy`'s `fclonefileat` 108 of 2,000). The confined app
+cannot make such a link itself (D-S2-22, D-S2-24; single-threaded; no
+`trantor-process`), so the swap needs a second process. A same-user attacker
+gains nothing from the race; one with less authority than the app does (a
+trantor-cli tool run as root or a service in a user-writable tree, the shape of
+CVE-2022-21658).
+
+**Why:** `fs-confined` keeps resolving at the moment of use, so it holds against
+lower-privileged concurrent writers, not only against the app itself; for copy
+that costs the clone fast path.
+
+**Rejected:** check the path is under the root, then use it through `std::fs`
+everywhere (simpler, keeps `std::fs::copy`'s fast paths, and makes a privileged
+confined tool escapable by a local user).
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
