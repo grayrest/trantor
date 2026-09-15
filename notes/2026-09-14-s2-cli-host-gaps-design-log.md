@@ -376,6 +376,35 @@ extension. `trantor-files`: glob corpus, `tests/walk-glob`, `tests/temp`,
 `fs-write-modes` or a `tests/links`). `trantor-process`: `ExitStatus` expects,
 `tests/spawn`, and the three moved suites.
 
+### D-S2-22 A confined symlink must point at something that exists inside the root
+
+Under `fs-confined`, `symlink_at!` resolves the target from the link's own
+directory beneath the root, following links, and creates the link only if that
+finds an existing entry. Absolute, escaping and dangling targets fail.
+Unconfined, the target is stored as given. (User: "Failing when the linked file
+doesn't exist under the confined root seems like it'd avoid all the
+link-related confinement problems.")
+
+Found while extending `confined-race` (plan step 5): the link's location was
+confined, its contents were not, and following an outside link was already
+refused. Asked why the target was not resolved.
+
+**Why:** refusing at follow time protects the confined app only. A link it
+leaves pointing at `~/.ssh` is followed by the unconfined programs that later
+touch the tree — a shell, an editor, a backup — which is the classic symlink
+attack. A target that must exist inside the root cannot be planted for them.
+
+**Cost:** a confined app cannot create a dangling link, and `Tree.copy!` under
+confinement has to create links after the entries they point to.
+
+**Not closed:** renaming a relative link to a different depth afterwards can
+still aim it outside; the target can change between the check and the create.
+
+**Rejected:** storing contents unchecked (WASI's and cap-std's
+`symlink_contents` behavior); a lexical check of the target text (passes
+`sub/../..` spellings that a resolution catches, and allows dangling links);
+refusing absolute targets only (cap-std's `symlink`; `../../..` still passes).
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
