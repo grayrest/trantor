@@ -561,6 +561,10 @@ open; it is what basic-cli apps get from Rust's runtime.
 **Rejected:** working around it at each spawn (every other component that
 opens a file still takes the number).
 
+*(Fifth review: the first version opened `/dev/null` through `std::fs`, which
+adds `O_CLOEXEC`, so a child inheriting the refilled fd found it closed again.
+It uses `open(2)` now.)*
+
 ### D-S2-30 A followed link out of a confined root is a link, not a failed walk
 
 With `follow_symlinks: True`, a link whose target cap-std refuses

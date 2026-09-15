@@ -474,3 +474,37 @@ code or reproduced before fixing.
     looped-start and literal-starts; `copy` gains copy-from-empty and a
     followed escape (`dir` unconfined, `link` confined).
 
+### Fifth review round (2026-09-15)
+
+- **trantor `835d8bc`:**
+  - The driver's `fill_closed_stdio` declares `fcntl`/`open` itself and calls
+    `fcntl(fd, F_GETFD)` (`EBADF` 9, `F_GETFD` 1) and
+    `open("/dev/null", O_RDWR)` (2): no `O_CLOEXEC`, so children inherit the
+    refilled fd.
+  - The two-component golden (`tests/golden/two-component/golden/components/cli/src/lib.rs`)
+    is regenerated; round four had left it stale.
+- **trantor-process `58822e5`:**
+  - `captured!` sends `Kill` before `wait!` after a failed `collect!`.
+  - `tests/spawn`'s stdin-closed run is `capped 60 sh -c 'exec "$0" <&-' app`.
+    `capped`'s perl opens a file on a free fd 0 before exec, so round four's
+    `capped … <&-` never closed the app's stdin.
+  - The first run gets `</dev/null`, and the regressions case runs
+    `exec_output_inherit_stdin!` on `cat; echo rc=$?`, expecting `rc=0`.
+    Negative control: with f42086a's driver the closed run reports `rc=1`.
+- **trantor-files `1237ab1`:**
+  - `GlobParse.segments` gives `[]` for an empty alternative.
+  - `GlobPattern.starts` skips empty and unreachable alternatives.
+  - `unreachable_literals` (last component `.`/`..`, or `/`) are the only
+    ones name-checked, and `existing!` treats any check error as no match.
+  - An all-literal start whose walk fails falls back to `existing!` on its
+    `literal_paths`.
+  - A link start is judged by `Path.list!(root)` alone before `search!`, whose
+    errors propagate.
+  - `walk-glob` fixtures:
+    - `lit/xonly` (mode 111) lives under `lit/`, because at the top level it
+      broke the `*/a.txt` pruning case.
+    - `errdir/shut` (mode 000) sits behind link `lerr`.
+- Case-insensitive filesystems: literals the walk reaches go through the
+  case-sensitive matcher; the fallback name check is filesystem-resolved, as a
+  shell's literal word is.
+
