@@ -242,6 +242,9 @@ stay as they are today.
 **Why:** one path to process creation, so a fix like `1c51dc7` lands once, and
 the raw interface is the actual primitive set.
 
+*(Location superseded by D-S2-19: `Subprocess`, `Cmd` and this rebuild live in
+`trantor-process`.)*
+
 **Rejected:** keeping the four calls beside `spawn!` (two paths to keep in
 agreement); keeping them in the interface but implemented on the spawn code.
 
@@ -272,6 +275,8 @@ Try(Subprocess.Child, [SpawnFailed({ command : Str, err : IOErr }), ..])`.
 
 **Rejected:** a shim `Cmd.Child` wrapper; raw `spawn!` only.
 
+*(`Reader.stdio`/`Writer.stdio` superseded by D-S2-21.)*
+
 ### D-S2-16 Names follow basic-cli
 
 `copy!`, `copy_all!` (`{ overwrite ?: Bool }`), `sym_link!` (target, link),
@@ -282,6 +287,8 @@ Try(Subprocess.Child, [SpawnFailed({ command : Str, err : IOErr }), ..])`.
 
 **Rejected:** Rust `std::fs` or Python names.
 
+*(Superseded for walk, glob, temp and copy-tree by D-S2-20.)*
+
 ### D-S2-17 Tests
 
 Unit expects (glob corpus; open defaults and rejections; `ExitStatus`
@@ -290,6 +297,84 @@ mappings); five new integration suites (`fs-write-modes`, `temp`, `walk-glob`,
 `child-signal-mask` as regressions; the `confined-race` suite extended to every
 new filesystem op, including a planted symlink. No performance or snapshot
 tests. (User.)
+
+### D-S2-18 The additions do not all belong in the baseline
+
+(User: "These additions don't strike me as necessary to be in the core CLI
+module.") Found when asked: an add-on can define interfaces and import
+trantor-cli's (trantor-net's `sockets-host` imports `sync-io`), but cannot add
+operations to an interface trantor-cli owns or read another component's
+resource payloads; and Roc methods must live in the type's own module.
+
+So the `Fs` primitive changes (D-S2-2, -8's entry kinds, -10's
+`copy_file_at!`/`readlink_at!`/`symlink_at!`) and `FdHandoff` (D-S2-14) must
+stay in trantor-cli; everything derived may leave.
+
+### D-S2-19 Process creation leaves the baseline: `trantor-process`
+
+`Subprocess` (`spawn!`, `Child`, `collect!`, `Stdio`, `ExitStatus`), `Cmd`
+rebuilt on it (D-S2-13 holds inside the package), `subprocess-host`, and the
+`three-defects`, `relative-cwd` and `child-signal-mask` suites move to a new
+add-on package depending on trantor-cli. (User.)
+
+**Why:** (user) a baseline that can spawn is a trivial confinement escape. The
+escape predates `spawn!` — `Cmd.exec!("sh", ["-c", …])` already reaches
+anything, because trantor-cli wires `subprocess` by default — so the fix is
+removing process creation from the baseline, making a confined world confined
+by not adding a dependency. Matches `Tty` leaving for trantor-terminal
+(`98c97de`). Nothing else in trantor-cli uses subprocess; `subprocess-host`
+still reaches the userland cwd through `cwd-host`'s extern.
+
+**Cost:** a basic-cli app using `Cmd` adds one `[deps]` line, which departs
+from P15's URL-only migration.
+
+**Rejected:** keeping it in trantor-cli but unwired by default (`Cmd` exported
+from a package that cannot run it); keeping it wired with a README warning;
+keeping only `spawn!` in the baseline (the escape stays).
+
+### D-S2-20 Methods for single operations, `trantor-files` for features
+
+Methods on trantor-cli's `Path`, `OsPath` and `StrPath`: `append_bytes!`,
+`append_utf8!`, `copy!` (one `copy_file_at!`), `sym_link!`,
+`read_sym_link!`, and the existing `hard_link!`; `File.Writer` with
+`open_writer!`/`open_append!`. A new pure add-on `trantor-files`, one module per
+feature, taking basic-cli's `Path` (other path types convert at the call):
+
+```roc
+Walk.walk!, Walk.list!
+Glob.matches, Glob.expand!
+Temp.with_dir!, Temp.with_file!, Temp.create_dir!, Temp.create_file!  (+ _in)
+Tree.copy!                    # { overwrite ?: Bool }
+```
+
+(User; both link operations stay in trantor-cli — moving `hard_link!` would
+break basic-cli's `Path.hard_link!`.)
+
+**Why:** single-primitive wrappers sit beside `write_bytes!`, `rename!`,
+`hard_link!`; anything that walks or retries is a feature, and a module per
+feature keeps names short without a catch-all `Files`.
+
+**Rejected:** everything including append/copy/links in `trantor-files`;
+functions generic over every path type.
+
+### D-S2-21 Redirects take the raw resource
+
+`File.Reader.descriptor` and `File.Writer.descriptor : _ -> Fs.Descriptor` in
+trantor-cli; `trantor-process`'s `Stdio.Descriptor(Fs.Descriptor)` accepts
+them. A `Writer` keeps the descriptor it was opened from. `FdHandoff` stays in
+trantor-cli as an interface apps cannot import; `trantor-process`'s host
+imports it. (User.)
+
+**Rejected:** `trantor-process` converters over `File` internals; no `File`
+integration.
+
+### Test locations (amends D-S2-17)
+
+trantor-cli: open-flag expects, `tests/fs-write-modes`, the `confined-race`
+extension. `trantor-files`: glob corpus, `tests/walk-glob`, `tests/temp`,
+`tests/copy` (tree; single-file copy and links in trantor-cli's
+`fs-write-modes` or a `tests/links`). `trantor-process`: `ExitStatus` expects,
+`tests/spawn`, and the three moved suites.
 
 ## Still open
 
