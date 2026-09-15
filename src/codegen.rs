@@ -547,8 +547,32 @@ unsafe extern "C-unwind" {{
     fn roc_main() -> i32;
 }}
 
+/// A standard fd the process started without (`app <&-`) is opened on
+/// `/dev/null`, as Rust's own startup does, which this exported `main` skips.
+/// Left closed, the next file opened took its number: a spawn's close-on-exec
+/// pipe landed on fd 0 and the child's stdin was closed at exec.
+fn fill_closed_stdio() {{
+    use std::os::fd::{{FromRawFd, IntoRawFd}};
+    const STANDARD_FDS: [i32; 3] = [0, 1, 2];
+    for fd in STANDARD_FDS {{
+        // SAFETY: borrowed only to ask whether the number is open; never closed here.
+        let probe = core::mem::ManuallyDrop::new(unsafe {{ std::fs::File::from_raw_fd(fd) }});
+        let is_closed = matches!(probe.metadata(), Err(e) if e.raw_os_error() == Some(EBADF));
+        if is_closed {{
+            // The lowest free number, which is `fd`: the lower ones are open by now.
+            if let Ok(null) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/null") {{
+                let _ = null.into_raw_fd();
+            }}
+        }}
+    }}
+}}
+
+/// `EBADF` on every unix trantor targets.
+const EBADF: i32 = 9;
+
 #[unsafe(no_mangle)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {{
+    fill_closed_stdio();
     let outcome = std::panic::catch_unwind(|| unsafe {{ roc_main() }});
     let code = match outcome {{
         Ok(code) => code,
