@@ -717,6 +717,99 @@ primitive with no WASI counterpart that apps could branch on); a distinct
 escape error from the confined backend (a string contract, and a changed error
 kind for every confined caller).
 
+### D-S2-38 A trailing `/` matches a link only if it resolves to a directory
+
+When opening a link as a directory is refused, `Glob`'s `is_directory!` stats
+the link with `metadata_hash_at!` (following). If that succeeds, the link
+counts as a directory. If it fails too, the link is not a directory and the
+pattern does not match. This refines D-S2-33. (User, accepting the
+recommendation of no match.)
+
+Found in the eighth independent review. Round 7 counted every
+`PermissionDenied` as a directory. So `p2/*/` matched a link to a file
+behind a mode-000 directory, and a link to nothing there. Under
+`fs-confined`, `out/*/` matched links to `/etc/hosts` and to a missing
+absolute path. bash's `echo p2/*/` lists only the real directory.
+
+**Why:** opening a file or nothing as a directory fails as `NotADirectory` or
+`NotFound` before any permission check (measured on macOS; Linux's `do_open`
+checks the same way). A target that stats is therefore a directory that cannot
+be read (`perm/lz` keeps matching). One that does not stat is not known to be a
+directory. A match filter answering no match there agrees with D-S2-30's walk,
+which reports such a link as a link.
+
+**Rejected:** failing the expansion as D-S2-37 does for a refused start (a
+start is where the search must go; an entry under a wildcard is only a
+candidate).
+
+### D-S2-39 `copy_dir_at!` makes a directory with its source's permission bits
+
+`Fs.copy_dir_at! : Descriptor, List(U8), Descriptor, List(U8) => Try({},
+[Io(IOErr)])` creates the destination directory, not its contents, and gives it
+the source directory's mode. The owner always gets `0o700` so the copy can be
+filled. Setuid, setgid and sticky are dropped, and the umask does not apply:
+the host makes it `0o700` and then sets the mode on a no-follow handle. A
+source that is not a directory, a link included, is `NotADirectory`, and an
+existing destination is `AlreadyExists`. `Tree.copy!` makes every directory
+through it. This amends D-S2-10, which had copy-tree use `create_dir_at!`.
+(User: "copy_dir_at! host op".)
+
+Found in the eighth independent review. With umask 022, a 0700 directory
+holding a 0644 key copied as 0755, and other users could read the key, while
+the docs said permission bits were copied.
+
+**Why:** the raw stat record carries no mode bits (it is WASI-shaped), so only
+a host op that reads the source can carry them, exactly as `copy_file_at!`
+does for files. An exact mode cannot be set before the children are copied (a
+0500 source blocks them), and D-S2-10 rejected a `set_permissions_at!`
+primitive, so the owner's bits are the one deviation.
+
+**Rejected:** `create_dir_at!` taking a mode (proposed first; Tree has no mode
+to pass without adding `mode : U32` to the stat record); `mode` in the stat
+record (Unix bits at the WASI-shaped layer); documenting that directories get
+the umask (leaves the exposure).
+
+### D-S2-40 `stat_at!` takes WASI's follow flag; executability follows links
+
+`Fs.stat_at! : Descriptor, List(U8), { follow_symlinks : Bool }`, the same
+flags record as `metadata_hash_at!`. `FsOps.executable!` (and so
+`Path.is_executable!` and `Cmd.check_available!`) follows. Every other stat
+caller passes `False`, unchanged. `Cmd`'s directory exclusion checks
+`candidate/.`, so a link to a directory is still rejected. (User: "stat_at!
+gets follow_symlinks".)
+
+Found in the eighth independent review. `check_available!` judged a PATH
+entry that is a symlink by the link's own mode bits:
+
+- a dangling link was available where spawning answered `NotFound`;
+- a link to a 0644 script was available where spawning answered
+  `PermissionDenied`;
+- on Linux, every link (always 0777) was available.
+
+**Why:** `exec` and basic-cli's `file_is_executable` (`std::fs::metadata`)
+both follow. WASI's `stat-at` takes path flags, so the flag is the WASI shape.
+
+**Rejected:** resolving links in Roc with `readlink_at!` (path resolution
+written again, loop limit included); following only in `Cmd` (leaving
+`Path.is_executable!` answering for the link).
+
+### D-S2-41 `FdHandoff` answers `Io` when a descriptor cannot be handed over
+
+`output_fd!`, `input_fd!` and `descriptor_fd!` answer `Try(I32, [NotAFile,
+Io(IOErr)])`. `Io` covers a failed `F_DUPFD_CLOEXEC` and a stream whose file
+could not be cloned. For the second, sync-io-core's `Handoff` enum (`Fd`,
+`NotAFile`, `Failed`) records the failure on the stream. `spawn!` returns the
+first redirect's `Io` error as its own. This amends D-S2-14. (User, accepting
+the recommendation.)
+
+Found in the eighth independent review. Under `ulimit -n 5`, a `Descriptor`
+redirect answered "has no file descriptor under it".
+
+**Why:** a resource limit misreported as a wrong redirect sends the caller to
+fix the wrong thing.
+
+**Rejected:** rewording the one `NotAFile` message to cover both causes.
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
