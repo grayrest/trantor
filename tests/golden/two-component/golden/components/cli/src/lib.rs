@@ -40,8 +40,41 @@ unsafe extern "C-unwind" {
     fn roc_main() -> i32;
 }
 
+/// A standard fd the process started without (`app <&-`) is opened on
+/// `/dev/null`, as Rust's own startup does, which this exported `main` skips.
+/// Left closed, the next file opened took its number: a spawn's close-on-exec
+/// pipe landed on fd 0 and the child's stdin was closed at exec.
+///
+/// Opened with open(2) directly, not `std::fs`: std adds `O_CLOEXEC`, and a
+/// close-on-exec fd 0 is closed again in every child that inherits stdin, so
+/// `cat` under `Cmd.exec!` still saw a bad file descriptor.
+fn fill_closed_stdio() {
+    const STANDARD_FDS: [i32; 3] = [0, 1, 2];
+    for fd in STANDARD_FDS {
+        // SAFETY: F_GETFD only reads the fd's flags; -1 with EBADF means closed.
+        let is_closed = unsafe { fcntl(fd, F_GETFD) } == -1 && std::io::Error::last_os_error().raw_os_error() == Some(EBADF);
+        if is_closed {
+            // SAFETY: a NUL-terminated path; the new fd takes the lowest free
+            // number, which is `fd`, and is deliberately never closed.
+            unsafe { open(DEV_NULL.as_ptr(), O_RDWR) };
+        }
+    }
+}
+
+/// The constants these share on every unix trantor targets (macOS, Linux).
+const EBADF: i32 = 9;
+const F_GETFD: i32 = 1;
+const O_RDWR: i32 = 2;
+const DEV_NULL: &[u8] = b"/dev/null\0";
+
+unsafe extern "C" {
+    fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+    fn open(path: *const u8, flags: i32, ...) -> i32;
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
+    fill_closed_stdio();
     let outcome = std::panic::catch_unwind(|| unsafe { roc_main() });
     let code = match outcome {
         Ok(code) => code,

@@ -551,24 +551,33 @@ unsafe extern "C-unwind" {{
 /// `/dev/null`, as Rust's own startup does, which this exported `main` skips.
 /// Left closed, the next file opened took its number: a spawn's close-on-exec
 /// pipe landed on fd 0 and the child's stdin was closed at exec.
+///
+/// Opened with open(2) directly, not `std::fs`: std adds `O_CLOEXEC`, and a
+/// close-on-exec fd 0 is closed again in every child that inherits stdin, so
+/// `cat` under `Cmd.exec!` still saw a bad file descriptor.
 fn fill_closed_stdio() {{
-    use std::os::fd::{{FromRawFd, IntoRawFd}};
     const STANDARD_FDS: [i32; 3] = [0, 1, 2];
     for fd in STANDARD_FDS {{
-        // SAFETY: borrowed only to ask whether the number is open; never closed here.
-        let probe = core::mem::ManuallyDrop::new(unsafe {{ std::fs::File::from_raw_fd(fd) }});
-        let is_closed = matches!(probe.metadata(), Err(e) if e.raw_os_error() == Some(EBADF));
+        // SAFETY: F_GETFD only reads the fd's flags; -1 with EBADF means closed.
+        let is_closed = unsafe {{ fcntl(fd, F_GETFD) }} == -1 && std::io::Error::last_os_error().raw_os_error() == Some(EBADF);
         if is_closed {{
-            // The lowest free number, which is `fd`: the lower ones are open by now.
-            if let Ok(null) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/null") {{
-                let _ = null.into_raw_fd();
-            }}
+            // SAFETY: a NUL-terminated path; the new fd takes the lowest free
+            // number, which is `fd`, and is deliberately never closed.
+            unsafe {{ open(DEV_NULL.as_ptr(), O_RDWR) }};
         }}
     }}
 }}
 
-/// `EBADF` on every unix trantor targets.
+/// The constants these share on every unix trantor targets (macOS, Linux).
 const EBADF: i32 = 9;
+const F_GETFD: i32 = 1;
+const O_RDWR: i32 = 2;
+const DEV_NULL: &[u8] = b"/dev/null\0";
+
+unsafe extern "C" {{
+    fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+    fn open(path: *const u8, flags: i32, ...) -> i32;
+}}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {{
