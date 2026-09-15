@@ -470,6 +470,37 @@ asking to follow links wants.
 **Rejected:** a cap on links followed per path (two links to `.` still fork to
 about 2^40 entries within it); removing `follow_symlinks`.
 
+### D-S2-26 SIGPIPE keeps its default; only the parent's write to a child's stdin suppresses it
+
+Apps and children keep SIGPIPE's default disposition. `trantor-process`
+suppresses it only around its own write to a child's stdin pipe: on macOS by
+setting `F_SETNOSIGPIPE` on the pipe for the write and clearing it after, on
+Linux by blocking SIGPIPE on the writing thread and consuming one the write
+raised. (User.)
+
+Found in the second independent review: the first review's fix left
+`F_SETNOSIGPIPE` set, and the flag belongs to the open file, so a child handed
+the stdin pipe through `ToStream` never got SIGPIPE (`yes` feeding
+`head -c 1` exited 1 with "Broken pipe" instead of dying with 141).
+
+The driver's `main` is a Rust `#[no_mangle] extern "C" fn main` in a staticlib
+(trantor `src/codegen.rs`), so Rust's startup never sets SIGPIPE to ignored.
+
+**Why:** trantor chose default SIGPIPE for its own CLI (`src/main.rs`
+`restore_sigpipe_default`) so pipelines end quietly; apps and their children
+should behave the same. The suppression covers the one write that must answer
+`BrokenPipe` instead of killing the app.
+
+**Cost:** a child writing the same pipe during the parent's write, as the
+reader exits, gets one EPIPE instead of SIGPIPE. The Linux path is not run on
+the development machine.
+
+**Rejected:** ignoring SIGPIPE in the generated driver for every app (against
+trantor's own choice; `app | head` would see `BrokenPipe`); clearing the flag
+when the pipe is handed to a child (the parent's later writes can then kill the
+app); ignoring it process-wide around each write (a global mutation that loses
+another thread's signal).
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
