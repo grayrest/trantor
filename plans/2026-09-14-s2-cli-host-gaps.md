@@ -545,3 +545,43 @@ code or reproduced before fixing.
   `exec { $ARGV[0] } @ARGV or die`. trantor-cli's Fs `interface.toml`
   comment now describes kinded listings.
 
+### Seventh review round (2026-09-15; decisions D-S2-36..37)
+
+The trantor-cli reviewer ran the APIs end to end on both backends this round,
+and found older backend disagreements that reading diffs had not.
+
+- **trantor-cli `32bfd6f`:**
+  - D-S2-36: `fs-core/src/copy.rs` holds the one copy. `open_source` and
+    `create_destination` (`create_new`, mode without `0o7000`) are the only
+    per-backend code; `io::copy`, `set_permissions`, `remove` on failure. The
+    source is checked before the destination.
+  - `relative_to_root` re-appends a trailing `/` that `strip_prefix` dropped.
+    `refuse_directory_name` makes `write_file_at`, the copy destination,
+    `symlink_at`'s link, `link_at`'s destination, and a rename of a
+    non-directory to or from a slash-terminated name `NotADirectory` on both
+    backends. A cap-std probe showed `write("out/")` gives `InvalidInput`
+    and `rename(f, "k3/")` succeeds, where the kernel says `NotFound`.
+  - `dir_of` returns `Result`; a `Desc::File` base is `NotADirectory`.
+  - `read_via_stream` mints a `Failed` reader for a failed clone.
+  - `StrPath.read_sym_link!` errors on a non-UTF-8 target. README fixed.
+  - New `tests/backends-agree`: 10 operations, same app on both worlds,
+    outputs diffed; then modes (setuid dropped), mtimes (not 2000),
+    `write-slash err:NotADirectory`, `copy-missing err:NotFound`,
+    `file-base err:NotADirectory`.
+  - A link_at guard first written as `_ if … &b` moved `b`; the build error
+    surfaced as `trantor new` failing in `argv-bytes`.
+- **trantor-files `e8780bf`:**
+  - D-S2-37: the link-start listing no longer treats `PermissionDenied` as no
+    match.
+  - `is_directory!` opens a link with `Fs.open_at! { directory: True }`, and
+    counts `PermissionDenied` as a directory.
+  - `split_components` makes `\/` `InvalidGlob`.
+  - `walk-glob` gains `perm/` fixtures (`zdir` 000, `xdir` 111, links to
+    each and to a file).
+  - `copy`'s confined `outlink/*` now expects `err:PermissionDenied`.
+- **trantor-process `38b75fa`:**
+  - `path_dirs` maps an empty Unix entry to `.` and drops Windows empties.
+  - `cmd-results` runs from `$TMP`, and has a `check` mode run under
+    `env PATH=/nope:` from a directory holding `local-tool`, expecting
+    `True local-tool`.
+
