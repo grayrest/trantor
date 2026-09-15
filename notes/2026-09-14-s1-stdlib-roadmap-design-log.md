@@ -179,7 +179,7 @@ incremental hashers.
 2. `trantor-cli` host gaps: temp files, copy, recursive walk and glob, append
    and streaming writes, subprocess spawn with pipes *(designed in D-S2; split
    into trantor-cli primitives, `trantor-files` and `trantor-process`,
-   D-S2-18..21)*
+   D-S2-18..22; implemented, see the S2 plan's notes)*
 3. `trantor-encoding`: Base64 and hex, CSV, TOML
 4. `trantor-random`: host-seeded PRNG, UUID
 5. `trantor-text`: Unicode properties, case folding, normalization, wrapping,

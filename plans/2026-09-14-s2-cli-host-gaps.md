@@ -213,3 +213,96 @@ Docs:
 - **Step 6 is an integration suite, not expects:** expects cannot make hosted
   calls. `tests/fd-handoff` adds `FdHandoff` to its world's `exports` and reads
   the handed fd back through `/dev/fd/N`.
+
+### trantor-process (steps 7–9: `80444b7`..`5ba0dc7`, docs `283ed10`, `bf40eb5`)
+
+- **New repo `~/dev/roc/trantor-process`, no remote.** `subprocess-host`
+  imports `sync-io` and `fd-handoff`; its cwd still comes from `cwd-host`'s
+  extern.
+- **`three-defects` is in both packages.** Moving it whole would have taken the
+  `File.Reader` line cap and non-UTF-8 `Env.var!` checks out of trantor-cli, so
+  trantor-cli keeps a copy without the `Cmd` case and trantor-process keeps all
+  three. `relative-cwd` and `child-signal-mask` moved as planned.
+- **trantor golden `b8-basic-cli`** (`aaec52e`): `world.toml` adds
+  trantor-process for basic-cli's `Cmd` examples; `world-confined.toml` does
+  not, since a confined world must not. `verify.sh` passes after step 7 and
+  again after step 9.
+- **`Child` is `:: { handle : Handle, pid : I32 }`**, not `:: Box(U64)`:
+  `Child.pid` is pure and a hosted leaf cannot be, so the pid is read once at
+  spawn. The resource is `Subprocess.Handle`; the hosted leaves are
+  `spawn_redirected!` and `handle_*!`, and `Child`'s methods are Roc bodies.
+- **Redirects cross as `[Inherit, Null, Pipe, Fd(I32)]`.** `spawn!` turns
+  `Descriptor`/`ToStream` into owned fds through `FdHandoff`; if one has no fd
+  it closes the others with `close_fd!` and answers
+  `Io(Other("a Descriptor or ToStream redirect has no file descriptor under it"))`.
+  The host wraps each fd in `OwnedFd` before anything can fail.
+- **Pipes are stream resources minted once at spawn** and held by the handle;
+  `stdout!` returns another reference to the same box (refcount increment), so
+  a read's buffered bytes survive to the next call. `close_stdin!` swaps the
+  writer for one answering `BrokenPipe`. `collect!` lends the three backings to
+  scoped threads; a stdin write error is ignored (the status says what the
+  child did).
+- **`CmdStatus`** (new internal module in `cmd-lib`) holds the three
+  `ExitStatus` mappings as pure functions with expects. `Cmd.spawn!` error
+  is `SpawnFailed({ command: to_str(cmd), err })`.
+- **Glue names `IOErr` twins by the first leaf that reaches them**:
+  `spawn_redirected!`'s is `SubprocessIOErr`, the handle leaves' `IOErr`, and
+  the names moved when the `exec_*` leaves were removed. `subprocess-host` has
+  one constructor per twin.
+- **Open error unions on `spawn!` and `Child`** (`283ed10`), found writing
+  `tests/readme`: `child.wait!()?` did not compile against an app's open
+  union. Hosted leaves stay closed; the Roc bodies reopen.
+- **Clippy:** the moved crate's pre-existing `wrong_self_convention` was fixed by
+  renaming; the trait went with the `exec_*` calls in step 9.
+
+### trantor-files (steps 10–13: `66e676f`..`299b95a`, docs `08ca5d3`)
+
+- **New repo `~/dev/roc/trantor-files`, no remote.** Components: `glob`
+  (`GlobPattern`, `GlobParse`, `GlobText`) and `files-lib` (`Glob`, `Walk`,
+  `Temp`, `Tree`, internal `FilesPath`).
+- **The pure matcher is `GlobPattern`** (the plan's fallback): two modules in
+  one platform cannot share `Glob`. `Glob.matches` delegates to it.
+- **Glob semantics settled in code:** `a/**` does not match `a`; `**` next to
+  other characters is `InvalidGlob`; nested braces are `InvalidGlob`; `?` and
+  classes match a UTF-8 scalar (`GlobText`), malformed bytes as U+FFFD; `**`
+  also refuses hidden components. `GlobPattern.could_contain` drives
+  `SkipDir` in `expand!`; `literal_prefix` is the common literal leading
+  components of all brace alternatives.
+- **`Glob.expand!`** checks the start directory first (missing or not a
+  directory is `Ok([])`), then any walk error propagates. Paths come back
+  without the walk's `./` and sorted by bytes.
+- **Walk with `follow_symlinks: True`** reports a link that can be listed as
+  `IsDir` (there is no following stat primitive); a link cycle ends in the OS's
+  path-too-long error.
+- **`Temp`** names `trantor-` + 16 hex digits from `Random.seed_u64!`, 8
+  attempts; files open `{ write, exclusive, follow_symlinks: False }` through
+  `Fs.open_at!` with `FsOps.root!`/`resolve!`, wrapped by
+  `File.Writer.from_host`. Cleanup failing after an `Ok` callback returns the
+  cleanup's error. **Permissions follow the umask** (0644/0755 in `/tmp`, where
+  `mkstemp` uses 0600): no primitive sets a mode. Raised with the user as a
+  follow-up, not changed.
+- **`Tree.copy!`** lists the walk first, makes directories and copies files in
+  walk order, then links (D-S2-22). A socket/FIFO is `Unsupported`.
+  `tests/copy` runs the same app on the default and an `fs-confined` world and
+  diffs `lstat` snapshots of source and copy.
+- **Effectful callbacks cannot go through `List.fold_try`** (it takes a pure
+  function): the copy and walk loops are explicit recursions.
+- **Roc miscompile, not reduced:** a `Glob` helper
+  `|path, prefix| { bytes = FilesPath.bytes(path); if cond { FilesPath.from_bytes(List.drop_first(bytes, 2)) } else { path } }`
+  (where `FilesPath.bytes` is `Str.to_utf8` of the path's string) produced
+  garbage paths across the whole result list. Rebuilding from `bytes` in both
+  branches fixed it. Candidate: a refcount on the parameter returned from one
+  branch while `Str.to_utf8`'s shared buffer is dropped in the other.
+- **Roc builtins by their current names:** `List.fold`/`fold_try` (not
+  `walk`), `List.set` answers `Try`, `U64.highest`, record patterns need `..`
+  for unmentioned fields, typed bit ops (`U8.bitwise_and`, `U32.shl_wrap`), and
+  an untyped `0` state defaults to `Dec`.
+
+### Docs (step 14)
+
+- READMEs for all three; trantor-process and trantor-files check theirs through
+  `tests/readme` (trantor-hash's approach). trantor-cli's README examples are
+  prose-only, as before.
+- trantor-net and trantor-terminal pass `trantor test .` against the final
+  trantor-cli.
+
