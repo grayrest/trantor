@@ -306,3 +306,54 @@ Docs:
 - trantor-net and trantor-terminal pass `trantor test .` against the final
   trantor-cli.
 
+### Independent review fixes (2026-09-15)
+
+Three Opus reviewers, one per package; each finding was checked against the
+code or reproduced before fixing.
+
+- **trantor-cli `45557e8`:**
+  - `write_via_stream!` seeks and writes at the shared cursor instead of
+    `pwrite` at a private offset. Handing a writer's descriptor to a child
+    made the child overwrite the stream's bytes, which the `pwrite` choice in
+    step 2 caused.
+  - A confined copy refuses a non-file and removes a partial destination.
+  - Confined `rename_at`/`link_at` re-check a symlink they move (D-S2-22 below).
+  - `open_flags` also rejects `create`/`exclusive` without `write` and neither
+    `read` nor `write`; the OS answered EINVAL as `Other`.
+  - `FdHandoff` duplicates start at fd 3.
+  - `confined-race`: the swapper runs until killed, and the op count and the
+    planted line are asserted.
+  - Not changed: a directory descriptor is a stored path, so
+    `follow_symlinks: False` holds only at open (documented on `open_at!`); an
+    fd-based `Desc::Dir` would change how `resolve` confines.
+- **trantor-process `5828290`:**
+  - `stdin!`/`stdout!`/`stderr!` share the pipe inside the handle's borrow
+    (use-after-free as a child's last use).
+  - Stdin pipes get `F_SETNOSIGPIPE` on macOS (not in the libc crate: 73);
+    `PipeWriter` also blocks SIGPIPE on the writing thread and consumes it,
+    for Linux. Blocking alone did not stop the SIGPIPE on macOS.
+  - `signal!` refuses a reaped child (`try_wait` first) and reads errno inside
+    the borrow.
+  - `collect!` input after `close_stdin!` is `NotPiped`.
+  - New `tests/cmd-results` suite; the spawn suite has the regressions.
+- **trantor-files `3a30df2`:**
+  - Segment and token matching use last-star restart (linear); the
+    adversarial corpus cases run in milliseconds.
+  - A hidden component matches only a component pattern whose first token is a
+    literal starting with `.`.
+  - Class members are read escape-first, then ranged.
+  - A trailing empty component is dropped.
+  - A brace expansion that forms `**` where the text had none is `InvalidGlob`.
+  - `literal_prefix` is `/` for absolute alternatives sharing only the root.
+  - `expand!` searches through a symlinked start directory.
+  - `Walk`:
+    - `max_depth: 0` visits nothing.
+    - A followed link aimed lexically at its own directory or an ancestor is
+      not descended.
+    - A followed link's listing is read once.
+  - `Tree.copy!` makes links in rounds until a round makes none.
+  - `Temp` deletes a file whose stream failed after the exclusive create.
+- **D-S2-22 amended in effect:** the "renaming a relative link to another
+  depth" hole is closed for the link itself; renaming a directory that holds
+  relative links is still not checked.
+

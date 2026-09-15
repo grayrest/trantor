@@ -397,8 +397,10 @@ attack. A target that must exist inside the root cannot be planted for them.
 **Cost:** a confined app cannot create a dangling link, and `Tree.copy!` under
 confinement has to create links after the entries they point to.
 
-**Not closed:** renaming a relative link to a different depth afterwards can
-still aim it outside; the target can change between the check and the create.
+**Not closed:** renaming a directory that holds relative links can still aim
+them outside; the target can change between the check and the create.
+*(Moving or hard-linking the link itself was closed after review: confined
+`rename_at`/`link_at` re-check a symlink's target from its new location.)*
 
 **Rejected:** storing contents unchecked (WASI's and cap-std's
 `symlink_contents` behavior); a lexical check of the target text (passes
