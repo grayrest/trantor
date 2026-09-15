@@ -407,6 +407,69 @@ them outside; the target can change between the check and the create.
 `sub/../..` spellings that a resolution catches, and allows dangling links);
 refusing absolute targets only (cap-std's `symlink`; `../../..` still passes).
 
+### D-S2-23 Streams on a descriptor share its cursor
+
+Every stream from one descriptor, and any child handed that descriptor, share
+the open file's single position, as Unix fds do. `write_via_stream!`'s `offset`
+positions the cursor when the stream is created and nothing more; a reader
+buffers ahead, so reading and writing one file independently takes two
+`open_at!` descriptors. A non-seekable file (pipe, FIFO, `/dev/stdout`) skips
+the seek. (User.)
+
+Found in the second independent review: the first review's fix (shared cursor
+for writes, so a child handed a writer's descriptor stops overwriting it) made a
+write stream and a read stream on one descriptor interfere.
+
+**Why:** descriptor handoff, the reason the position is shared, needs it;
+`read_via_stream!` always shared it; the shim's `File.Reader` and `File.Writer`
+each open their own descriptor.
+
+**Rejected:** WASI's independent positions for every stream (handoff would need
+a per-child reopen through `/dev/fd/N`, which duplicates rather than reopens on
+macOS and repeats the path check under confinement); private positions synced
+at handoff (the writer cannot know how far the child wrote, so it overwrites it
+again).
+
+### D-S2-24 A confined move re-checks a symlink only when the move can re-aim it
+
+Under `fs-confined`, `rename_at!`/`link_at!` of a symlink are checked only when
+its contents are relative and its parent directory changes (compared by path
+text, so differently spelled parents are checked). Then the target must exist
+inside the root from the new place, D-S2-22's creation rule. Absolute links and
+same-directory renames always pass. A refusal is `PermissionDenied`, never
+`NotFound`: the source exists. (User.)
+
+Found in the second independent review: the first review's move check refused
+every absolute and every dangling symlink, even renamed in place, with
+misleading errors.
+
+**Rejected:** refusing only escapes and allowing dangling targets (looser than
+creation, and a dangling relative target could be created outside later);
+removing the move check (the one-call re-aim D-S2-22 exists to stop).
+
+### D-S2-25 Walk detects cycles by identity through WASI's `metadata-hash-at`
+
+trantor-cli gains `Fs.metadata_hash_at! : Descriptor, List(U8), { follow_symlinks
+: Bool } => Try({ lower : U64, upper : U64 }, [Io(IOErr)])`, a hash of device
+and inode. `Walk` keeps the identities of the directories it is inside; a
+followed link to one of them is reported `IsSymLink` and not descended. Two
+links to the same non-ancestor directory are both walked (`find -L`). A
+dangling followed link is `IsSymLink`; any other failure following a link fails
+the walk, as an unreadable directory does. (User.)
+
+Found in the second independent review: the lexical ancestor check missed
+sibling-link cycles and path aliases (a walk that never finished, another with
+262,142 entries) and skipped legitimate links, and every follow error was
+swallowed.
+
+**Why:** the only option that ends on every cycle with no false skips; the
+primitive is WASI's and goes through the root policy like every other `*_at!`.
+Skipping rather than failing keeps the rest of the tree, which is what a caller
+asking to follow links wants.
+
+**Rejected:** a cap on links followed per path (two links to `.` still fork to
+about 2^40 entries within it); removing `follow_symlinks`.
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
