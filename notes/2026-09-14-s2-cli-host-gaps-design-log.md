@@ -810,6 +810,56 @@ fix the wrong thing.
 
 **Rejected:** rewording the one `NotAFile` message to cover both causes.
 
+### D-S2-42 A name too long to look up leads nowhere, like a loop
+
+`ENAMETOOLONG` is treated the way a loop of links is:
+- a followed walk reports a link whose target name is too long as
+  `IsSymLink`;
+- a glob start or literal name that is too long is no match.
+
+`FilesPath.leads_nowhere` covers both errors; neither has an `IOErr` variant,
+so each arrives as `Other`. This amends D-S2-37's list of no-match failures.
+(User, accepting the recommendation of no match.)
+
+Found in the ninth independent review. Round 8 made every other `Other` on a
+followed link fail the walk, so a link to a 300-byte name failed walks that
+had reported it as a link. `long/toolong/*` errored where `loop/l1/*` was no
+match. bash treats both as no match.
+
+**Why:** like a loop, nothing refused anything: no such name can exist on this
+system. D-S2-34's concern, a refusal read as an absence, does not apply.
+
+**Rejected:** an error, as D-S2-37 gives a refused start.
+
+### D-S2-43 `check_available!` asks the OS whether this user may execute
+
+`Subprocess.can_execute! : OsStr => Try({}, [Io(IOErr)])` calls
+`faccessat(X_OK, AT_EACCESS)`. It follows links, and resolves a relative path
+against the userland cwd. On Unix, `Cmd.check_available!` uses it instead of
+`Path.is_executable!`:
+- `NotFound`, `NotADirectory` and `PermissionDenied` move on to the next PATH
+  entry.
+- Any other error ends the search on Linux, as glibc's `execvp` does, and
+  moves on elsewhere.
+
+`Path.is_executable!` keeps basic-cli's meaning, any execute bit (D-S2-40).
+(User, accepting the recommendation.)
+
+Found in the ninth independent review:
+- `/usr/sbin/cupsd` (`r-x------ root`) was available, and spawning it
+  answered `PermissionDenied`. A file on a `noexec` mount behaved the same.
+- On Linux, a loop of links early in PATH was skipped by the check, while the
+  spawn failed on it.
+
+**Why:** `check_available!` exists to predict a spawn, and only the kernel's
+access check sees effective ids, ACLs and mount flags. It lives in the
+subprocess host, whose spawns are already unconfined, so it adds no
+confinement surface.
+
+**Rejected:** documenting the gap; changing `FsOps.executable!` to an access
+check (it would change `Path.is_executable!`'s basic-cli meaning, and go
+through the confined filesystem, which a spawn does not).
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
