@@ -1168,3 +1168,65 @@ TomlAppend 72, TomlLocate 58, TomlDocument 80 (was 83); the suite's app 221.
   - String literal patterns in `match`, a guard-only first arm (`_ if … =>`)
     and tuples of tags with `|` alternatives compile; `if True` in module
     code is a warning, which fails the suite's build.
+
+### Step 8
+
+trantor-encoding `3398f80`: the README and `tests/readme`. `trantor test .`:
+PASS, full output read, no warnings; 1339 expects run, 1105 the package's own
+(unchanged); `tests/readme` 59 lines exact, `tests/date-codecs` 4; conformance
+and `tests/toml-edit` (65 cases) unchanged; 38 s wall. The suite's app also
+built on its own with 0 errors and 0 warnings. trantor: D-S1-11 step 3 points
+at the package and this log (the roadmap log had no uncommitted changes, so it
+is committed with this note).
+
+- **README layout,** in trantor-temporal's style: Setup; Stability (D-S3-17,
+  D-S3-54.11); Base64 and Hex; CSV (Rows and tables, Typed records, Cell forms,
+  Dates in cells, Excel, and a `Csv` signature block); TOML (Reading, Typed
+  values, Writing, Floats and `Dec`, Editing, Dates and times, and a `Toml`
+  signature block); Known Limits. Each section opens with its example and the
+  signature blocks list every public type and function, taken from the
+  source. `Csv.Format`, `DecodeState` and `EncodeState` appear only inside
+  `Parseable`/`Encodable`, and `Toml.Edit`'s style union is written out
+  (`TomlLocate.Style` is not re-exported).
+- **No Testing section.** The step asked for nothing about testing in the
+  README's headers; trantor-files has one, trantor-temporal does not.
+- **`tests/readme`** runs every example and prints each result with
+  `Str.inspect`, line breaks shown as `\n`, one `## section` line per README
+  section, so `expected` reads like the README's comments. Where the README
+  chains `?` over error types one function cannot return together (a
+  `Toml.Err` and a `Toml.EditErr`, or a Try into `main!`'s open row), the suite
+  uses `??` with a fallback; the calls are the README's. It also pins claims
+  made only in prose: CSV integer text into `F64` rounding and the same TOML
+  text refused, TOML second 60 refused, the Excel BOM read back, and a dotted
+  table vanishing with its last key while a header table stays.
+- **Measured while writing the examples:** `Csv.Table`'s `rows` field is
+  readable from an app (`table.rows.get(1)`), so D-S3-54.3's "find the record
+  with `Csv.table`" needs no new function. Matches in a `{}`-taking helper on
+  compile-time-known values warn again (step 6's finding), so each match is in
+  a helper taking the value.
+- **Documented from the notes, not re-measured:** the `{ raw }` block, the
+  `Toml.Edit` annotation when stored, a record update producing a date nominal
+  hanging the compiler, `True`/`False` record literals needing a `Bool`
+  annotation, uppercase and non-ASCII field names, nominal types without
+  derived codecs, a nested record in CSV (decode `Mismatch`, encode empty
+  cell), `Value`'s codecs tied by method name, and the JSON compile error for
+  the date types.
+
+#### S3 as implemented
+
+| Repo | Commits |
+|---|---|
+| trantor-encoding | `dbfb810` (1), `bf07259` (2), `6792867` (3), `cf9a91d` `809ac65` (4), `eca2c02` `ad0c1d2` (5), `d0a2d90` (6), `2bcd960` (7a), `b9aba33` `42f0e78` `2f5502d` (7b), `3398f80` (8) |
+| trantor-hash | `0951c10` (6) |
+| trantor-temporal | `d785f9b` (6) |
+| trantor | `e30a190` `615b511` `2621955` `932ced4` `5df4a62` `9b5175b` `2c33882` `21b4506` (notes, steps 1–7b), and this step's |
+
+Final counts: trantor-encoding 1339 expects run, 1105 its own; suites
+`tests/readme` 59 lines, `tests/date-codecs` 4 lines, `tests/toml-edit` 65
+cases, `tests/toml-conformance` 1.1.0 valid 218, 1.1.0 invalid 494, 1.0.0 valid
+208 through `parse`, both valid lists round-tripped in both modes and through
+`parse_document`, 1.1.0 invalid 494 refused by `parse_document`, the strict 1.0
+checker 208 valid and 501 invalid. trantor-hash 262 expects run, 28 its own,
+`tests/layout` 12 lines. trantor-temporal 909 expects run, 174 its own,
+`tests/formats` 11 lines and `tests/offsets` 8 lines (as of step 6; not rerun
+here, since step 8 touched neither package).

@@ -180,7 +180,9 @@ incremental hashers.
    and streaming writes, subprocess spawn with pipes *(designed in D-S2; split
    into trantor-cli primitives, `trantor-files` and `trantor-process`,
    D-S2-18..22; implemented, see the S2 plan's notes)*
-3. `trantor-encoding`: Base64 and hex, CSV, TOML
+3. `trantor-encoding`: Base64 and hex, CSV, TOML *(designed in D-S3, see
+   `notes/2026-09-16-s3-encoding-design-log.md`; implemented in
+   `~/dev/roc/trantor-encoding`, see the S3 plan's notes)*
 4. `trantor-random`: host-seeded PRNG, UUID *(designed in D-S4, see
    `notes/2026-09-16-s4-trantor-random-design-log.md`; implemented, see the
    plan's notes)*
