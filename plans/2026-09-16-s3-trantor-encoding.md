@@ -456,3 +456,75 @@ run, 85 the package's own (Base64 53, Hex 26, Base64Lookup 6); 0.36 s wall.
   fails the caller's `?` as a type mismatch. `trantor test` then reported "0
   compiler errors" with the affected expects as runtime crashes, so a failing
   count needs the full output read.
+
+### Step 2
+
+trantor-encoding `bf07259`. `trantor test .`: PASS, no warnings (each module
+also clean under `roc test --no-cache`); 535 expects run, 301 the package's own,
+216 of them `common`'s (EncodingNumber 95, EncodingDate 77, EncodingText 37,
+EncodingPath 7); 0.5 s wall. Each module's expects were checked by mutation
+(a changed expectation fails). Lines: EncodingNumber 358, EncodingDate 357,
+EncodingPath 225, EncodingText 153; the first two pass ~300 only through their
+expects (code about 215 and 230), kept in-module as the step lists them.
+
+- **Measured: the builtin float parsers refuse, not round, past the range.**
+  `F64.from_str("1e400")`, `F64.from_str("0.17976931348623159e309")` and
+  `F32.from_str("1e39")` are `Err`; `1e-400` gives `0` and `-1e-400` `-0`. So
+  `EncodingNumber` normalizes the parts to significant digits and a
+  decimal-point position, answers zero or infinity outright beyond ±400, gives
+  the builtin only canonical text (`0.123e-5`), and reads a refusal as
+  infinity (D-S3-55.10). Exponents past `U64` are capped at `U64`'s largest.
+  Grammar-level quirks of `from_str` (D-S3-50) cannot reach it.
+- **`Dec` is built from attos,** not `Dec.from_str`: digits to the 18th
+  fractional place accumulate into `U128`, narrow to `I128` and go through
+  `Dec.from_attos`. "Whole part past range refused" is read as "value past
+  `Dec`'s range": `170141183460469231731.687303715884105727` is `Dec.highest`,
+  `-…731.687303715884105728` `Dec.lowest`, and both `…732` and `…731.9` are
+  `OutOfRange` (the second has an in-range whole part but no representation).
+- **Digit values, not characters,** cross into `EncodingNumber` (`0`–`9`,
+  `0`–`15` for hex, TOML's underscores already dropped); `FloatParts` is
+  `{ is_negative, whole, fraction, exponent : { is_negative, digits } }` so the
+  exponent cap lives in `common`.
+- **Narrowing is two functions,** `to_unsigned` taking a `U128 -> Try(n, …)`
+  builtin and `to_signed` taking an `I128 -> Try(n, …)` one: `U128.highest`
+  does not fit the prototype's single `I128` funnel. Both answer
+  `[OutOfRange]` instead of taking the state and building `Mismatch` as the
+  prototype's `narrow` did, which keeps paths out of the number module; the
+  formats map the tag (`Mismatch` in typed decode, `Toml.Err.OutOfRange` in
+  parsing).
+- **`F64.to_str` spells `1e15` as `1000000000000000` but `1e16` as `1e16`,**
+  so the `.0` fix is needed up to 1e15 (`1000000000000000.0`); `F32`'s
+  `16777216` becomes `16777216.0`. Spellings never contain `e+`.
+- **`EncodingDate`'s parameters are one `Limits` record**
+  (`min_year`, `max_year`, `max_offset_minutes`); the expects define TOML's
+  (0–9999, 1439) and CSV's (`I32` range, 840). Reading: `offset_from_clock`
+  (minutes past 59 or a total past the limit are `OutOfRange`; `-00:00` is 0),
+  `fraction_from_digits`, and a `Cursor` (`fixed_digits`, `digit_run`,
+  `expect_byte`, `is_at_end`) failing with `Unexpected(index)`. Writing:
+  `pad`, `date_text` (at least four year digits, `-` for negative years, so
+  TOML's range and CSV's extended years both write through it), `time_text`,
+  `fraction_text` (including the `.`, empty for zero) and `offset_text`. The
+  field separators are the same in RFC 3339 and XML Schema; TOML's `V1_1`
+  seconds omission is left to TOML, built from `pad` and `fraction_text`.
+- **Positions are computed from a byte index when an error is reported**
+  (`EncodingText.position_at(bytes, index, ends_line)`) rather than tracked per
+  byte while scanning: both formats report only the first error, so scanners
+  carry an index and pay for lines and columns once. The predicate says whether
+  the byte at an index ends its line; in CRLF the CR is a column of the old
+  line. `skip_bom` works on bytes. `sorted_union` takes every record's names as
+  `List(List(Str))`.
+- **`expected` phrases cover the scalar types and the four date kinds**
+  (`EncodingPath.expected_u8`, … `expected_offset_datetime`); phrases for
+  tables, arrays and cells stay in each format.
+- **The test format lives at the top level of `EncodingPath.roc`** as private
+  nominal types (`ProbeFormat`, `ProbeState`, `ProbeEncoder`), not in a test
+  component: measured to compile and run, and it keeps component exports to the
+  four modules. It proves `run` (a record decoded, a `Mismatch` with
+  `[Index(4), Key("age")]`, `MissingRequiredField`) and `encode_run` (a nested
+  record, an error variable carrying `[Key("b"), Key("c")]` out).
+- **Measured compiler behaviour:** an open-row alias (`X : [A, ..]`) is
+  refused ("open ext not allowed in type declaration"), so the probe spells its
+  rows out; a trailing `? |_| Tag` on a returned value is a warning, so
+  `map_err` is used there; a top-level constant containing `match` is
+  evaluated at compile time and warns "unused branch" for arms it did not take
+  (seen in a probe, avoided in the modules).
