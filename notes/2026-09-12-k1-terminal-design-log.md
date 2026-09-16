@@ -786,5 +786,5 @@ mode must come before the first draw (the fix is one accessor).
 
 ## Still open (raised, not decided)
 
-- rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
-  of K1.
+- Nothing. rocjust's migration to `trantor-terminal` for `Tty.is_terminal!`,
+  listed here before, is out of this effort (D-S1-14).

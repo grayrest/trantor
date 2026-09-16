@@ -217,6 +217,19 @@ Steps 2–6 are designed in their own grill sessions when each starts, from the
 code they touch (`fs-confined` preopens, `sync-io`, the TOML `Encoding` shape,
 the UCD tables). (User.)
 
+### D-S1-14 rocjust is not migrated as part of this effort
+
+No step moves rocjust onto trantor packages: not its pipe (S2's `tests/spawn`
+covers the shape it fakes), not `Tty.is_terminal!` (K1), not a release gate.
+(User.)
+
+**Why:** rocjust runs on seahaven's execution environment, which would have to
+move to trantor first, and a release does not need either. rocjust stays a
+source of real usage for design, as D-S1-11's order already treats it; H5's
+remaining work ("`rocjust` green") is likewise not required for a release.
+
+**Rejected:** migrating rocjust with S2 or K1; making it a release exit.
+
 ## Still open
 
 - Moving the compiler fork's `local-fixes` off the hashing commits, and
