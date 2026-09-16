@@ -765,12 +765,26 @@ input, and memory stays bounded. A program sees one long paste as several
 Rejected for the cap: dropping bytes past it until the end marker (loses the
 paste's content silently).
 
-## Still open (raised, not decided)
+**D-K1-36 — `Terminal.mode!` is public, and `Screen` does not ask about
+synchronized output in `Cooked` mode.** Decided by the user, accepting the
+recommendation. `Terminal.mode! : Terminal => Mode` answers the device's current
+mode. `Screen.flush!` in `Cooked` mode neither asks about synchronized output
+nor records an answer, so the first draw in `Raw` or `Cbreak` asks; until then
+frames go unframed, and an answer learned earlier still frames them. An
+`Unsupported` answer outside `Cooked` is still kept.
 
-- `Screen` caches `Unsupported` for synchronized output when its first query is
-  made in Cooked mode, which now answers `Unsupported` without asking. Not
-  caching it would need `Screen` to know the mode, a new export. Found while
-  fixing the first review's Cooked-mode query finding.
+`Terminal.query!` answers `Unsupported` both at once in `Cooked` mode and when a
+raw terminal's DA1 reply comes first, and `Screen` could not tell them apart: a
+first frame drawn in `Cooked` mode kept `Unsupported` for good, and every later
+raw-mode frame went unsynchronized. Found while fixing the first review's
+Cooked-mode query finding; left open until now.
+
+Rejected: not keeping `Unsupported` at all (a terminal without mode 2026 would
+be queried every frame); a distinct `Cooked` error from `query!` (widens a
+union every caller matches, for one caller's benefit); documenting that raw
+mode must come before the first draw (the fix is one accessor).
+
+## Still open (raised, not decided)
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
   of K1.

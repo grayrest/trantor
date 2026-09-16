@@ -1171,16 +1171,39 @@ at once, so keeping the bytes there adds no new spin.
 **Rejected:** keeping bytes on the limit (spins basic-cli loops); discarding on
 every failure (the silent misalignment this was built to stop).
 
-## Still open
+### D-S2-56 `Tcp` gains a listener whose accept is bounded
 
-- **trantor-net's listening side cannot be bounded.** `Sockets.tcp_accept!` has
-  no timeout, sockets it accepts have none set, and `Tcp.Stream` is opaque, so
-  an accepted socket cannot be wrapped in it and server code uses raw `Sockets`
-  calls. Found in trantor-net's first review; a design gap, recorded rather than
-  built.
-- **The connect timeout does not bound the name lookup.** A DNS lookup cannot be
-  cancelled, so bounding it means a helper thread left running on timeout. The
-  docs now say so.
+`Sockets.tcp_accept! : TcpSocket, U64 => Try(TcpSocket, NetErr)` waits at most
+the timeout. `Tcp.listen!` returns a `Tcp.Listener` (port 0 picks a free port,
+`Listener.port!` says which), and `Listener.accept! : Listener, U64` returns a
+`Tcp.Stream`. A zero timeout fails at once, as every `Tcp` call does; a server
+that means to wait indefinitely loops on `TimedOut`, which is where it checks
+for shutdown. (User, accepting the recommendation.)
+
+Found in trantor-net's first review and left open: `tcp_accept!` blocked
+forever, and `Tcp.Stream` is opaque, so an accepted socket could only be driven
+through raw `Sockets` calls. The accepted socket needing its own timeouts turned
+out not to be a gap — every `Stream` read and write sets its timeout per call —
+so once accept returns a `Stream`, only accept itself needed a bound.
+
+**Why:** every other socket operation is bounded; a server loop that cannot
+come back from accept cannot shut down. This is trantor's addition: basic-cli's
+`Tcp` has no server side.
+
+**Rejected:** a `Stream.from_socket` over raw `Sockets` (two layers to learn for
+one server); an accept with no timeout, or zero meaning none (the one value
+that looks conservative blocking forever, which NetHost already refuses).
+
+### D-S2-57 A connect's name lookup stays unbounded
+
+The connect timeout starts after the lookup, as its docs say. (User.)
+
+**Why:** bounding it means a helper thread left running on every timeout, and
+the case it defends against — a hostile or broken resolver — is not worth that.
+
+**Rejected:** a lookup thread abandoned on timeout.
+
+## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
   left them for when a confined world needs a temp dir without configuration.
