@@ -283,7 +283,7 @@ Try(Subprocess.Child, [SpawnFailed({ command : Str, err : IOErr }), ..])`.
 `read_sym_link!`, `walk!`, `walk_list!`, `glob!`, `with_temp_dir!`,
 `with_temp_file!`, `create_temp_dir!`, `create_temp_file!` (+ `_in`),
 `append_bytes!`, `append_utf8!` — on `Path`, and the same on `OsPath` and
-`StrPath`. (User.)
+`StrPath`. (User.) *(`OsPath` and `StrPath` removed by D-S2-54.)*
 
 **Rejected:** Rust `std::fs` or Python names.
 
@@ -356,6 +356,8 @@ feature keeps names short without a catch-all `Files`.
 
 **Rejected:** everything including append/copy/links in `trantor-files`;
 functions generic over every path type.
+
+*(`OsPath` and `StrPath` removed by D-S2-54.)*
 
 ### D-S2-21 Redirects take the raw resource
 
@@ -1075,10 +1077,18 @@ invites dead match arms.
 **Rejected:** adding timeout and reset to the platform-wide `IOErr` (every host
 and every twin changes for one package's need).
 
-### D-S2-53 `Http.get!` and `get_utf8!` wait at most 30 seconds
+A compressed body wraps the disconnect once more (`Decompress("gzip", …)`), so
+the change review found a cut-off gzip response — ureq's default — still `Io`.
+The inner error is classified the same way; corrupt data stays `Io`.
+
+### D-S2-53 `Http.get!` and `get_utf8!` wait at most 30 seconds per phase
 
 The two calls that build their own request give it
-`TimeoutMilliseconds(Http.default_timeout_ms)`, 30 000. A `Request` built by the
+`TimeoutMilliseconds(Http.default_timeout_ms)`, 30 000, which ureq applies to
+each phase — connecting, receiving headers, receiving the body — timed from the
+end of the one before, so a slow server can take up to about 90 seconds in all.
+(The first version of this entry said "at most 30 seconds"; the change review
+measured a response that succeeded after 50.) A `Request` built by the
 caller and passed to `send!` keeps whatever timeout it carries, `NoTimeout`
 included. Amends H9 only for these two calls. (User, accepting the
 recommendation.)
@@ -1092,6 +1102,59 @@ is the wrong default; a caller who wants no timeout can still ask for it.
 
 **Rejected:** changing what `NoTimeout` means (it is the http package's type);
 documenting the hang.
+
+### D-S2-54 One path type: basic-cli's `Path`
+
+`StrPath` (`components/path`) and `OsPath` (`components/os-path`) are removed
+from trantor-cli, and the basic-cli shim is a compatibility layer for
+basic-cli 0.21 and nothing more. `FsOps` stays as the bytes core under
+`Host`, which `Path` and `File` use and trantor-files imports. `Path`'s
+tags go back to basic-cli's `Unix`/`Windows`; `to_raw`/`from_raw` still speak
+`OsStr`'s `UnixBytes`/`WindowsU16s` and rename at the boundary, as upstream
+does. `File.Writer.from_host` stays: trantor-files' `Temp` builds a writer
+with it. The extensions stay on `Path` and `File` (D-S2-20, D-S2-21).
+Supersedes P11's "both ship always" and the part of B8 that kept the two
+modules. (User, accepting the recommendations.)
+
+Found while documenting trantor-cli's signatures: nothing outside trantor-cli
+imported either module, and inside it only the `links` and `windows-path`
+suites did. P11 kept them to be exposed under the name `Path` by a world
+rename; no world did. The tag rename (`ff75a0e`) was measured to be
+visible: `Path :=` lets an app write a tag such as `Path.Unix(bytes)` (the
+same line against a `::` type is rejected), so a basic-cli program doing that
+did not compile on trantor.
+
+The target is 0.21, not current upstream: basic-cli's `ca2e83b` (2026-08-08)
+changed `PathErr(IOErr)` to `PathErr(IOErr, Path)`, and trantor moves to that
+as a migration when 0.22 is released. (User.)
+
+**Why:** three path types with different error shapes (`StrPath`'s closed
+`FileErr`/`DirErr` against `Path`'s open `PathErr`) cost documentation and
+tests for a choice no consumer made, and a shim that is exactly basic-cli is
+what a migrating program needs.
+
+**Rejected:** dropping the extensions to match basic-cli function for function
+(trantor-process's redirects and trantor-files' design rely on them); keeping
+`OsStr`'s tag spelling on `Path`; following upstream's `PathErr(IOErr, Path)`
+now.
+
+### D-S2-54 A TCP read that fails keeps its bytes, whatever the failure
+
+`read_until!` reaching its limit without the delimiter and `read_exactly!`
+reaching end of stream put what they read back in front of the next read
+(`Sockets.tcp_unread!`), as a read that times out already does. basic-cli
+discards the bytes in both cases; this does not. (User, accepting the
+recommendation.)
+
+Found in the change review of trantor-net's first fixes, which promised a failed
+read keeps its bytes and then kept them only for a timeout.
+
+**Why:** an error that also consumes data leaves the stream readable but
+misaligned with nothing said — the defect the pending buffer was built for. A
+caller that wants to recover can read again with a larger limit, or with
+`read_up_to!`; one that does not is no worse off.
+
+**Rejected:** matching basic-cli (the silent loss stays in two places).
 
 ## Still open
 
