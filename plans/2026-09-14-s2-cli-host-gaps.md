@@ -721,3 +721,57 @@ close, and a stdin deadlock.
   - Tests: `spawn` adds a `borrowed` mode (`Fd(1)` to the raw leaf, then
     `Stdout.line!`: `child parent`); `cmd-results` adds `group-only` (mode 654).
 - trantor-net, trantor-terminal (run on its own) and b8 pass.
+
+### Tenth review round (2026-09-15; decisions D-S2-44..45)
+
+Two round-9 regressions (the stdin stream's end of input, and `create_all!`),
+one confined-world break in `check_available!`, and a quadratic glob.
+
+- **trantor-cli `629e376`:**
+  - `cli-host` `SharedStdin::fill_buf` decides on the first fill: an empty or
+    failed one drops the lock and returns, where a second `fill_buf` issued
+    another `read(2)` and waited for a second Ctrl-D on a terminal.
+  - `create_dir_all_at` runs `new_directory_name`, as `create_dir_at` does.
+  - `renamed_source` replaces the rename guard's `unwrap_or(false)`: a failed
+    stat answers with its own error.
+  - `read_via_stream` on a directory mints `input_stream_erroring`
+    (`IsADirectory` reads, `Handoff::NotAFile`), new in sync-io-core beside
+    `input_stream_failed`.
+  - D-S2-44: `OpenFlags` gains `mode` (the glue hash moved to
+    `AnonStructA38ac8acc52dafef`), `create_dir_at!` takes a mode,
+    `Fs.default_file_mode`/`default_dir_mode` hold the defaults, and
+    `FsOps.create_dir_mode!` is the byte-level door. `copy.rs` exposes
+    `make_dir`.
+  - Tests: `backends-agree` +11 (57): `create_all!` over a dangling link, a
+    link and a file; rename over an unreadable and a missing name; a named
+    file and directory mode; a directory descriptor's stream.
+    `stdin-streams` gains `on_a_terminal.py`, a pty that sends one Ctrl-D —
+    it fails against the old `fill_buf`, which is how the regression was
+    confirmed. `.gitignore` now covers `__pycache__`.
+- **trantor-files `6a626d4`:**
+  - D-S2-44: `Temp` opens files with `mode: 0o600` and makes directories
+    through `FsOps.create_dir_mode!(…, 0o700)`.
+  - `GlobPattern.starts` folds with a `Dict` of group keys (`l`/`g` plus the
+    prefix) and carries `literal` on the group, instead of re-deriving it per
+    alternative: `{a,b}` ×15 went from 87s to 3s, ×16 from ~350s to 12s.
+    (`Dict.empty()` takes no argument in this compiler.)
+  - `Walk`'s doc lists the name-too-long case; `GlobText` bounds its 3-byte
+    branch at `0xF0`.
+  - Tests: `walk-glob` runs `{a,b}` ×15 under `capped 30`; `temp` checks 600
+    and 700 under `umask 022`.
+- **trantor-process `adacda9`:**
+  - `Cmd.not_directory!` asks `Subprocess.can_execute!(candidate/.)`, not
+    `Path.is_dir!`: under `fs-confined` every candidate outside the root was
+    `PermissionDenied`, so every program looked missing.
+  - `executable_by_user` also requires a regular file (`execve` gives EACCES
+    otherwise), so an executable FIFO on PATH is not available.
+  - `collect` kills an unreaped child when the writer thread cannot start.
+  - D-S2-45: `interfaces/subprocess-raw/` (module `SubprocessRaw`) holds
+    `spawn_redirected!`, `Redirect`, `Handle` and `Cmd`; `package.toml` wires
+    it to subprocess-host and leaves it out of `exports`. Glue renamed the
+    twins: the raw spawn's is `SubprocessRawIOErr`, `handle_wait!`'s is
+    `SubprocessIOErr` (hence `wait_ioerr`), and the rest stay `IOErr`.
+  - Tests: `spawn`'s `borrowed` mode lends stdout through `ToStream` and
+    checks an app naming `SubprocessRaw` does not build; new
+    `tests/confined-available` (`True ran` with `fs-confined` wired).
+- trantor-net, trantor-terminal and b8 pass.
