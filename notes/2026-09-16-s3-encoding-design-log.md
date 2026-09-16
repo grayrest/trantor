@@ -62,7 +62,7 @@ one package, and `Table`/`Row` do not say which format they belong to. Matches
 
 ### D-S3-2 Base64: four functions
 
-*(Length and index details: D-S3-37. Edge cases and the full error row: D-S3-54.5.)*
+*(Length and index details: D-S3-37.7. Scan precedence: D-S3-44.11. Edge cases and the full error row: D-S3-54.5. A one-character final group: D-S3-55.12. Decoder shared with the URL alphabet: D-S3-56.)*
 
 ```roc
 Base64.encode : List(U8) -> Str                                 # standard, padded
@@ -79,6 +79,8 @@ line wrapping; Base32.
 
 ### D-S3-3 Hex: two functions
 
+*(Byte indices from 0: D-S3-37.7. `InvalidHex` before `OddLength`: D-S3-44.11. Output is RFC 4648 base16 lowercased: D-S3-17. `OddLength` kept: D-S3-55.13.)*
+
 ```roc
 Hex.encode : List(U8) -> Str                                    # lowercase
 Hex.decode : Str -> Try(List(U8), [InvalidHex(U64), OddLength])  # either case
@@ -91,7 +93,7 @@ decode.
 
 ### D-S3-4 `Csv` keeps all three layers, renamed
 
-*(Errors, decode and encode signatures: D-S3-39. Header union, duplicate headers, cell grammar: D-S3-45, D-S3-49, D-S3-50.)*
+*(Errors, decode and encode signatures: D-S3-39, final block in D-S3-55. Header union, duplicate headers, cell grammar: D-S3-45, D-S3-49, D-S3-50.)*
 
 ```roc
 Csv.parse : Str -> Try(List(List(Str)), Csv.Err)
@@ -118,14 +120,14 @@ has cannot declare a record.
 
 ### D-S3-5 `Csv.encode_columns` fixes column order
 
-*(`encode_columns` also answers `Encode(Csv.EncodeErr)`: D-S3-39. `UnknownColumn` for names in no record, `DuplicateColumn`: D-S3-45, D-S3-49.)*
+*(`encode_columns` also answers `Encode(Csv.EncodeErr)`: D-S3-39. `UnknownColumn` for names in no record, `DuplicateColumn`: D-S3-45, D-S3-49. Error precedence: D-S3-55.15.)*
 
 ```roc
 Csv.encode_columns : List(a), List(Str) -> Try(Str, [UnknownColumn(Str), MissingColumn(Str)]) where [...]
 Csv.encode_columns_with : List(a), List(Str), Csv.Dialect -> Try(Str, [UnknownColumn(Str), MissingColumn(Str)]) where [...]
 ```
 
-`encode` stays alphabetical, the derive's order. A record field left out of the
+`encode` stays in byte order of field names, the derive's order. A record field left out of the
 list is `MissingColumn`, so data is not dropped by accident. (User.)
 
 **Rejected:** alphabetical only; column order as a `Dialect` field (a dialect
@@ -148,7 +150,7 @@ default, which breaks 1.0 readers.
 
 ### D-S3-8 The untyped value tree
 
-*(Nominal, with its own equality and codecs: D-S3-32, D-S3-33. Depth: D-S3-34. Floats are `Float(Toml.Float)`: D-S3-38.)*
+*(Record shapes: D-S3-23; they alias `EncodingDate`'s records: D-S3-52, D-S3-56. Nominal, with its own equality and codecs: D-S3-32, D-S3-33. Depth: D-S3-34. Floats are `Float(Toml.Float)`: D-S3-38. User-built duplicate keys: D-S3-44.6.)*
 
 ```roc
 Toml.Value : [
@@ -158,7 +160,7 @@ Toml.Value : [
     LocalDate(Toml.Date),
     LocalTime(Toml.Time),
     Array(List(Toml.Value)),
-    Table(List((Str, Toml.Value))),      # document order, keys unique
+    Table(List((Str, Toml.Value))),      # document order, keys unique when parsed (D-S3-44.6)
 ]
 ```
 
@@ -173,7 +175,7 @@ iteration order is unspecified. Lookups are linear, fine for config files.
 
 ### D-S3-9 Typed TOML dates and times are TOML-only nominal types
 
-*(Integers into float fields: D-S3-37.)*
+*(Integers into float fields: D-S3-37.8. `Try` fields decode: D-S3-54.12. Not TOML-only — any date-capable format, CSV included: D-S3-55.7. Float literals past a type's range: D-S3-55.10.)*
 
 ```roc
 Toml.OffsetDatetime := { date : Toml.Date, time : Toml.Time, offset : Toml.Offset }
@@ -195,7 +197,7 @@ information is lost.
 
 ### D-S3-10 Editing: key-path operations on an opaque `Document`
 
-*(Paths, errors, removal, table style and `append`: D-S3-29..31. Kind changes: D-S3-47. Section placement: D-S3-53.)*
+*(Paths, errors, removal, table style and `append`: D-S3-29..31. Kind changes: D-S3-47, D-S3-55.17. Section placement: D-S3-53. Empty paths: D-S3-54.8, D-S3-55.17.)*
 
 ```roc
 Toml.Document :: ...
@@ -226,7 +228,7 @@ not suit immutable values; edits as text patches, which chain badly.
 
 ### D-S3-11 Parse errors: three kinds, first error only
 
-*(Keys are segments: D-S3-30. Second 60 and depth: D-S3-34, D-S3-37. Multi-line string line breaks: D-S3-43. Duplicate keys are segments: D-S3-44.8.)*
+*(Keys are segments: D-S3-30. Second 60 and depth: D-S3-34, D-S3-37. Multi-line string line breaks: D-S3-43. Duplicate keys are segments: D-S3-44.8. `Duplicate` renamed `DuplicateKey`, `key` renamed `path`, depth as `TooDeep`, `where` clauses through `Parseable`; final block: D-S3-55.1, .2, .4, .18.)*
 
 ```roc
 Toml.Err : [
@@ -260,7 +262,7 @@ the type. `Base64.UrlBytes` waits for a use. (User.)
 
 ### D-S3-13 Package layout
 
-*(A fourth component, `datetime`: D-S3-52.)*
+*(A fourth component, `datetime`: D-S3-52, renamed `common` and widened by D-S3-56.)*
 
 `~/dev/roc/trantor-encoding`: package exports `Base64`, `Hex`, `Csv`, `Toml`;
 components `base64` (`Base64`, `Hex`), `csv` and `toml`, each `kind = "roc"`,
@@ -274,14 +276,16 @@ implementation and keep the others, as trantor-terminal's layers are replaced.
 
 ### D-S3-14 Tests
 
-*(Conformance lists and comparison: D-S3-35. Added cases: D-S3-37. Round 2 test additions and the 1.0.0 lists: D-S3-44. CSV assertions rewritten for D-S3-39, one depth per D-S3-34: D-S3-54.14. Round 3 tests: D-S3-54.15.)*
+*(Conformance lists and comparison: D-S3-35. Added cases: D-S3-37. Round 2 test additions and the 1.0.0 lists: D-S3-44. CSV assertions rewritten for D-S3-39, one depth per D-S3-34: D-S3-54.14. Round 3 tests: D-S3-54.15. `common`'s expects: D-S3-56.)*
 
 | Type | What |
 |---|---|
-| Unit | RFC 4648 §10 vectors and rejections; the 156 CSV assertions renamed, plus `encode_columns` and `Bool`; TOML lexer, values, each error kind, typed decode of every scalar width and the date types |
-| Conformance | `toml-lang/toml-test` checked in and pinned (commit in a README): valid cases match their JSON, invalid cases are rejected, for 1.0 and 1.1; an app suite, since `expect`s cannot read files |
+| Unit | RFC 4648 §10 vectors and rejections (base16 vectors lowercased for encode, as written for decode: D-S3-17); the 156 CSV assertions renamed, plus `encode_columns` and `Bool`; TOML lexer, values, each error kind, typed decode of every scalar width and the date types |
+| Conformance | `toml-lang/toml-test` checked in and pinned (commit in a README): valid cases match their JSON, invalid cases are rejected, for 1.0 and 1.1; an app suite, since `expect`s cannot read files; every valid file's `parse_document` then `to_value` equals its `parse` |
 | Round-trip | every valid corpus file through `parse_document`/`to_str` byte-identical; `decode(encode(v)) == v` in both write modes |
 | Snapshot | each D-S3-10 placement rule as before, edit, after |
+| Golden | D-S3-17's pinned output: TOML in both modes and CSV (quoting, number spellings, `INF`/`-INF`/`NaN`, dates) |
+| Readme | `tests/readme` runs the README's examples, as trantor-hash does |
 | Stress | the CSV depth gate; TOML nesting at the D-S3-19 limit and a 10,000-key document |
 
 (User.)
@@ -291,7 +295,7 @@ spec); a submodule for the corpus; security and performance benchmarks.
 
 ### D-S3-15 How `Toml.encode` formats a new document
 
-*(Dict keys sorted: D-S3-32. Escapes and floats pinned: D-S3-37. Fraction digits, empty keys: D-S3-44. Kept float spellings: D-S3-38, D-S3-54.10.)*
+*(Dict keys sorted: D-S3-32. Escapes and floats pinned: D-S3-37. Fraction digits, empty keys: D-S3-44. Kept float spellings: D-S3-38, D-S3-54.10. Escape hex digits uppercase: D-S3-55.16.)*
 
 Scalars and arrays first, then sub-tables as `[section]`, then arrays of tables
 as `[[section]]`; tables inside arrays inline. Basic strings with escapes,
@@ -305,7 +309,7 @@ sections and a final newline. (User.)
 
 ### D-S3-16 The TOML entry points and the 1.1 write variant
 
-*(What V1_1 changes, and `set` not detecting 1.1: D-S3-37. `set_with` takes `Toml.Edit`: D-S3-29.)*
+*(What V1_1 changes, and `set` not detecting 1.1: D-S3-37. `set_with` takes `Toml.Edit`: D-S3-29. `where` clauses through `Encodable`/`Parseable`: D-S3-55.18.)*
 
 ```roc
 Toml.parse : Str -> Try(Toml.Value, Toml.Err)
@@ -330,10 +334,13 @@ D-S3-24.)
 
 *(`expected` and `err_to_str` text are message text: D-S3-54.11.)*
 
-`Csv.encode`/`to_str`, `Toml.encode`/`to_str` in both modes, and the text
-`Document` inserts are byte-identical for the same input within a major
-version, pinned by golden `expect`s. Error message text is not covered; error
-tags are. Base64 and hex are fixed by the RFC. (User.) D-S1-6 for text.
+`Csv.encode`/`to_str`/`encode_columns` (and their `_with` forms),
+`Toml.encode`/`to_str` in both modes, and the text `Document` inserts are
+byte-identical for the same input within a major version, pinned by golden
+`expect`s. Error message text is not covered; error tags are. Base64 is fixed by
+RFC 4648; hex is RFC 4648 base16 lowercased on output (D-S3-3), so §10's
+base16 vectors are lowercased for encode tests and decode as written. (User.)
+D-S1-6 for text.
 
 **Rejected:** no promise; a round-trip-only promise, which lets checked-in
 generated files change on upgrade.
@@ -368,7 +375,8 @@ hostile file.
 *(Line breaks inside multi-line strings: D-S3-43.)*
 
 `Csv` and `Toml` skip one leading U+FEFF; encoders never write one; `Document`
-keeps it. TOML parsing accepts CRLF; `Document` keeps each line's ending and a
+keeps it. After a skipped BOM, line 1 column 1 is the first code point that
+follows it, in both formats. TOML parsing accepts CRLF; `Document` keeps each line's ending and a
 line it inserts uses the ending of the table's last key line, else the file's
 first; `Toml.encode` writes LF. CSV is unchanged (`Dialect.newline`). The README
 says to prepend `"\u(FEFF)"` for Excel. (User.)
@@ -377,7 +385,7 @@ says to prepend `"\u(FEFF)"` for Excel. (User.)
 
 ### D-S3-21 Build order
 
-*(Temporal, CSV dates and trantor-hash move after stage 4: D-S3-37. Stage 1 has no `Bytes` types (D-S3-27); the `datetime` component lands in stage 3: D-S3-52.)*
+*(Temporal, CSV dates and trantor-hash move after stage 4: D-S3-37. Stage 1 has no `Bytes` types (D-S3-27); the `datetime` component lands in stage 3: D-S3-52, superseded by D-S3-56 — the whole `common` component lands as its own stage after stage 1, before CSV.)*
 
 1. Scaffold, `Base64`, `Hex`, the `Bytes` types.
 2. CSV moved in.
@@ -393,7 +401,7 @@ more users).
 
 ### D-S3-22 Temporal's plain types decode and encode through format-neutral date methods
 
-*(Extended to CSV and trantor-hash: D-S3-36.)*
+*(Signatures, format-first and the closed `Mismatch` row: D-S3-26. Extended to CSV and trantor-hash: D-S3-36. `Mismatch.key` renamed `path`: D-S3-55.4.)*
 
 Date-capable formats define `parse_local_date`/`encode_local_date`,
 `parse_local_time`/`encode_local_time`,
@@ -418,7 +426,7 @@ the methods to TOML.
 
 ### D-S3-23 The date methods carry temporal's record shapes
 
-*(Signatures and the parse error row fixed by D-S3-26.)*
+*(Signatures and the parse error row fixed by D-S3-26. `Temporal.plain_date(d)` does not accept a `Toml.Date`; `plain_date_from_fields`: D-S3-37.1. The records live in `EncodingDate`: D-S3-52, D-S3-56.)*
 
 ```roc
 Toml.Date : { year : I32, month : U8, day : U8 }
@@ -442,7 +450,7 @@ wrongly claimed those matched temporal.
 
 ### D-S3-24 TOML writing returns `EncodeErr`
 
-*(Keys are segments: D-S3-30. Optional fields do encode: D-S3-37. Depth applies to typed encoding too: D-S3-44. Segment keys: D-S3-44.8. Time subfields over 999: D-S3-54.6.)*
+*(Keys are segments: D-S3-30. Optional fields do encode: D-S3-37. Depth applies to typed encoding too: D-S3-44. Segment keys: D-S3-44.8. Time subfields over 999: D-S3-54.6. `key` renamed `path`, `InvalidOffset` carries `offset`; final block: D-S3-55.4, .5.)*
 
 ```roc
 Toml.EncodeErr : [
@@ -477,8 +485,11 @@ and `Value` writing.
 *(The instant is kept when rounding the offset: D-S3-37.)*
 
 ```roc
-Temporal.zoned_from_offset! : { date : Date, time : Time, offset : { minutes : I16 } } => Try(ZonedDateTime, Err)
-to_offset_datetime! : ZonedDateTime => { date : Date, time : Time, offset : { minutes : I16 } }
+# Date : { year : I32, month : U8, day : U8 }
+# Time : { hour : U8, minute : U8, second : U8, millisecond : U16, microsecond : U16, nanosecond : U16 }
+# (record shapes written out; trantor-temporal has no types named Date or Time)
+Temporal.zoned_from_offset! : { date : Date, time : Time, offset : { minutes : I16 } } => Try(Temporal.ZonedDateTime, Temporal.Err)
+to_offset_datetime! : Temporal.ZonedDateTime => { date : Date, time : Time, offset : { minutes : I16 } }
 ```
 
 `zoned_from_offset!` gives a fixed-offset zone on ISO — an instant, not a place.
@@ -493,7 +504,7 @@ formatting an offset string by hand invites a sign mistake under an hour.
 
 ### D-S3-26 The date methods' parse error is exactly `Mismatch`
 
-*(`Mismatch.key` is a segment list: D-S3-30. Date encode methods take the format first, unlike their neighbours: D-S3-44.)*
+*(`Mismatch.key` is a segment list: D-S3-30. Date encode methods take the format first, unlike value and container encoders: D-S3-44.3. `key` renamed `path`; final contract block: D-S3-55.4.)*
 
 ```roc
 parse_local_date : fmt, state -> Try({ value : { year : I32, month : U8, day : U8 }, rest : state }, [Mismatch({ key : List(Str), expected : Str }), ..])
@@ -590,6 +601,8 @@ told.
 
 ### D-S3-30 Paths are segment lists everywhere
 
+*(Parse duplicates carry segments too: D-S3-44.8. Payload fields named `key` become `path`; `Csv.Segment`; `Segment` defined once in `common`: D-S3-55.4, D-S3-55.6, D-S3-56.)*
+
 ```roc
 Toml.Segment : [Key(Str), Index(U64)]
 Toml.path : List(Str) -> List(Toml.Segment)       # keys only
@@ -608,7 +621,7 @@ decode error inside a list could not say which element.
 
 ### D-S3-31 `remove` takes the whole span; one `EditErr`
 
-*(Removal by path prefix: D-S3-40. Empty paths: D-S3-54.8.)*
+*(Removal by path prefix: D-S3-40. `EditErr` gains `StyleNotPossible`: D-S3-41. Empty paths: D-S3-54.8, D-S3-55.17. Appending a non-table to `[[x]]`: D-S3-55.17. Final `EditErr` block: D-S3-55.)*
 
 `remove` takes:
 
@@ -665,7 +678,7 @@ dotted keys; a `Decimal(Dec)` variant or source text in `Value`.
 
 ### D-S3-33 `Value` as a field; `decode_value` and `encode_value`
 
-*(`decode` repeats `Parse` in its where clause: D-S3-38.)*
+*(`decode` repeats `Parse` in its where clause: D-S3-38. `key` renamed `path`, `where` through `Parseable`/`Encodable`: D-S3-55.4, .18. F32 spelling kept by `encode_value`: D-S3-54.10.)*
 
 `Toml.Value` has hand-written `parser_for`/`encoder_for` tied to TOML's format
 (tied to one format works inside records; any other format is a compile error
@@ -685,7 +698,7 @@ and parsing.
 
 ### D-S3-34 One depth: 128 over every kind of nesting
 
-*(Edit depth errors arrive as `Encode(TooDeep)`: D-S3-54.9.)*
+*(Edit depth errors arrive as `Encode(TooDeep)`: D-S3-54.9. Parse depth is `Toml.Err.TooDeep`, not `OutOfRange`: D-S3-55.1.)*
 
 A value's depth counts every enclosing table and array however written —
 headers, dotted keys, inline tables, arrays, arrays of tables (`[a.b]` then
@@ -720,7 +733,7 @@ and expected JSON normalizes spellings (`1e06` → `"1e+06"`).
 
 ### D-S3-36 CSV and trantor-hash support the date methods
 
-*(CSV dates fail with `Mismatch` like TOML's: D-S3-39.)*
+*(CSV dates fail with `Mismatch` like TOML's: D-S3-39. CSV cells read and write XML Schema 1.1 forms, not RFC 3339: D-S3-51. `Toml`'s date types work through CSV too: D-S3-55.7.)*
 
 - CSV defines all eight. A cell reads as RFC 3339 (`2026-03-08`, `07:32:00`,
   `2026-03-08T07:32:00`, `…-08:00`; a space for `T` and missing seconds
@@ -740,7 +753,7 @@ Found in review: D-S3-22 recorded JSON as its cost, but CSV (date columns) and
 
 ### D-S3-37 Review corrections
 
-*(Item 10 refined by D-S3-42; item 4 by D-S3-43.)*
+*(Item 10 refined by D-S3-42; item 4 by D-S3-43 and D-S3-55.16 (uppercase hex digits); item 7 by D-S3-44.11, D-S3-54.5, D-S3-55.12; item 8 kept for TOML only, CSV rounds: D-S3-55.11.)*
 
 (User, accepting all.)
 
@@ -761,8 +774,8 @@ Found in review: D-S3-22 recorded JSON as its cost, but CSV (date columns) and
 6. Floats: the shortest spelling that reads back identically and is
    recognisably a float — `1.0`, `-0.0`, `1e300`, `1e-7`, `inf`, `-inf`,
    `nan` — with golden cases (`F64.to_str(1.0)` is `"1"`).
-7. Base64: length ≡ 1 mod 4 is `InvalidLength`; indices (Base64 and Hex) count
-   UTF-8 bytes; "one valid encoding" reads "the payload bits are canonical;
+7. Base64: length ≡ 1 mod 4 is `InvalidLength`; indices (Base64 and Hex) are
+   0-based offsets counted in UTF-8 bytes; "one valid encoding" reads "the payload bits are canonical;
    padding is optional"; amends D-S3-2.
 8. An integer decodes into `F32`/`F64`/`Dec` when exact; a float into an
    integer field is `Mismatch`; amends D-S3-9.
@@ -781,7 +794,7 @@ Found in review: D-S3-22 recorded JSON as its cost, but CSV (date columns) and
 
 ### D-S3-38 `Value` floats keep their spelling: `Toml.Float`
 
-*(Digits past `Dec`'s 18: D-S3-48. Spelling wording: D-S3-54.10.)*
+*(Digits past `Dec`'s 18: D-S3-48. Spelling wording and `F32` in `encode_value`: D-S3-54.10. Literals past `F64`'s range: D-S3-55.10. Spelling code shared with CSV: D-S3-56.)*
 
 ```roc
 Toml.Value := [ …, Float(Toml.Float), … ]
@@ -813,7 +826,7 @@ digits. The loss came from `Float(F64)`, a choice, not a constraint.
 
 ### D-S3-39 CSV takes TOML's error model
 
-*(Header union D-S3-45, duplicates D-S3-49, cell grammar D-S3-50, dates D-S3-51, row index D-S3-54.3, quote errors D-S3-54.4, error cases declared early D-S3-54.2. `encode_columns_with` has `encode_columns`'s error row.)*
+*(Header union D-S3-45, duplicates D-S3-49, cell grammar D-S3-50, dates D-S3-51, row index D-S3-54.3, quote errors D-S3-54.4, error cases declared early D-S3-54.2. `encode_columns_with` has `encode_columns`'s error row. `RaggedRow.width`, `key` renamed `path`, `InvalidOffset.offset`, `Csv.Segment`, `Parseable`/`Encodable`; final block: D-S3-55.3–6, .18.)*
 
 (User: CSV "was written without a lot of thought about the API and has no real
 consumers. It should be adjusted as needed to match the other parsers.")
@@ -827,7 +840,11 @@ Csv.Err : [
 Csv.err_to_str : Csv.Err -> Str
 Csv.decode : Str -> Try(List(a), [Parse(Csv.Err), Mismatch({ key : List([Key(Str), Index(U64)]), expected : Str }), MissingRequiredField(Str), ..])
     where [a.parser_for : Csv.Format -> (Csv.State -> Try({ value : a, rest : Csv.State }, [Parse(Csv.Err), Mismatch(…), MissingRequiredField(Str), ..errs]))]
-Csv.EncodeErr : [InvalidDate({ key : List([Key(Str), Index(U64)]), date : … }), InvalidTime(…), InvalidOffset(…)]
+Csv.EncodeErr : [
+    InvalidDate({ key : List([Key(Str), Index(U64)]), date : { year : I32, month : U8, day : U8 } }),
+    InvalidTime({ key : List([Key(Str), Index(U64)]), time : { hour : U8, minute : U8, second : U8, millisecond : U16, microsecond : U16, nanosecond : U16 } }),
+    InvalidOffset({ key : List([Key(Str), Index(U64)]), minutes : I16 }),
+]   # key is [Index(row), Key(column)], as for decoding
 Csv.encode : List(a) -> Try(Str, Csv.EncodeErr) where [...]
 Csv.encode_with : List(a), Csv.Dialect -> Try(Str, Csv.EncodeErr) where [...]
 Csv.encode_columns : List(a), List(Str) -> Try(Str, [UnknownColumn(Str), MissingColumn(Str), Encode(Csv.EncodeErr)]) where [...]
@@ -868,7 +885,7 @@ were not covered.
 
 ### D-S3-41 Table styles: `Auto`, `Inline`, `Header`, `Dotted`
 
-*(Header-created and dotted-created tables: D-S3-46. Implicit parents and `[[x]]` elements: D-S3-54.7.)*
+*(Header-created and dotted-created tables: D-S3-46. `Auto` when a scalar becomes a table (inline in place): D-S3-47. Implicit parents and `[[x]]` elements: D-S3-54.7. `StyleNotPossible.key` renamed `path`: D-S3-55.4.)*
 
 ```roc
 Toml.Edit : { version ?: [V1_0, V1_1], table ?: [Auto, Inline, Header, Dotted] }
@@ -929,7 +946,7 @@ nothing, and keeping CRLF makes values depend on the checkout.
 
 ### D-S3-44 Review round 2 corrections
 
-*(Item 10 replaced by D-S3-51.)*
+*(Item 10 replaced by D-S3-51. Item 8's `Duplicate` renamed `DuplicateKey` with a `path` field: D-S3-55.2, .4. Item 11 refined for a one-character final group: D-S3-55.12.)*
 
 (User, accepting all.)
 
@@ -941,7 +958,8 @@ nothing, and keeping CRLF makes values depend on the checkout.
    `spec-1.0.0` files are not in 1.1.0's list); the strict 1.0 checker is
    tested against both 1.0.0 lists; the suite has a hand-written JSON reader
    (test code). Amends D-S3-35.
-3. Date encode methods take the format first; the other `encode_*` methods do
+3. Date encode methods take the format first, as `encode_key_*` already do
+   (`HashFormat.roc`, the builtin JSON format); value and container encoders do
    not (measured: derived containers and leaf encoders with a format argument
    are arity errors). Formats with dates mix both forms. Amends D-S3-26.
 4. The four TOML date types and `Toml.Float` define `is_eq` (a nominal without
@@ -971,6 +989,8 @@ nothing, and keeping CRLF makes values depend on the checkout.
     fraction digits and an empty key; the strict checker on both 1.0.0 lists.
 
 ### D-S3-45 CSV's header is the union of every record's fields
+
+*(An empty cell into a `Try` field is absent too: D-S3-55.14. The byte-order union is shared code: D-S3-56.)*
 
 `Csv.encode`'s header is the union of field names across all records, sorted by
 bytes; an absent optional field is an empty cell, placed by name. An empty cell
@@ -1008,6 +1028,8 @@ dotted rules could write it; snapshots compared bytes only.
 
 ### D-S3-47 `set` across kinds removes and re-adds, keeping position where it can
 
+*(An inline table becoming a scalar is replaced in place: D-S3-55.17.)*
+
 - Table → scalar: every piece under the path is removed by prefix (D-S3-40),
   comments with them; the scalar is added to the parent after its last key.
 - Scalar → table: `Auto` replaces the line in place as `Inline`; `Dotted`
@@ -1015,7 +1037,8 @@ dotted rules could write it; snapshots compared bytes only.
   D-S3-53. A one-line result keeps the line's trailing comment.
 - An `Array` counts as a scalar against `[[x]]`.
 
-(User.) Amends D-S3-10.
+(User.) Amends D-S3-10, and D-S3-41: the in-place `Inline` for a scalar
+becoming a table under `Auto` overrides D-S3-41's `Auto` choice.
 
 Found in review round 3: the plan tested both directions with no rule for
 either.
@@ -1023,6 +1046,8 @@ either.
 **Rejected:** `KindChanged`, making callers `remove` then `set`.
 
 ### D-S3-48 `Dec` cuts digits past 18, toward zero
+
+*(Applies to CSV `Dec` cells too: D-S3-55.9.)*
 
 `to_dec` and `parse_dec` apply an exponent, then keep 18 fractional digits and
 drop the rest without rounding (`0.9999999999999999999` →
@@ -1038,6 +1063,8 @@ digits and `0.000…001`, which an `F64` field accepts.
 
 ### D-S3-49 A repeated CSV header name is an error
 
+*(`encode_columns` error precedence: D-S3-55.15.)*
+
 `Csv.Err` gains `DuplicateHeader({ line : U64, column : U64, name : Str })` at
 the second occurrence, byte-exact, in `table`, `decode` and their `_with`
 forms; `parse` has no header. One empty header name is allowed; a second is a
@@ -1051,6 +1078,8 @@ Found in review round 3, measured: `decode("a,a\n1,2")` gave the last value and
 decode.
 
 ### D-S3-50 CSV numbers and booleans use XML Schema's lexical forms
+
+*(Finite float and `Dec` spellings on write: D-S3-55.8. `Dec` truncation: D-S3-55.9. Literals past a type's range: D-S3-55.10. Integer text into float fields rounds: D-S3-55.11. Grammar kept in `csv`, value conversion shared: D-S3-56.)*
 
 The W3C CSV on the Web Recommendation parses typed cells in XML Schema 1.1's
 formats by default; Frictionless Table Schema is close. RFC 4180 defines no
@@ -1083,7 +1112,9 @@ case-insensitive specials and three boolean casings; Roc's `from_str`.
   field, none on an offset field, lowercase `t`/`z`, a space for `T` and missing
   seconds are `Mismatch`.
 - Fractions of any length cut after nanoseconds; second 60 and `24:00:00`
-  refused; years of four or more digits, negative and `0000` allowed, outside
+  refused (`24:00:00` is XML Schema 1.1's end-of-day form, refused as a
+  deliberate departure and said so in the README, as D-S3-37.5 does for TOML's
+  second 60); years of four or more digits, negative and `0000` allowed, outside
   `I32` a `Mismatch`; `-00:00` is offset 0.
 - Writing: years outside 0–9999 in the extended form (`10000-01-01`,
   `-0044-03-15`); an offset beyond ±14:00 is `InvalidOffset`; fractions trimmed
@@ -1096,6 +1127,8 @@ years outside 0–9999 would not write).
 
 ### D-S3-52 Shared date logic in an internal `datetime` component
 
+*(Component renamed `common`, three more modules, built before CSV: D-S3-56.)*
+
 ```toml
 [components.datetime]
 kind = "roc"
@@ -1103,7 +1136,9 @@ exports = ["EncodingDate"]      # not a package export
 ```
 
 `EncodingDate` holds the `Date`/`Time`/`Offset` records, calendar and range
-checks, fraction reading and writing, and a fixed-width digit cursor. CSV's XML
+checks, fraction reading and writing, and a fixed-width digit cursor. The range
+checks take their limits as parameters: TOML allows years 0–9999 and offsets
+within ±23:59; CSV allows any `I32` year and offsets within ±14:00. CSV's XML
 Schema grammar and TOML's RFC 3339 grammar stay in their components.
 `Toml.Date`/`Time`/`Offset` alias its records. `csv` and `toml` import
 `datetime`; replacing one format does not touch the other. Built in stage 3.
@@ -1128,6 +1163,8 @@ sections from each other.
 **Rejected:** always the end of the file.
 
 ### D-S3-54 Review round 3 corrections
+
+*(Item 5 refined for a one-character final group: D-S3-55.12. Item 8's `set([])` keeps trivia: D-S3-55.17. Item 12: an empty CSV cell into a `Try` field is absent: D-S3-55.14.)*
 
 (User, accepting all.)
 
@@ -1157,6 +1194,9 @@ sections from each other.
 9. Depth errors from edits arrive as `EditErr.Encode(TooDeep(path))`.
 10. D-S3-38 writes the kept spelling (float syntax is the same in 1.0 and 1.1);
     `F32` writes its own shortest spelling; `-0.0` gets the `.0` fix.
+    `encode_value` stores an `F32`'s own shortest spelling in its `Toml.Float`
+    (an internal constructor; `float_from_f64` would widen `0.1` to
+    `0.10000000149011612`), so `encode` and `encode_value` then `to_str` agree.
 11. `Mismatch.expected` and `err_to_str` texts are message text outside
     D-S3-17; tests check tags and paths, and any golden message is marked
     unpromised.
@@ -1171,6 +1211,239 @@ sections from each other.
     and date form and the refused ones; D-S3-53 placements; the Base64 cases
     above; an empty path per edit function; the CRLF corpus check.
 
+### D-S3-55 Consistency pass
+
+(User: "apply the fixes" — recommendations adopted without individual review.)
+
+Found in a consistency check of the fully amended log against the plan: error
+fields that disagreed across formats, and cases no decision covered.
+
+1. **Parse depth is `Toml.Err.TooDeep({ line, column })`;** `OutOfRange.text`
+   is only ever the offending source text. Why: `text` held source text for
+   integers and a message for depth. Rejected: renaming the field to `reason`.
+   Amends D-S3-11, D-S3-34.
+2. **`Toml.Err.Duplicate` becomes `DuplicateKey`.** Why: matches
+   `EncodeErr.DuplicateKey` and `Csv.Err.DuplicateHeader`. Rejected: keeping
+   `Duplicate`. Amends D-S3-11, D-S3-44.8.
+3. **`Csv.Err.RaggedRow({ line, width, found })`,** `line` the record's first
+   line, `width` the first record's field count. Why: `expected` meant a fix in
+   `Syntax`, a type in `Mismatch` and a count here. Rejected: keeping
+   `expected : U64`. Amends D-S3-39.
+4. **Every payload field named `key` that holds a segment list is `path`:**
+   `Mismatch`, each `EncodeErr` record, `DuplicateKey`, `StyleNotPossible`, the
+   cross-format date contract and temporal's hand-written codecs. Why: the value
+   is a path with `Index` segments (`[Index(3), Key("age")]` in CSV), and
+   nothing is built yet. Rejected: keeping `key`. Amends D-S3-11, D-S3-24,
+   D-S3-26, D-S3-30, D-S3-33, D-S3-39, D-S3-41.
+5. **`InvalidOffset({ path, offset : { minutes : I16 } })` in both formats.**
+   Why: parallels `InvalidDate({ path, date })`. Rejected: a bare `minutes`
+   field. Amends D-S3-24, D-S3-39.
+6. **`Csv.Segment : [Key(Str), Index(U64)]`,** an alias of the shared one.
+   Why: CSV signatures stop spelling the union. Rejected: `Toml.Segment` only.
+   Amends D-S3-30, D-S3-39.
+7. **`Toml.OffsetDatetime`, `LocalDatetime`, `LocalDate`, `LocalTime` stay in
+   `Toml`,** documented as working with any date-capable format, and tested
+   through CSV records. Why: their codecs need only the format-neutral date
+   methods, which CSV defines. Rejected: a new public format-neutral module.
+   Amends D-S3-9, D-S3-36.
+8. **CSV writes finite floats with TOML's normalized shortest spelling**
+   (`1.0`, `-0.0`, `1e300`, `1e-7`, `F32` by its own), specials `INF`, `-INF`,
+   `NaN`; `Dec` as `Dec.to_str` (`5.0`, `-0.25`). Why: valid XML Schema, reads
+   as a float column in other tools, pinned for D-S3-17, and shared code.
+   Rejected: Roc's raw `to_str` (`1`, `-0`). Amends D-S3-50.
+9. **CSV `Dec` cells apply the exponent and cut past 18 fractional digits** as
+   D-S3-48 does. Why: same Roc type, same result; `Dec.from_str` refuses 19+
+   digits. Rejected: `Mismatch` for over-precise cells. Amends D-S3-48, D-S3-50.
+10. **Float literals past a type's range round to ±infinity for `F32`/`F64`**
+    in both formats (and `Toml.Float.to_f64`); `Dec` still fails (`NotADec`,
+    `Mismatch`). Why: XML Schema 1.1 maps them to ±INF; TOML leaves precision to
+    the implementation. Rejected: `Mismatch`. Amends D-S3-9, D-S3-38, D-S3-50.
+11. **Integer text into a float field:** TOML keeps D-S3-37.8's exactness rule;
+    CSV rounds per XML Schema; the README says so. Why: TOML integers and
+    floats are distinct types, CSV cells are not. Rejected: exactness in CSV.
+    Confirms D-S3-37.8; amends D-S3-50.
+12. **Base64's nonzero-trailing-bits check applies only to a final group of two
+    or three characters;** a one-character final group is `InvalidLength`
+    whatever its bits. Why: otherwise `QUJDR` is `InvalidBase64(4)` and `QUJDA`
+    is `InvalidLength`. Rejected: checking bits of a lone character. Amends
+    D-S3-44.11, D-S3-54.5.
+13. **`InvalidLength` (Base64) and `OddLength` (Hex) keep their names.** Why:
+    each names its own rule. Rejected: `InvalidLength` for both. Confirms D-S3-3.
+14. **An empty CSV cell decodes into a `Try` field as absent,** the same as a
+    `?:` field. Why: one meaning of an empty cell. Rejected: `Ok("")` or a
+    `Mismatch`. Amends D-S3-45, D-S3-54.12.
+15. **`encode_columns` checks `DuplicateColumn`, then `UnknownColumn`, then
+    `MissingColumn`, then `Encode`;** the first two by list position,
+    `MissingColumn` by the field's byte order. Why: tags are promised, so which
+    one comes back must be fixed. Rejected: unspecified. Amends D-S3-5, D-S3-49.
+16. **TOML escapes write uppercase hex digits** (``, `\x7F`). Why: bytes
+    are pinned (D-S3-17); believed to match toml_edit, not checked. Rejected:
+    lowercase. Amends D-S3-37.4.
+17. **Edit cases:** an inline table replaced by a scalar is replaced in place,
+    as scalar → scalar; `set([], table)` applies per-key edits under the root
+    and keeps trivia; `append` of a non-table to `[[x]]` is `NotATable(path)`.
+    Why: each was undefined, and these keep the most of the user's file.
+    Rejected: removal and re-add at the end; a whole-document rewrite;
+    converting `[[x]]` to an inline array. Amends D-S3-31, D-S3-47, D-S3-54.8.
+18. **`Toml` and `Csv` define `a.Parseable(errs)` and `a.Encodable(err)`
+    constraint aliases** over their format and state, as the builtin JSON
+    format does, and their typed signatures use them. Why: the row is written
+    once, not twice. Measured: a `Parseable`-style alias on a user format, with
+    a closed-row date type nested in a record and a list, passes
+    (`scratchpad/consistency/kit/Use2.roc`); `Encodable` is by the builtin
+    precedent, unmeasured — if it fails, the explicit `where` stays and
+    Implementation notes say so. Rejected: explicit `where` clauses only. Amends
+    D-S3-11, D-S3-16, D-S3-33, D-S3-38, D-S3-39.
+19. **Kept as they are:** `err_to_str` only for `Csv.Err`/`Toml.Err`;
+    `Toml.Write.version` required while `Toml.Edit` uses `?:`; `Csv.Dialect`
+    nominal with presets. Why: each difference has a reason (tags are data;
+    `to_str` is the default; a dialect is a named value). Rejected: helpers and
+    presets for symmetry alone.
+
+The effective signatures after items 1–6 and 18 (the format and state names
+are the modules' own):
+
+```roc
+Toml.Segment : [Key(Str), Index(U64)]
+Toml.Err : [
+    Syntax({ line : U64, column : U64, expected : Str }),
+    DuplicateKey({ line : U64, column : U64, path : List(Toml.Segment) }),
+    OutOfRange({ line : U64, column : U64, text : Str }),   # text: the offending source text
+    TooDeep({ line : U64, column : U64 }),                  # nesting past 128 (D-S3-34)
+]
+Toml.EncodeErr : [
+    InvalidDate({ path : List(Toml.Segment), date : Toml.Date }),
+    InvalidTime({ path : List(Toml.Segment), time : Toml.Time }),
+    InvalidOffset({ path : List(Toml.Segment), offset : Toml.Offset }),
+    IntegerOutOfRange({ path : List(Toml.Segment), value : Str }),
+    RootNotATable,
+    DuplicateKey(List(Toml.Segment)),
+    TooDeep(List(Toml.Segment)),
+]
+Toml.EditErr : [
+    NotFound(List(Toml.Segment)),
+    NotATable(List(Toml.Segment)),
+    NotAnArray(List(Toml.Segment)),
+    StyleNotPossible({ path : List(Toml.Segment), style : [Header, Dotted] }),
+    Encode(Toml.EncodeErr),
+]
+Toml.decode : Str -> Try(a, [Parse(Toml.Err), Mismatch({ path : List(Toml.Segment), expected : Str }), MissingRequiredField(Str), ..errs])
+    where [a.Parseable([Parse(Toml.Err), Mismatch({ path : List(Toml.Segment), expected : Str }), MissingRequiredField(Str), ..errs])]
+Toml.decode_value : Toml.Value -> Try(a, [Mismatch({ path : List(Toml.Segment), expected : Str }), MissingRequiredField(Str), ..errs])
+    where [a.Parseable([Mismatch({ path : List(Toml.Segment), expected : Str }), MissingRequiredField(Str), ..errs])]
+Toml.encode : a -> Try(Str, Toml.EncodeErr) where [a.Encodable(Toml.EncodeErr)]
+Toml.encode_with : a, Toml.Write -> Try(Str, Toml.EncodeErr) where [a.Encodable(Toml.EncodeErr)]
+Toml.encode_value : a -> Try(Toml.Value, Toml.EncodeErr) where [a.Encodable(Toml.EncodeErr)]
+
+Csv.Segment : [Key(Str), Index(U64)]
+Csv.Err : [
+    Syntax({ line : U64, column : U64, expected : Str }),
+    RaggedRow({ line : U64, width : U64, found : U64 }),
+    MissingHeader,
+    DuplicateHeader({ line : U64, column : U64, name : Str }),
+]
+Csv.EncodeErr : [
+    InvalidDate({ path : List(Csv.Segment), date : { year : I32, month : U8, day : U8 } }),
+    InvalidTime({ path : List(Csv.Segment), time : { hour : U8, minute : U8, second : U8, millisecond : U16, microsecond : U16, nanosecond : U16 } }),
+    InvalidOffset({ path : List(Csv.Segment), offset : { minutes : I16 } }),
+]
+Csv.decode : Str -> Try(List(a), [Parse(Csv.Err), Mismatch({ path : List(Csv.Segment), expected : Str }), MissingRequiredField(Str), ..errs])
+    where [a.Parseable([Parse(Csv.Err), Mismatch({ path : List(Csv.Segment), expected : Str }), MissingRequiredField(Str), ..errs])]
+Csv.decode_with : Str, Csv.Dialect -> …                    # as decode
+Csv.encode : List(a) -> Try(Str, Csv.EncodeErr) where [a.Encodable(Csv.EncodeErr)]
+Csv.encode_with : List(a), Csv.Dialect -> Try(Str, Csv.EncodeErr) where [a.Encodable(Csv.EncodeErr)]
+Csv.encode_columns : List(a), List(Str) -> Try(Str, [DuplicateColumn(Str), UnknownColumn(Str), MissingColumn(Str), Encode(Csv.EncodeErr)]) where [a.Encodable(Csv.EncodeErr)]
+Csv.encode_columns_with : List(a), List(Str), Csv.Dialect -> …   # as encode_columns
+
+# The date contract (D-S3-26, D-S3-44.3), parse half:
+parse_local_date : fmt, state -> Try({ value : { year : I32, month : U8, day : U8 }, rest : state }, [Mismatch({ path : List([Key(Str), Index(U64)]), expected : Str }), ..])
+```
+
+### D-S3-56 Shared internal component `common`
+
+(User: "try to ensure the encoders can share code when not in conflict with the
+external standards"; layout adopted per "apply the fixes".)
+
+D-S3-52's `datetime` component becomes `common`, with four modules, none a
+package export. Grammars, special spellings and escaping stay in each format;
+`common` holds what the standards leave to the implementation.
+
+| Module | Shared | Used by | Kept per format |
+|---|---|---|---|
+| `EncodingPath` | `Segment`; `mismatch` and `mismatch_at` (generic over any state with a `key_path` method); the generic `run` decode and `encode_run` encode entry points; `expected` phrase constants | csv, toml | nothing standard-bound |
+| `EncodingNumber` | sign plus `U128` magnitude accumulator with overflow detection; narrowing to all twelve integer widths by passing the builtin `to_*_try`; validated float parts (sign, digits, fraction, exponent) to `F64`/`F32`/`Dec` with D-S3-48 truncation and D-S3-55.10 rounding; the shortest float spelling, taking a record of special spellings | csv, toml, `Toml.Float` | the grammars: XML Schema `[+-]?[0-9]+` with leading zeros and `-0` vs TOML's `_`, no leading zeros, `0x`/`0o`/`0b`; `.5`/`5.` vs digits both sides; specials `INF`/`-INF`/`NaN` vs `inf`/`-inf`/`nan` |
+| `EncodingDate` | D-S3-52's records, calendar and range checks with the limits as parameters, fraction cut and trim, digit cursor, zero-padded writing, `Z` for offset 0 | csv, toml | XML Schema 1.1 vs RFC 3339 grammars (D-S3-51, D-S3-37) |
+| `EncodingText` | skip one BOM; UTF-8 position tracker (continuation bytes don't advance the column) with a per-format line-break predicate; `Syntax` constructor with an open row; the `line L, column C: ` prefix for `err_to_str`; UTF-8 byte-order `Str` compare (the builtin has none) and a sorted union | csv (header union D-S3-45), toml (`is_eq` D-S3-44.1, `Dict` key order D-S3-32) | CSV breaks lines on LF, CRLF and lone CR; TOML on LF and CRLF (a lone CR is an invalid control character); TOML's multi-line `\n` normalization (D-S3-43) |
+
+Also shared, inside `base64` only: Base64 standard and URL-safe use one decoder
+with the alphabet and padding policy as parameters (RFC 4648 §4 and §5 differ
+only there); Hex shares the 256-entry lookup-table builder and byte-index scan.
+`base64` imports nothing.
+
+Not shared:
+
+- **Booleans:** TOML reads `true`/`false`; CSV also reads `1`/`0`.
+- **String escaping:** RFC 4180 doubles quotes and quotes a field holding the
+  delimiter, a quote or a line break; TOML uses backslash escapes and
+  `\u00XX`/`\xHH`. Hex's nibble table is not reused for TOML escapes: `toml`
+  would import `base64`, and the cases differ (D-S3-55.16).
+- **Record, list and dict protocol code:** CSV is a flat, header-driven record
+  with no lists or dicts; TOML walks a `Value` tree.
+
+Layout:
+
+```
+components/
+  base64/  Base64.roc Hex.roc              # no imports; one parameterized alphabet decoder
+  common/  EncodingDate.roc EncodingNumber.roc EncodingText.roc EncodingPath.roc
+  csv/     Csv.roc CsvParse.roc CsvEmit.roc CsvCell.roc CsvDate.roc
+  toml/    Toml.roc TomlLex.roc TomlParse.roc TomlFormat.roc TomlWrite.roc TomlDocument.roc TomlDate.roc
+```
+
+```toml
+[components.common]
+kind = "roc"
+exports = ["EncodingDate", "EncodingNumber", "EncodingText", "EncodingPath"]   # not package exports
+```
+
+`csv` and `toml` import `common` and never each other. `common` is built as its
+own stage after Base64 and Hex and before CSV, so CSV uses it from its first
+commit.
+
+Measured on `10e922df`, files under the S3 review scratchpad's `consistency/`:
+
+- `kit/`: a CSV-like format over row cells and a TOML-like format over a value
+  tree, each in its own module, call a shared module's non-generic `mismatch`,
+  generic `mismatch_at` (`where [state.key_path : state -> List(Segment)]`),
+  `narrow` with `I128.to_u8_try` passed in, and a generic
+  `run : fmt, state -> Try(a, …) where [a.parser_for : fmt -> …]` that names
+  neither format nor state. A closed-row date type nests in records, lists and
+  dicts. `roc test`: 5 of 5 pass.
+- `enc/`: two encoders share a float spelling with per-format specials and a
+  generic `encode_run`; an error variable carries `InvalidDate` with its path
+  out of a nested record. 3 of 3 pass.
+- `pkg/`: the same code as a package, shared code in its own component, the
+  formats in two more, tests in a fourth. `trantor test`: 8 own expects, PASS.
+- `nums/N.roc`: `F64.to_str` gives `1e300`, `1e-7`, `-0`, `123456789`;
+  `F32` `0.1`; `Dec` `5.0`, `-0.25`.
+
+The playground's "a generic wrapper in another module cannot name the format's
+state type" does not block sharing: the wrapper never names it. No runtime
+crash on this build.
+
+**Cost and guard:** a change in `common` can change both formats' output.
+Grammars and special spellings stay out of it, `common` functions take the
+per-format choices as parameters, and every commit runs both formats' golden
+tests (D-S3-17).
+
+Supersedes D-S3-52's component name and build stage; amends D-S3-13 (the
+per-format replacement goal holds: replacing `csv` does not touch `toml`, and
+`common` was already shared) and D-S3-21.
+
+**Rejected:** `datetime` plus a separate `core` component (both formats need
+both, so no independence is gained); duplicating the helpers per format;
+sharing grammars.
+
 ## Still open
 
 - **`invalid_value`:** if the compiler starts selecting it, D-S3-28 can carry a
@@ -1179,3 +1452,4 @@ sections from each other.
   variable compiles inside a record (D-S3-27).
 - **The cross-package miscompile** the playground recorded on `e2b81982` is
   unmeasured on `10e922df`; stage 2 runs the CSV assertions through a package.
+- **`a.Encodable(err)` on this package's formats** is unmeasured (D-S3-55.18).
