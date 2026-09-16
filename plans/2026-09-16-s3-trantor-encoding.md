@@ -799,3 +799,93 @@ TomlWrite 81; the suite's app 160, ExpectedJson 235, StrictToml 102.
   beside `main.roc`, measured to import as sibling modules (`import
   StrictToml`, `import pf.Toml` inside them); the JSON reader moved into
   `ExpectedJson.roc`.
+
+### Step 6
+
+trantor-encoding `d0a2d90`, trantor-hash `0951c10`, trantor-temporal
+`d785f9b`. `trantor test .` passes with no warnings in all three:
+
+- trantor-encoding: 1177 expects run, 943 the package's own (53 new: CsvDate 29,
+  CsvTestDate 24); `tests/date-codecs` 4 lines; conformance unchanged; 17 s wall.
+- trantor-hash: 262 expects run, 28 its own (5 new); `tests/layout` 12 lines (4
+  new), and the 8 existing lines are byte-identical.
+- trantor-temporal: 909 expects run, 174 its own (14 new, in `Plain`);
+  `tests/formats` 11 lines and `tests/offsets` 8 lines, both new; every
+  existing suite unchanged. The full run, sweeps included, takes 5 min wall.
+
+Mutations fail as expected:
+- encoding: CSV's offset limit at 15 hours; the no-leading-zero rule for
+  5-digit years removed; a later date problem overwriting the first;
+  `encode_columns` taking names only from records that wrote cleanly (3
+  expects);
+- hash: day and month swapped in `write_date`;
+- temporal: `parser_for` lifting onto `Hebrew` (7 suite lines); offset
+  rounding truncated (the Monrovia line); `floor_div` truncating, and the
+  civil-date era adjustment dropped (`Plain` expects).
+
+Lines: Csv 558 (was 496), CsvDate 263 (about 130 before its expects),
+CsvTestDate 244; HashFormat 295; Temporal 804 (was 751), Plain 305 (was 196).
+
+- **CSV writing keeps the first problem in the encode state (step 3's open
+  issue).** `EncodeState` carries the record index, the column, and a
+  `problem : [Clean, Failed(EncodeErr)]`. The date encode methods always
+  answer `Ok`: a cell that cannot be written becomes empty and its problem is
+  recorded if it is the record's first. `encode_record` threads the problem
+  through `EncodeFields`. `encode`/`encode_with` return the first record's
+  problem. `encode_columns_with` checks names from every record, then
+  columns, then that problem, so D-S3-55.15's order holds for a record that
+  cannot be written (expects on `Encode`, `MissingColumn` and `UnknownColumn`
+  over the same failing record).
+- **`Csv.EncodeErr : CsvDate.EncodeErr`,** written once where it is produced,
+  as with `Csv.Err : CsvParse.Err`. CsvDate's `*_text` functions take the
+  cell's path and return the whole `EncodeErr`. Checks run date, then time,
+  then offset.
+- **Grammar choices where D-S3-51 is silent:** a year of more than four digits
+  with a leading zero (`02026`) is refused, as XML Schema's `yearFrag` is;
+  `-0000` reads as year 0; a year of more than ten digits, or outside `I32`,
+  is `Mismatch`; `+hh:mm` without the colon is refused. An empty date cell is
+  absent for an optional field. For a required field it is a `Mismatch` at the
+  cell, after the step 3 empty-cell retry.
+- **The in-component date tests use test types.** `csv` cannot import `toml`,
+  so `CsvTestDate` defines four nominals with the contract's codecs. The
+  moved sub-test (D-S3-55.7) is `tests/date-codecs`, an app over `pf.Csv` and
+  `pf.Toml`: `Toml`'s four date types decode from CSV records, write back,
+  round-trip, and report `Mismatch` and `InvalidOffset` with CSV's paths.
+- **Measured in apps:** a top-level constant or a `|{}|` function whose
+  `match` value is computable at compile time warns ("unused branch" or
+  "unconditional condition"), which fails a warning-free build. Suites match
+  in helpers that take the value as a parameter.
+- **HashFormat's layout:** each field is one `U64` word as an integer leaf is
+  (signed sign-extended), in the contract's order: year, month, day; hour
+  through nanosecond; a date-time's date words then its time words; an offset
+  date-time's `minutes` last. There are no markers, so a date hashes like the
+  tuple of its fields. It does not hash like a `{ year, month, day }` record,
+  because records hash in alphabetical field order. The Rust model in
+  `tests/vectors` computes the four new layout lines, and `HashVectors.roc`
+  regenerates unchanged. The README says a `PlainDate`'s calendar is not
+  hashed.
+- **`to_offset_datetime!` is pure after two reads.** It takes
+  `offset_seconds!`, rounds to minutes half away from zero (Monrovia's
+  -0:44:30 becomes -00:45, matching the host's own IXDTF rendering), and
+  recomputes the ISO wall clock from `epoch_ns!` in Roc (`Plain.wall_clock_at`,
+  Hinnant's civil-from-days with a floor division). The alternative is the
+  host's `with_time_zone!`, which answers `Try`, and D-S3-25's signature has
+  none. It is a `ZonedDateTime` method (`z.to_offset_datetime!()`), with the
+  other readers. The record types are `Plain.Date`, `Plain.Time` and a new
+  `Plain.Offset`.
+- **`zoned_from_offset!`** builds the zone id `±hh:mm` and calls
+  `zdt_from_wall_clock!` on `Iso` with `Reject`, since a fixed offset has
+  nothing to resolve. An offset of 24:00 or more is the host's `OutOfRange`.
+  Measured: an IANA zone comes back as `[-04:00]` with the instant kept, and
+  New York's 1850 LMT (-17762 s) becomes 12:00:02 at -04:56 with the instant
+  kept.
+- **The codecs decode onto `Iso`** through `PlainDate.lift` and
+  `PlainTime.new`, and encode `rec()`, dropping the calendar. Measured: a
+  `Toml.LocalDate` passes to `plain_date_from_fields` and is refused by
+  `plain_date` (type mismatch), as D-S3-37.1 has it. `tests/formats` shows the
+  first; the README states both.
+- **Temporal's checks are suites, not expects:** the conversions call the
+  host. Only `Plain`'s pure arithmetic has expects (the package had none
+  outside `Strftime`). trantor-encoding's expects now also run in temporal's
+  composed world (909 in total).
+- **Not done here:** CSV's README section on dates and `24:00:00` (step 8).
