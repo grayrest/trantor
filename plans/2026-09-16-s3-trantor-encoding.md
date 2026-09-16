@@ -528,3 +528,84 @@ expects (code about 215 and 230), kept in-module as the step lists them.
   `map_err` is used there; a top-level constant containing `match` is
   evaluated at compile time and warns "unused branch" for arms it did not take
   (seen in a probe, avoided in the modules).
+
+### Step 3
+
+trantor-encoding `6792867`. `trantor test .`: PASS, no warnings (each csv
+module also clean under `roc test --no-cache`); 781 expects run, 547 the
+package's own, 246 of them `csv`'s (CsvTestRows 94, CsvCell 40, CsvTestEncode
+34, CsvTestTable 31, CsvTestDecode 31, CsvEmit 10, CsvStress 6); 1.2 s wall.
+Mutations fail as expected (a golden `INF` changed, a decode path, a `Dec`
+value). Lines: Csv 496 (about 250 of code; the rest docs and the one-line
+format methods), CsvParse 254, CsvCell 204 (with its expects), CsvEmit 89.
+
+- **Layout:** `Csv` (surface, format and states), `CsvParse` (scanner and every
+  `Csv.Err`), `CsvEmit` (writer), `CsvCell` (XML Schema grammar and spellings
+  over `EncodingNumber`), and the expects in `CsvTestRows`, `CsvTestTable`,
+  `CsvTestDecode`, `CsvTestEncode`, `CsvStress`, all component exports (trantor
+  test refuses expects in a module no component exports). No `CsvDate` yet.
+- **`Dialect`, `Row`, `Table`, `Format`, `DecodeState`, `EncodeState` nest in
+  `Csv`.** `CsvParse` and `CsvEmit` cannot import `Csv` (it imports them), so
+  each takes a structural `Syntax` record and `Csv` converts the dialect.
+  Measured: a nominal whose backing is another module's alias does not accept a
+  record literal, so the backing is written out in `Csv`. An alias to a nominal
+  in another module does carry its associated values (`Nd.Dialect.csv` and
+  `{ ..Nd.Dialect.csv, … }` work) and was not needed.
+- **`Csv.Err : CsvParse.Err`,** the structural union written once where it is
+  produced; `Csv.Segment : EncodingPath.Segment` likewise.
+- **`Parseable` and `Encodable` both compile and are used** by every typed
+  signature (`a.Parseable(errs)`/`a.Encodable(err)` nested in `Csv`, referenced
+  as `a.Csv.Parseable(…)` from the module's top level). D-S3-55.18's open
+  question is closed for CSV.
+- **No cross-package miscompile on `10e922df`.** A scratch copy of the package
+  with an app suite (`tests/xpkg`, not committed) decoded TSV with `Try` and
+  `?:` fields, read `Csv.Dialect.tsv.delimiter`, encoded a header union with
+  `U64.highest`, `-0.0` and `INF`, and printed a `Mismatch` path and an
+  `err_to_str`, all correct through the composed platform.
+- **Empty cells, measured:** the derive never tells a format whether a field is
+  optional (`FieldNames` carries names only; `parse_null` is not consulted for
+  `?:` or `Try` fields, a JSON `null` into either is `InvalidJson`), and
+  `Continue(state)` from `parse_record_field` skips a column. So an empty cell
+  is skipped, which makes it absent for `?:` and `Try` fields (D-S3-45,
+  D-S3-55.14); a required field then answers `MissingRequiredField(name)`, and
+  when `name` is a header whose cell was skipped, `decode` offers that column's
+  empty cells for this and every later record and reads the record again. A
+  required `Str` gets `""`, a required number a `Mismatch` at its path; each
+  column costs at most one retry for the whole document (200,000 records with
+  an empty required cell each decode in about a second).
+- **Undefined cases, chosen:** a record-typed field is `Mismatch` at its column
+  on decode (a CSV cell is a scalar); on encode the protocol shares one state
+  type and `EncodeErr` has no tag for it, so a nested record writes an empty
+  cell — a known limit for step 8's README. `encode` and `encode_columns` of no
+  values write `""`; `encode_columns([], ["a"])` is `UnknownColumn("a")`.
+  `DuplicateHeader`'s column is the field's first character after `trim`'s
+  skipped spaces (its opening quote when quoted). A header under
+  `skip_blank_lines`/comments is the first record that is not skipped.
+- **`encode_columns` precedence with encode errors (for step 6):** names come
+  from the records that encoded, so a record failing with a date error drops
+  its names from the `UnknownColumn`/`MissingColumn` checks. Nothing fails to
+  encode until step 6's date methods; if they return `Err`, a column only that
+  record has would read as unknown. Step 6 should keep D-S3-55.15 exact, e.g.
+  by recording the first date error in the encode state and returning it after
+  the record's names are known.
+- **Grammar details:** `+INF` reads, `+NaN`/`-NaN` do not; `-0` reads into
+  unsigned widths as 0 (`EncodingNumber.to_unsigned`); `Dec` takes the float
+  grammar without specials; the error `expected` texts are new (message text,
+  unpromised). `CsvParse` keeps the playground's record loop on plain
+  parameters (its measured 4.8 s against 0.15 s) and computes positions only
+  for the error reported.
+- **Port of the playground's 156 assertions:** rewritten rather than copied —
+  message assertions check tags and positions; `Tsv` expects use
+  `Csv.Dialect.tsv`; accumulated `BadCells` became first-error paths (records
+  from 0); `Parse.pos`/`strip_bom` unit expects are covered by
+  `EncodingText`'s; case-insensitive `TRUE`/`FALSE` became a refusal.
+  `Stress.roc` keeps its four scanner cases and adds typed decode (empty
+  required cells) and encode over 20,000 records.
+- **Measured compiler behaviour:** uppercase and non-ASCII record field names
+  do not parse, so byte order against derive order is tested with `a1`, `a_b`,
+  `ab`; `List.join_with` and `Try.and_then` do not exist (`Str.join_with`,
+  `map_ok` with `??`); passing a tag constructor as a function (`map_err(Encode)`)
+  is a type error, a lambda works; match guards (`Ok(b) if …`) and `|`
+  alternatives in patterns compile; a record literal with `True`/`False` fields
+  needs a `Bool` annotation to reach `encode_bool` (unannotated it is a tag
+  union and asks for `encode_tag`).
