@@ -700,3 +700,102 @@ code).
   overcounts.
 - **Not done here:** typed decode, writing, `Document`, the four nominal date
   types and their `is_eq` (step 5 onward).
+
+### Step 5
+
+trantor-encoding `eca2c02` (typed TOML and writing) and `ad0c1d2` (conformance
+round trips and the strict 1.0 checker). `trantor test .`: PASS, no warnings
+(each new module also clean under `roc test --no-cache`); 1124 expects run, 890
+the package's own, 99 of them new (TomlTestDecode 40, TomlTestEncodeErr 23,
+TomlTestCodecs 15, TomlTestEncode 14, TomlTestRoundTrip 7); 20 s wall.
+Conformance: the three parse lists unchanged; `parse(to_str_with(v, mode)) ==
+v` in both modes for 1.1.0 valid 218/218 and 1.0.0 valid 208/208, every `V1_0`
+text strict; the strict checker accepts 1.0.0 valid 208/208 and refuses 1.0.0
+invalid 501/501. Mutations fail as expected: lowercase hex digits, `\x1B` for
+`\e`, seconds dropped in `V1_0` (golden expects, and with expects bypassed 28
+round trips fail the strict checker), sections before arrays of tables, an
+unsorted dict, the depth limit at 129, exactness dropped for integers into
+floats, `Dec` through `F64`, `F32` widened, a lost `Index`, duplicate and
+offset and date checks removed, a date codec altering its value (8 container
+expects), and the checker missing `\xHH`. Lines: TomlFormat 260, Toml 250,
+TomlEncode 178, TomlText 132, TomlValue 118, TomlCheck 106, TomlCursor 102,
+TomlWrite 81; the suite's app 160, ExpectedJson 235, StrictToml 102.
+
+- **Layout:** `TomlFormat` (the decode format's methods and number rules),
+  `TomlCursor` (`DecodeState`, frames and paths), `TomlEncode` (the encode
+  format, building a `Value`), `TomlCheck` (`EncodeErr` and every check before
+  writing), `TomlText` (escapes, keys, spellings, inline values), `TomlWrite`
+  (D-S3-15's sections). `Toml` holds the surface, `Parseable`/`Encodable`, and
+  the four date types nested as `Toml.LocalDate := { year, month, day }` and so
+  on (records written out, per step 3's finding). `encode` is `encode_value`
+  then `to_str_with`, so the two paths cannot disagree.
+- **`Value`'s codecs are tied to TOML by method name, not by type.** D-S3-33
+  has `Value.parser_for` name TOML's format; `Value` lives in `TomlValue`,
+  which the format modules import, and a module cannot import back. So
+  `parser_for` requires `parse_toml_value` (closed `Mismatch` row, as the date
+  contract) and `encoder_for` requires `encode_toml_value`, which only
+  `TomlFormat.Format` and `TomlEncode.Encoder` define. Another format is still
+  a compile error, naming the missing method instead of the format. Measured
+  inside records, lists, nested records and dict values both ways.
+- **`Parseable` and `Encodable` both compile for TOML** and every typed
+  signature uses them, as D-S3-55.18 has it; the encoder's methods use the
+  closed `Toml.EncodeErr` row (E1c's form), the date types' `encoder_for`
+  keeps an error variable.
+- **Measured compiler behaviour:**
+  - Tuples need `invalid_value : fmt, state -> err` on the format (the
+    derived tuple parser calls it); records, lists, dicts and `Try` fields do
+    not. `Format.invalid_value` answers `Mismatch` at the cursor. D-S3-28's
+    finding that the hook is never selected stays true for missing fields.
+  - `{ name }` with a single variable is a block, not a punned record:
+    `Toml.encode_value({ raw })` encodes `raw` itself. Tests write
+    `{ raw: raw }`; a README note belongs to step 8.
+  - A record update producing a nominal (`time : Toml.LocalTime` then
+    `time = { ..midnight, second: 60 }`) hangs the compiler in `roc test`, and
+    in a module with other expects crashed it with SIGSEGV; full literals are
+    used.
+  - Type aliases that double nesting (`L64(a) : L32(L32(a))`) take the
+    compiler exponential time (L32 4 s, L64 over a minute), so the typed depth
+    test spells its 127- and 128-deep `List` types out.
+  - Fields of a `::` type are private to its module even through a namespace
+    function in another module (`state.value` outside `TomlEncode` is a type
+    error); `TomlEncode.result` reads it, and `DecodeState` is `:=` so
+    `TomlFormat` can read the cursor `TomlCursor` owns.
+  - A nominal gets no derived codecs, so a recursive user type cannot reach
+    `TooDeep`; typed depth is reached only through a type nested 128 deep.
+- **Choices where the log is silent:**
+  - Every sub-table gets its own `[header]`, even one holding only sub-tables
+    or arrays of tables (`[inner]` then `[[inner.a]]`); the root writes no
+    header and an empty document writes `""`. A non-empty array holding only
+    tables is `[[x]]`; an empty array or a mixed one is inline.
+  - A string holding `\n` is written `"""` followed by a line feed, so a
+    leading line feed survives the one reading drops. `"` is escaped in both
+    string forms, so no quote run can close a multi-line string early.
+  - Kept float spellings are always written: every spelling a `Float` can
+    hold is a TOML float literal valid in 1.0 and 1.1 (parsed literals, or
+    `EncodingNumber`/`Dec.to_str` output), so the "else shortest" branch of
+    D-S3-38 has no case. `float_from_f32` and `float_from_dec` take their `F64`
+    by reading their spelling, as a parsed literal does, so `encode_value`
+    then `to_str` then `parse` compares equal.
+  - An integer into `F32`/`F64` is exact when converting back gives the same
+    integer (`9223372036854775807` into `F64` is `Mismatch`); every `I64` fits
+    `Dec`.
+  - Checks run in document order and stop at the first: a table's entries in
+    order, each key's duplicate check before its value; a datetime's date
+    before its time before its offset. `DuplicateKey` holds the second
+    occurrence's full path. `TooDeep` holds the path of the table or array
+    that would be level 129. `encode_value` checks an embedded `Value` as
+    `to_str` would (depth from its own path), so both report the same error.
+  - `encode_value` of a non-table is allowed (`Array`, `Integer`); only
+    `to_str`, and so `encode`, answer `RootNotATable`.
+  - The strict 1.0 checker is `Toml.parse` plus a scan outside strings and
+    comments for 1.1's additions (a line break, comment or trailing comma
+    directly inside an inline table, `hh:mm` not followed by `:`, and `\e`
+    or `\x` in basic strings). The 1.0.0 invalid list is the evidence that
+    nothing else separates the versions.
+- **Moved to step 6:** the four date types through CSV records (D-S3-55.7).
+  CSV has no date methods yet, so a record with a `Toml.LocalDate` field does
+  not compile against `Csv.Format`; step 6 adds the methods and the test.
+- **Suite:** `tests/lib.sh`'s `build_app` copies a suite's other `*.roc` files
+  beside `main.roc`, measured to import as sibling modules (`import
+  StrictToml`, `import pf.Toml` inside them); the JSON reader moved into
+  `ExpectedJson.roc`.
