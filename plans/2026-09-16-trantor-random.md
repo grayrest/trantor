@@ -30,7 +30,7 @@ FastRng :: ...    # xoshiro256++
     from_words : { w0 : U64, w1 : U64, w2 : U64, w3 : U64 } -> Try(FastRng, [AllZero])
     from_u64 : U64 -> FastRng
     next_u64 : FastRng -> (U64, FastRng)
-    fork : FastRng -> (FastRng, FastRng)       # (child = copy jumped 2^128, parent unchanged)
+    fork : FastRng -> (FastRng, FastRng)       # (child = copy, parent jumped 2^128); D-S4-10 as changed after review
     to_bytes : FastRng -> List(U8)             # 32 bytes, state words LE
     from_bytes : List(U8) -> Try(FastRng, [InvalidState])
 
@@ -328,6 +328,30 @@ Details within the plan's design:
 - **Compiler findings** (generic-body missing methods, nominal field decoding
   through `Json.parse`, parameter destructuring of nominal records, names
   shadowing methods) are recorded in `notes/2026-09-14-upstream-builtin-gaps.md`.
+
+**Independent code review** (one Opus reviewer, after implementation). No
+defect in the generators, saved state, draws or UUIDs. Its findings, all
+fixed:
+
+- `FastRng.fork` gave the same child for repeated forks of one parent; changed
+  with the user to child = copy, parent jumped (D-S4-10), trantor-random
+  `90264f8`. The fork expect now also forks the parent again.
+- `Rng.from_u64` was pinned by nothing: a changed expansion passed every
+  expect. `RngStable` also lacked `u8`, `bool`, `u64`, `between_u64`
+  (including full range), `choose`, `fork`, `FastRng.to_bytes` and `UuidV7`
+  values. Added in `bc4e50f`; `Rng.from_u64(0)` and `(7)` come from a separate
+  Go SplitMix64 feeding Go's ChaCha8. The reviewer's mutation now fails two
+  expects.
+- Doc comments: `between_f64` with equal infinite bounds returns without
+  crashing; a `Uuid` in a record does not decode through `Json.parse` (`bc4e50f`).
+- trantor-cli `confined-race`: the de-flake (`3a5a5d6`, from a suite run where
+  append and open_writer saw 0 successes in 2000) started its 10 s before the
+  2000-attempt minimum and waited forever if the clock read 0. Fixed in
+  `e877f93`: the budget starts after the minimum, a 0 clock ends it, cap 300 s.
+  Checked with the test's swapper on an idle and a fully loaded machine, a
+  swapper that stalls 1.5 s at a time (passes; `copy_dir` needed up to 48,903
+  attempts), and one that never swaps (every op still fails its refused
+  control, 122 s). The full trantor-cli suite passes.
 
 Not done: the main trantor checkout still holds untracked copies of this plan
 and the S4 log and the uncommitted S1 edit from before the worktree existed.

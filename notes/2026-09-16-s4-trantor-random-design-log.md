@@ -235,7 +235,7 @@ Vose's alias method (float or rational setup for O(1) picks).
 | OS | `from_os! : () => Try(Rng, [RandomErr(IOErr), ..])`, 4 `seed_u64!` as the 4 seed words | same, as the 4 state words |
 | exact | `from_words : { w0 : U64, w1 : U64, w2 : U64, w3 : U64 } -> Rng` (the 32 seed bytes read as LE words, as Go's `Init`) | `from_words : {..} -> Try(FastRng, [AllZero])` |
 | test seed | `from_u64 : U64 -> Rng`, SplitMix64 expanded to 4 words | same |
-| fork | `fork : Rng -> (Rng, Rng)`, returns `(child, parent)`; the child is seeded by 4 draws and the parent continues its stream | `fork` returns `(child, parent)`; the child is a copy advanced by `jump` (2^128 steps), the parent is unchanged |
+| fork | `fork : Rng -> (Rng, Rng)`, returns `(child, parent)`; the child is seeded by 4 draws and the parent continues its stream | `fork` returns `(child, parent)`; the child is a copy that continues the stream, the parent advances by `jump` (2^128 steps) |
 | saved state | `to_bytes`/`from_bytes` | 32 bytes, the 4 state words LE |
 
 No `Iter` view (`Iter.custom(rng, Unknown, |r| Ok(r.u64()))` is one line), no
@@ -244,6 +244,13 @@ mid-stream OS reseed. Saved state is covered by D-S4-4. (User.)
 *Settled after the review (user):* `fork` returns `(child, parent)`, result
 first per D-S4-6, and on both generators the parent keeps its own stream. The
 session's table had `FastRng`'s child replaying the original stream instead.
+
+*Changed after the code review (user):* `FastRng`'s child is the copy and the
+parent jumps. As first implemented (child jumped, parent unchanged), forking
+the same parent twice gave the same child, so `(c1, p1) = rng.fork()` then
+`p1.fork()` handed every worker one stream on `FastRng` but not on `Rng`. Now
+both generators move the parent, and the split is the usual xoshiro one.
+**Rejected:** keeping it and documenting "fork the child, not the parent".
 
 **Why:** each fork uses the method correct for its algorithm: ChaCha8's
 output is unpredictable, so drawn words are an independent seed; xoshiro's
