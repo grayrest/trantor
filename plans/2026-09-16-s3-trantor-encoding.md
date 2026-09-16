@@ -1005,3 +1005,166 @@ TomlSyntax 116, TomlDocument 83, Toml 271 (was 250).
   - Record patterns in `match` must name every field
     (`Ok({ body: Pair(pair) })` against a `Line` is a type mismatch).
   - `crash` accepts a `Str` constant, not only a literal.
+
+### Step 7b
+
+trantor-encoding `b9aba33` (the edit operations), `42f0e78` (the
+`tests/toml-edit` suite) and `2f5502d` (a fix the added expects found).
+`trantor test .`: PASS, no warnings (each new module also clean under
+`roc test --no-cache`); 1339 expects run, 1105 the package's own, 84 of them
+new (TomlTestSet 55, TomlTestRemove 29); `tests/toml-edit` 65 cases (57
+snapshots, 8 refusals), all passing on the first run but one, where the
+suite's own check was wrong (below); conformance unchanged; 36 s wall (was
+30 s). Mutations fail as expected: `Dotted` allowed under an implicit table,
+every family spaced (2 expects), no comment blocks (3), the inline-children
+rule off, merges setting nothing (3), merges removing old keys first (the
+dotted merge), no comma added on one line (3), a dotted table replaced not in
+place, sections always at the end of the file (8 suite cases), a changed
+`after.toml` byte, a changed expected error, and a CRLF case converted to LF
+(`test.sh` refuses it). Lines: TomlSet 293, TomlPlan 216, TomlLines 207,
+TomlNodes 157, TomlLayout 156, TomlAdd 127, TomlPlace 109, TomlRemove 103,
+TomlAppend 72, TomlLocate 58, TomlDocument 80 (was 83); the suite's app 221.
+
+- **Layout:** `TomlSet` (`set`/`set_with`: in place, merges, kind changes),
+  `TomlRemove`, `TomlAppend`; `TomlPlan` decides how a new value is written
+  before anything is; `TomlAdd` writes a plan, `TomlPlace` finds where
+  (D-S3-10's "after the last key", D-S3-53's families); `TomlLines` (comment
+  blocks, content ends, inserting and removing lines), `TomlNodes` (value
+  nodes by route, new nodes), `TomlLayout` (the trivia of arrays and inline
+  tables as a child comes or goes). `EditErr`, `Edit` and the path lookup
+  moved from `TomlDocument` to `TomlLocate`: the edit modules need them and
+  `TomlDocument` imports the edit modules. `TomlDocument` and `Toml` alias
+  them as before; `Document` gained `set`, `set_with`, `remove`, `append`
+  (`set` is `set_with` with `{}`, `append` writes `V1_0`).
+- **New text is the step-5 writer's, read back as syntax.** Values are
+  `TomlText.inline` (multi-line strings' breaks replaced by the line's
+  ending), parsed with `TomlParse.read` into a node; keys are
+  `TomlText.key` per segment. Sections follow D-S3-15's order (key/values,
+  sub-tables, arrays of tables) but not `TomlWrite.document`: D-S3-29 leaves
+  a table with no key/values of its own and sections below it implicit, where
+  `TomlWrite` writes a header for every sub-table. An empty table still gets
+  `[x]`, and every `[[x]]` element its header. New pairs use ` = `.
+- **Planning (`TomlPlan`)** works from the table that exists, whose kind gives
+  the context: inside an inline table or array value; dotted; implicit;
+  a non-root header table with children, all inline tables; any other header
+  table or the root. `Auto` for a table: inline, dotted, inline, header,
+  header respectively. Forced `Header` is refused inside inline and dotted
+  tables; forced `Dotted` inside inline and implicit ones. Nested tables
+  follow `Auto` from their new parent.
+  - D-S3-46's "`Dotted` under a header-created table, other than the
+    header's own table" is read as the parent being `Implicit` (only named on
+    the way to a header): a table with its own `[x]` (an `[[x]]` element
+    included) and the root take dotted keys in their sections.
+  - D-S3-41's "existing children are all inline tables and no `[p.x]`
+    sub-sections" counts direct children; a sub-section child is not inline,
+    and nor is a scalar, so Cargo's `serde = "1"` beside inline tables makes
+    `[dependencies.x]`. "Cargo-style mixed" is read as inline children plus a
+    `[p.x]` section.
+  - Arrays of tables: `Auto` writes `[[x]]` except under inline and dotted
+    parents, where it is an array value; `Header` forces `[[x]]` (refused
+    where headers are); `Inline` and `Dotted` both write the array value.
+    The styles name tables and dotted keys cannot write an array of tables,
+    so `Dotted` is not refused there (choice).
+  - Missing parents: the direct parent of an `Inline` or `Dotted` table is a
+    `[header]` where a header can be, else `Auto`'s choice; other parents, and
+    every parent of a scalar, by `Auto`. An empty table under `Dotted` is
+    `k = {}`.
+- **Placement:**
+  - A header table or the root: after the last key/value line whose section
+    is the table (its dotted keys included), else right after the header. The
+    root with no keys: before the first header's comment block and the empty
+    lines above it, with a blank line after the new key when a header or a
+    comment would follow directly (choice). Indentation from the key line
+    followed, else none.
+  - A dotted table: after its last dotted key that spells into it (keys of a
+    deeper `[fruit.apple.texture]` do not), the segments spelling the table
+    copied with their quoting and dot spacing. An inline table: after the last
+    entry of the node it is written in, which for a dotted table inside an
+    inline table is its entries' node.
+  - A table only named by a header (`Implicit`) taking a key: a new `[p.x]`
+    section by D-S3-53.
+  - D-S3-53 made concrete: the family prefix is the header path without its
+    last segment (for an `[[x]]` element, the array's path, so a new element
+    goes after the last element's sections as D-S3-31 has it); the deepest
+    prefix with sections decides; `[]` is not a family, so "no family" is the
+    end of the file. The position is the family's last section's content end,
+    before the next header's comment block and the empty lines above it, so a
+    comment describing the next section stays with it. One blank line before
+    unless the family has two or more sections and none with an empty line
+    above it (or its comment block); a family of one counts as spaced; none
+    at the start of a file. At the end of the file: before its empty last
+    lines.
+- **Line endings:** a new key line takes the ending of the line it follows,
+  else the file's first, else LF; sections the file's first; a value's
+  multi-line string its line's (a last line with none, the file's). A file
+  without a final line break keeps having none: the old last line takes a
+  break and the new last line has none, and a removal taking the last line
+  leaves the new last line without one.
+- **Removal spans:** a key/value line with its comment block; a section with
+  its comment block, the section and the empty lines after it, stopping at
+  the next header's comment block (comments separated from the next header by
+  an empty line go with the removed section). A span reaching the end of the
+  file also takes the empty lines above it, and one starting the file the
+  empty lines below it, so no blank line is left at either end (choice). An
+  entry or element on one line takes the comma after it (the one before it
+  when it is last without a trailing comma); on several lines, its line, its
+  trailing comment and the comment lines directly above it. Entries inside a
+  removed line or a removed enclosing entry are not removed again; the rest
+  go last first.
+- **Following a container's layout (D-S3-42):** multi-line when a child's
+  `before` holds a line break. A new child takes the indentation of the last
+  child that starts a line, a comma when the last child had a trailing one,
+  and a comment after the old last child stays on that line with the new
+  comma before it. On one line, the last separator (or ` `); an empty array
+  becomes `[v]`, an empty inline table `{ k = v }`.
+- **Kind changes and replacement:**
+  - A scalar, array value or inline table replaced by a non-table: the node
+    in place, key and trailing comment kept (D-S3-10, D-S3-55.17). Direct
+    `set`s always write the new spelling, even of an equal value.
+  - Becoming a table or array of tables: `Auto`/`Inline` in place; `Dotted`
+    replaces the line with dotted lines spelled through the line's own key,
+    the trailing comment kept on the first (D-S3-47 speaks of a one-line
+    result; a longer one keeps it too rather than drop a user's comment,
+    choice); `Header` removes the line with its comment block and adds a
+    section. Inside an inline table `Dotted`/`Header` are refused.
+  - A table (header, implicit, dotted) or `[[x]]` becoming a non-table, or
+    another style: the style is checked first (`StyleNotPossible` before
+    anything is removed), then the pieces are removed by prefix and the value
+    added. A dotted table replaced by key/values keeps its place: its first
+    line is replaced (without its trailing comment, which described a removed
+    key) and the others removed; otherwise `a.b.c = 1` set to `a.b = 5` would
+    come back as `[a]` at the end of the file once `a` vanished. A dotted
+    table inside an inline table has no piece of its own and is removed and
+    added (`2f5502d`: before it, that answered `NotFound`).
+  - A table replaced by a table in its own style (`Auto`, or the style it
+    has): new and changed keys set first, so a dotted table never loses its
+    last key midway, equal values untouched, missing keys removed; nested
+    edits use `Auto`. `set([], table)` is this merge at the root (D-S3-55.17).
+    `[[x]]` replaced by an array of tables: element by element, extra ones
+    appended, surplus removed from the end.
+  - An `[[x]]` element set to a table merges (under `Inline`, which cannot
+    apply to an element, too); `Dotted` is `StyleNotPossible`; a non-table is
+    `NotATable(element path)`, as D-S3-55.17 has `append` of one.
+- **Error order:** the value and depth (`Encode`), then the lookup (`get`'s
+  errors; a key below a missing index is `NotFound` through the index), then
+  the style. A path longer than 128 segments has parents past the limit:
+  `Encode(TooDeep(path.take_first(128)))`. `append` checks the value at
+  `path ++ [Index(n)]`.
+- **Suite (`tests/toml-edit`):** the `edit` file is TOML (`op`, `path` with
+  strings as keys and integers as indices, `value`, `version`, `table`,
+  `error` as the error's `Str.inspect` text), documented in its README;
+  `set_typed` decodes `value` into a record and sets `encode_value`'s result.
+  After removing an index the array must be one element shorter: `get` of
+  that index finds the next element, which the first run reported as a
+  failure of the case's check, not of the edit. `test.sh` checks the CRLF
+  case holds CRLF and that every case directory ran; `git ls-files --eol`
+  shows `i/crlf attr/-text` for it.
+- **Measured compiler behaviour:**
+  - `Str.inspect(Index(0))` with the literal unannotated is `Index(0.0)` (the
+    number defaults to `Dec`), so expects comparing inspected paths build
+    them from a typed `Toml.Segment`.
+  - `{}` passes as a `Toml.Edit` with every field absent; a record literal
+    with both fields passes as one when annotated.
+  - String literal patterns in `match`, a guard-only first arm (`_ if … =>`)
+    and tuples of tags with `|` alternatives compile; `if True` in module
+    code is a warning, which fails the suite's build.
