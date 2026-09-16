@@ -609,3 +609,94 @@ format methods), CsvParse 254, CsvCell 204 (with its expects), CsvEmit 89.
   alternatives in patterns compile; a record literal with `True`/`False` fields
   needs a `Bool` annotation to reach `encode_bool` (unannotated it is a tag
   union and asks for `encode_tag`).
+
+### Step 4
+
+trantor-encoding `cf9a91d` (reading) and `809ac65` (corpus and suite).
+`trantor test .`: PASS, no warnings; 1025 expects run, 791 the package's own,
+244 of them `toml`'s (TomlTestErrors 44, TomlNumber 40, TomlTestParse 36,
+TomlTestValue 34, TomlDate 31, TomlString 27, TomlLex 23, TomlStress 9).
+Conformance (toml-test `ff49d109`): 1.1.0 valid 218/218, 1.1.0 invalid
+494/494, 1.0.0 valid 208/208, all on the first run; no case contradicted the
+log. The reversed 10,000-key compare takes 15 ms in the built app. Mutations
+fail as expected: depth limit 129, NaN inequality, lost quotes before a
+closing delimiter, a missing `Index` in `[[x]]` paths, a clipped `OutOfRange`
+text, exponents dropped in `to_dec`, dotted keys into implicit tables (an
+expect catches it), a changed expected JSON (the suite prints `FAIL` lines and
+fails). Lines: TomlString 347 (316 before its expects), TomlTree 266,
+TomlNumber 247, TomlDate 231, TomlLex 210, TomlParse 167; the app 331 (test
+code).
+
+- **Layout:** `Toml` (surface), `TomlParse` (expressions, arrays, inline
+  tables, `Toml.Err`), `TomlTree` (table assembly), `TomlLex` (trivia, keys,
+  scalar dispatch), `TomlString`, `TomlNumber`, `TomlDate` (grammars),
+  `TomlValue` (`Value`, `Float`), `TomlProblem` (byte-indexed scan errors and
+  the depth limit), and the expects in `TomlTestParse`, `TomlTestErrors`,
+  `TomlTestValue`, `TomlStress`.
+- **`Value` and `Float` live in `TomlValue` and `Toml` aliases them**
+  (`Toml.Value : TomlValue.Value`): the parser builds values and `Toml`
+  imports the parser. Measured: a recursive `Value := [...]` nested in a
+  module type compiles; through the alias, bare tags construct it under an
+  annotation, `==` uses its `is_eq`, and `Toml.Float` values take
+  `.to_f64()`/`.to_dec()`. `Toml.Value.Table(...)` is refused ("an alias, not
+  a nominal type"). `Float :: { spelling, value : F64 }` is opaque; the `F64`
+  is computed once, `to_dec` re-reads the spelling through `TomlNumber`
+  (underscores included). The parser's constructor is
+  `TomlValue.float_read`, outside `Toml`.
+- **`Toml.Date`, `Toml.Time`, `Toml.Offset` are added now** (aliases of
+  `EncodingDate`'s records, D-S3-23), since `Value`'s payloads name them.
+  `EncodingDate`'s TOML limits are a private test constant, so `TomlDate`
+  defines its own (years 0–9999, ±23:59).
+- **Tables are assembled in a flat slot list** (`TomlTree`), not a nested
+  `Value`: a slot per table or array of tables, children by index, a `Dict`
+  per table for duplicates (D-S3-44.1), converted to `Value` at the end. Each
+  table records its origin, which is what TOML's reopening rules turn on:
+  `Implicit` (named on the way to a header; a header may define it once),
+  `Header` (only deeper headers reach in), `Dotted` (more dotted keys and
+  deeper headers extend it; a header never defines it). Inline tables and
+  array values are finished `Value`s. An inline table is read through a
+  fresh tree rooted at its own level and path, so dotted keys inside it follow
+  the same rules. Measured: `List.set` answers `Try`, and a slot read with
+  `get` then written back copies its lists, so slots are taken out with
+  `List.replace` (a `Taken` placeholder) while they change. 10,000 keys in a
+  table, 10,000 `[[x]]` elements, a 10,000-element array and 200 KB strings
+  of each kind parse inside `TomlStress`.
+- **Depth, made concrete:** the root table is level 1; a table or array that
+  would be level 129 is `TooDeep` at the bracket or key segment opening it.
+  An `[[x]]` costs two levels (the array and its element). So 127 nested
+  arrays, 127 nested inline tables, a 127-segment header and a dotted key
+  creating 127 tables are accepted, one more refused, and a 126-segment
+  header then `c = [[]]` is refused at the inner bracket.
+- **Undefined error cases, chosen:**
+  - `DuplicateKey` covers every conflicting definition, not only a key set
+    twice: a header reopening a defined table, a dotted key into a header,
+    implicit or inline table, `[[x]]` over a static array or a table, a header
+    through a scalar. It sits at the conflicting key segment, with the path up
+    to it (`Index` inside arrays of tables). The key is resolved before the
+    value is read, so a duplicate wins over a malformed value after it.
+  - `OutOfRange` holds integers past `I64` and well-formed dates, times and
+    offsets outside their fields' ranges (month 13, February 29 of a common
+    year, hour 24, minute 60, second 60, an offset past ±23:59); `text` is
+    the whole literal, at its first character.
+  - An escape naming a surrogate or a value past U+10FFFF is `Syntax` at the
+    backslash; an unterminated multi-line string is `Syntax` at its opening
+    delimiter (CSV's precedent), a single-line one at the line break.
+- **Invalid UTF-8 cannot reach `parse`:** it takes `Str`. The suite counts a
+  file `Str.from_utf8` refuses as refused (the nine `invalid/encoding` files).
+- **Checks an expect cannot make live in the suite:** the CRLF corpus check
+  (`test.sh` reads `valid/newline-crlf.toml`; `git ls-files --eol` shows
+  `i/crlf attr/-text`) and the timed compare (a 2-second budget; the expect in
+  `TomlTestValue` checks only the result). `tests/lib.sh` is new; its
+  `build_app` also fails a build that reports warnings.
+- **The expected JSON is read without the parser:** the app's JSON reader
+  decodes `\u` escapes and RFC 3339 text itself; floats go through
+  `F64.from_str` and `Toml.float_from_f64` (`inf`/`nan` by name).
+- **Measured compiler behaviour:** a closed error row does not widen through
+  `?` (`? |_| OutOfRange(next)`, as step 1 found); `List.range` does not
+  exist (`List.repeat` with `map_with_index`); a type named `Json` in an app
+  warns that it shadows a builtin; a tag constructor passed to `map_ok` is a
+  type error again (step 3). `trantor test` counts expects by `expect`
+  statements, so a `grep '^expect'` that also matches `expected_…` constants
+  overcounts.
+- **Not done here:** typed decode, writing, `Document`, the four nominal date
+  types and their `is_eq` (step 5 onward).
