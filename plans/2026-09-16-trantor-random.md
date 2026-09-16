@@ -273,8 +273,8 @@ Repo `~/dev/roc/trantor-random` (new, branch `main`): `69acbbc` vectors from
 Go, `70938ca` `Rng` and `FastRng` with the gate, `bad52b5` saved state,
 `1e5d3a3` `RngDraw` and `Weights`, `b596eeb` `Uuid` and `UuidV7`, `1e48c22`
 `RngStable`, `ef0d596` README, `9e189a4` manifest comments. trantor-cli branch
-`trantor-random-pointer` (worktree `.claude/worktrees/trantor-random-pointer`):
-the `Random.roc` doc line. `trantor test .` passes: 300 expects (66 the
+`trantor-random-pointer` (worktree `.claude/worktrees/trantor-random-pointer`), `561b161`:
+the `Random.roc` doc line; its suite passed, with one earlier run failing `tests/confined-race` (append, open_writer) and passing on rerun with no change. trantor-random's `trantor test .` passes: 300 expects (66 the
 package's own), `tests/readme` exact, `tests/vectors` 2 cargo tests.
 
 **Gate (D-S4-12), passed.** `python3 bench/alloc/run.py`, roc `10e922df83`,
