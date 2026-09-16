@@ -428,3 +428,31 @@ This supersedes D-S3-52's "built in stage 3" (D-S3-56).
 
 *(Filled in as work lands: commits, measurements, findings that contradicted or
 went beyond the log, and the choice made for each under the working rule.)*
+
+### Step 1
+
+trantor-encoding `dbfb810`. `trantor test .`: PASS, no warnings; 319 expects
+run, 85 the package's own (Base64 53, Hex 26, Base64Lookup 6); 0.36 s wall.
+`Base64.roc` 302 lines, `Hex.roc` 110, `Base64Lookup.roc` 49.
+
+- **`package.toml` declares only `base64`,** not all four components: the step
+  was scoped to declare what exists, and each later step adds its component.
+- **The shared table and scan live in a third module, `Base64Lookup`,** exported
+  by the component and not the package (trantor-hash's `HashFormat` pattern).
+  D-S3-56 has Hex share Base64's table builder and scan while `base64` "imports
+  nothing"; one module cannot share with another without an import, so "imports
+  nothing" is read as no imports outside the component.
+- **The padding policy governs output only.** D-S3-2 makes padding optional on
+  decode for both alphabets, so the decoder takes the alphabet record
+  (`digits`, `lookup`, `is_padded`) and ignores `is_padded`.
+- **Undefined cases, chosen by the left-to-right rule:** `=` after a group of 0
+  or 1 characters (`=`, `Z=`, `Zm9v=`) is a misplaced `=` at that index, not
+  `InvalidLength`; unused bits are checked when the final group is known (at
+  the first `=`, or at the end of a clean scan), so `Zh=` is `InvalidBase64(1)`
+  but `Zh!` is `InvalidBase64(2)`; incomplete padding followed by anything
+  (`QQ=A`, `QQ=!`) reports the first `=`.
+- **Measured:** an error-row alias on a scan step's annotation must name the
+  whole row (`[InvalidHex(U64), OddLength]`); the narrower `[InvalidHex(U64)]`
+  fails the caller's `?` as a type mismatch. `trantor test` then reported "0
+  compiler errors" with the affected expects as runtime crashes, so a failing
+  count needs the full output read.
