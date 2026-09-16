@@ -775,3 +775,51 @@ one confined-world break in `check_available!`, and a quadratic glob.
     checks an app naming `SubprocessRaw` does not build; new
     `tests/confined-available` (`True ran` with `fs-confined` wired).
 - trantor-net, trantor-terminal and b8 pass.
+
+### Eleventh review round (2026-09-15; decision D-S2-46)
+
+Three round-10 regressions (two of them fixes that did not go far enough), and
+two performance cliffs a user would hit.
+
+- **trantor-cli `91f52d4`:**
+  - `create_dir_all_at` is idempotent again: a directory already at the name,
+    followed as the kernel follows `dir/`, is success. Round 10 gave it
+    `new_directory_name`, so `create_all!("out/")` worked once and then
+    answered `AlreadyExists`, and `create_all!("dirlink/")` never worked.
+    The refusals round 10 added (`dangling/`, `filelink/`, `keep.txt/`) still
+    hold, since none of them follows to a directory.
+  - `backends-agree` +3 (57 operations): existing directory, link to one,
+    and a repeat.
+  - README lists `mode` among the open flags.
+- **trantor-files `85c7078`:**
+  - `Walk.descent!` decides a followed link's kind with `Fs.stat_at!`
+    (following) instead of listing the target: `max_depth: 1` over 200 links
+    to 20,000-entry directories went from 3.0s to about 0.2s, and `SkipDir`
+    can now avoid the work. `Below` loses its `listing`, and `Walk.Entry`
+    gains `link : Bool`.
+  - D-S2-46: `search!` walks with `follow_symlinks: True`;
+    `could_contain_through_link` (a `globstar` flag threaded through
+    `prefix_from`) keeps `**` from reaching through a link. The walk-glob
+    expectation for `*/a.txt` now includes `linked/a.txt`, and three cases
+    cover a link under a wildcard.
+  - `starts` groups in two append-only passes (number each alternative, sort
+    by group index, then `collected` builds each group's list while it is
+    uniquely owned): 131072 alternatives went from 144s to about a second.
+    Round 10's note claiming the quadratic was gone was wrong; the Dict
+    removed the scan, not the nested-list copy. The test now runs `{a,b}`
+    ×17 under `capped 30`. (`List.sort_with` takes a `[Before, Same, After]`
+    comparator; there is no `U64.compare`.)
+  - `GlobText`'s two-byte branch is bounded at `0xF8`, which round 10's fix
+    missed. `Temp` names paths with `FilesPath.child`, so a `TMPDIR` ending
+    in `/` (the macOS default) no longer doubles the separator; the temp test
+    sets one.
+- **trantor-process `d4dfb89`:**
+  - `candidate_available!` drops `not_directory!` on Unix (D-S2-40 amended);
+    `windows_not_directory!` keeps the `Path.is_dir!` check for the Windows
+    arm, which cannot reach the Unix-only leaf.
+  - `steps_past` adds ESTALE (116), ENODEV (19) and ETIMEDOUT (110) to what
+    the Linux search walks past.
+  - Docs: `Subprocess.Cmd`'s flat `envs` list on the exported surface, and
+    `collect!`'s SIGKILL, which does not follow every `Io`.
+  - `cmd-results` checks a tool at a 1022-byte path.
+- trantor-net, trantor-terminal and b8 pass.
