@@ -1031,7 +1031,78 @@ bare `.` is how the root itself is spelled beneath the root.
 **Rejected:** normalizing `..` lexically (a symlink above it makes that wrong);
 letting each backend answer as its library does (the disagreement is the bug).
 
+### D-S2-51 A socket write and an HTTP request cannot raise SIGPIPE either
+
+D-S2-26's rule extends from a child's stdin to trantor-net's writes. A TCP send
+uses `MSG_NOSIGNAL` on Linux, which changes nothing for anyone else holding the
+socket; an HTTP request's write (inside ureq) runs with SIGPIPE blocked on the
+thread and a newly raised one consumed, the same sequence trantor-process uses.
+macOS needs neither: std sets `SO_NOSIGPIPE` on every socket it makes, accepted
+ones included. Apps and children still keep SIGPIPE's default. (User, accepting
+the recommendation.)
+
+Found in trantor-net's first independent review: std's Linux socket write is a
+plain `write(2)`, and a write to a closed peer under the default disposition
+exited 141 in the Linux VM — so `StreamErr.BrokenPipe` was unreachable there and
+the process died instead.
+
+**Why:** the reason D-S2-26 gave for a child's stdin — only the write that must
+answer `BrokenPipe` suppresses the signal — applies to a peer that has hung up.
+
+**Rejected:** ignoring SIGPIPE process-wide (changes every pipeline the app is
+part of, which D-S2-26 already rejected).
+
+### D-S2-52 An HTTP body read names why it failed
+
+`HttpHost.read_body! : Streams.InputStream, U64 => Try(List(U8), BodyErr)` with
+`BodyErr : [TimedOut, EndedEarly, Io(IOErr)]`, and `Http.read_body_to_end!` and
+everything built on it answer `BodyErr(Http.BodyErr)`. The body is still a
+`Streams.InputStream`; reading it with `Streams.read!` still gives `IOErr`.
+Amends H15, which routed body failures through `Io(IOErr)`. (User, accepting
+the recommendation, and choosing to drop the reset variant once it was measured
+to be unreachable.)
+
+Found in trantor-net's first review: a stalled body, an early close and a reset
+were all `Io(Other(message))`, told apart only by the message text, because
+`IOErr` has no timeout or reset.
+
+**Why:** the same reason `NetErr` exists for sockets. A reset is `EndedEarly`
+rather than its own variant because ureq 3.4 reports a reset mid-body exactly as
+an early close ("Peer disconnected"); measured with a server closing on
+`SO_LINGER` 0, it never produced anything else, and a variant that cannot occur
+invites dead match arms.
+
+**Rejected:** adding timeout and reset to the platform-wide `IOErr` (every host
+and every twin changes for one package's need).
+
+### D-S2-53 `Http.get!` and `get_utf8!` wait at most 30 seconds
+
+The two calls that build their own request give it
+`TimeoutMilliseconds(Http.default_timeout_ms)`, 30 000. A `Request` built by the
+caller and passed to `send!` keeps whatever timeout it carries, `NoTimeout`
+included. Amends H9 only for these two calls. (User, accepting the
+recommendation.)
+
+Found in trantor-net's first review: roc-lang/http's `Request.from_method`
+defaults to `NoTimeout`, which is exactly what these two built, so against a
+server that accepts and never answers the call was still blocked at 30 seconds.
+
+**Why:** a convenience call that can hang forever with no way to say otherwise
+is the wrong default; a caller who wants no timeout can still ask for it.
+
+**Rejected:** changing what `NoTimeout` means (it is the http package's type);
+documenting the hang.
+
 ## Still open
+
+- **trantor-net's listening side cannot be bounded.** `Sockets.tcp_accept!` has
+  no timeout, sockets it accepts have none set, and `Tcp.Stream` is opaque, so
+  an accepted socket cannot be wrapped in it and server code uses raw `Sockets`
+  calls. Found in trantor-net's first review; a design gap, recorded rather than
+  built.
+- **The connect timeout does not bound the name lookup.** A DNS lookup cannot be
+  cancelled, so bounding it means a helper thread left running on timeout. The
+  docs now say so.
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
   left them for when a confined world needs a temp dir without configuration.
