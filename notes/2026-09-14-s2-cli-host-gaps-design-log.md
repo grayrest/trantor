@@ -910,19 +910,24 @@ descriptors, which are resources, not numbers).
 
 `Glob.expand!` walks with `follow_symlinks: True`, so an ordinary wildcard or
 literal component searches inside a linked directory — `src/*/main.roc` finds
-one under a linked `src/vendor`. `**` neither matches a link's own component
-nor reaches past one: the walk reports the depth of the shallowest link on each
-path, and matching and pruning share one limit (`GlobPattern.Reach`, the index
-from which `DoubleStar` may take nothing). Cycles end by identity (D-S2-25).
+one under a linked `src/vendor`. `**` may not take a link's own component,
+though it may take the ones between links and below one that something else
+took: the walk reports every link depth on a path, and matching and pruning
+share that set (`GlobPattern.Reach`). Cycles end by identity (D-S2-25).
 (User, accepting the recommendation.)
 
+The first implementation (round 11) used no limit at all in one direction and
+a whole-path one in the other; the second (round 12) blocked everything at or
+past the shallowest link, which lost the real directories below a link
+(`pkg/*/**/*.roc` returned one file where zsh returns three) and disagreed
+with itself when the same link was spelled literally. Matching is a walk over
+reachable segment positions since round 13: the old last-`**` backtracking
+assumed every `**` may take any component, which blocked indices break.
+
 **This is zsh's rule, not bash's** — bash's `**` does match a link as the last
-component it takes, and then follows it with ordinary components. The first
-implementation (round 11) was wrong in both directions, and the twelfth review
-measured all three: a pattern with an earlier `**` could not reach a linked
-directory at all, while inside a link `**` consumed the link freely
-(`a/**/*/y.txt` returned `a/lnk/deep/x/y.txt`, which neither shell gives).
-`tests/glob-oracle` now compares expansions with zsh directly.
+component it takes, and then follows it with ordinary components.
+`tests/glob-oracle` compares expansions with zsh directly, which is how both
+wrong versions were caught.
 
 Found in the eleventh independent review: `src/*` found the link and
 `src/*/main.roc` found nothing inside it, so the two disagreed about whether a
@@ -1004,6 +1009,27 @@ through as well.
 **Rejected:** failing, as for a real directory (a link the app never named
 decides the whole expansion); skipping refusals everywhere (D-S2-34's reason
 stands: a refusal is not an absence).
+
+### D-S2-50 Removing through `..` is refused; creating there answers for the parent
+
+`remove_dir_at!` and `remove_dir_all_at!` answer `Unsupported` for a name whose
+last component is `..`, and the creating operations (`write_file_at!`,
+`symlink_at!`, `link_at!`, a copy destination, `open_at!` with `create`) answer
+for the directory the name leads to — `AlreadyExists` when it is there, and the
+lookup's own error when it is not.
+
+Found by the rebuilt `tests/path-spellings` matrix, on its first run:
+`delete_all!("x/..")` emptied and removed the **parent** unconfined, where
+cap-std answered `NotFound`, and creating at `x/..` was `AlreadyExists` against
+`NotFound`.
+
+**Why:** `rmdir(2)` refuses `..` as a last component (EINVAL), and a recursive
+removal spelled that way deletes something the caller did not name. A trailing
+`.` keeps D-S2-33's rule (it names the directory the path already names), and a
+bare `.` is how the root itself is spelled beneath the root.
+
+**Rejected:** normalizing `..` lexically (a symlink above it makes that wrong);
+letting each backend answer as its library does (the disagreement is the bug).
 
 ## Still open
 

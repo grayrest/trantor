@@ -884,3 +884,43 @@ checked, rather than more rounds of the same:
 - **Review the change, not the package.** A general round now mostly rediscovers
   whatever was edited last; the next reviews should take the diff of a fix and
   the reproduction that motivated it.
+
+### Thirteenth review round (2026-09-16; decision D-S2-50)
+
+The first round reviewed as a diff rather than a package: two reviewers, each
+given the fixes and the reproductions that motivated them. Both confirmed every
+fix, and both found the same shape of problem — the fix was right, what I said
+about it was too strong, and the suite I added to cover it did not.
+
+- **trantor-files `636be10`:**
+  - `**` is blocked at a link's own component, not from it: `Walk.Entry.links`
+    carries every link depth, `Glob.reach_of` turns them into indices, and
+    `Reach : [Anywhere, NotAt(List(U64))]`. Round 12's boundary lost the real
+    directories below a link, and disagreed with itself when the link was
+    spelled literally (the walk started inside it, so nothing was recorded).
+  - Matching walks the set of reachable segment positions, one component at a
+    time (`walked`/`step_components`/`taking`/`closed`). The last-`**`
+    backtracking it replaces is only correct while every `**` may take any
+    component: with a blocked index, `**/*/**/*.roc` matches only by an
+    earlier `**` taking more. Linear in components and in `**` count.
+  - `skip_unreadable_links` applies to the link itself, not everything below
+    it, and only to a refusal — EIO still fails the walk.
+  - `tests/glob-oracle` 36 -> 43 patterns, adding the shapes it was missing (a
+    wildcard matching a link then `**`, and two `**` around one) and stating
+    the trailing `**/` exclusion. zsh's duplicates are folded with `sort -u`
+    on its side only, so a duplicate of ours would still show.
+- **trantor-cli `238f378`:**
+  - D-S2-50, found by the rebuilt matrix on its first run.
+  - `tests/path-spellings` runs one fresh tree per name-and-spelling pair, with
+    the entries a level down so `/..` stays inside the confined root, and its
+    snapshot compares types. Verified against the mutation that beat the old
+    version (the `mkdir -p` fix withheld from one backend): the old suite
+    passed, the new one fails on `mkdir-all work/adir/`.
+  - `set_cwd!` follows links for its directory check (D-S2-47's principle:
+    a check, not a report).
+  - `read_via_stream` reuses `cloned_file`; `input_stream_failed`,
+    `input_stream_erroring` and `Handoff::Failed` are deleted — after D-S2-48
+    nothing mints a stream out of a failure.
+  - A bash lesson worth keeping: `for x in $string` drops an empty element, so
+    156 of the 936 pairs silently never ran until the spellings became an array.
+- trantor-files, trantor-process, trantor-net, trantor-terminal and b8 pass.
