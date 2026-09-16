@@ -889,3 +889,119 @@ CsvTestDate 244; HashFormat 295; Temporal 804 (was 751), Plain 305 (was 196).
   outside `Strftime`). trantor-encoding's expects now also run in temporal's
   composed world (909 in total).
 - **Not done here:** CSV's README section on dates and `24:00:00` (step 8).
+
+### Step 7a
+
+trantor-encoding `2bcd960`: the lossless document and read-only access (the
+edit operations are step 7b). `trantor test .`: PASS, no warnings (each new
+module also clean under `roc test --no-cache`); 1255 expects run, 1021 the
+package's own, 78 of them new (TomlTestDocument 41, TomlTestIndex 33,
+TomlStress 4); 30 s wall (was 17 s; the corpus app runs in 0.17 s and the
+module expects in under 4 s, so the rest is building). Conformance: the
+earlier lists unchanged; `parse_document` then `to_str` byte-identical with
+`to_value == parse` for 1.1.0 valid 218/218 and 1.0.0 valid 208/208, and
+1.1.0 invalid 494/494 refused with `parse`'s exact error. Mutations fail as
+expected: key dots dropped (4 expects, and 13 corpus files in the suite run
+directly), an array's closing trivia lost, the BOM lost, line endings merged
+into trailing text, inline entries without their route position, implicit
+tables reported as header tables, the root not reported, and wrong `NotFound`
+and `NotATable` paths. Lines: TomlParse 223 (was 167), TomlIndex 184,
+TomlSyntax 116, TomlDocument 83, Toml 271 (was 250).
+
+- **One pass builds both.** `TomlParse.read` returns the `TomlTree` and a
+  `TomlSyntax.File`; `Toml.parse` takes the tree, `parse_document` the file.
+  The grammar and every check stay where they were, so the first error and
+  its position are `parse`'s by construction (a two-pass syntax-then-tree
+  reader would reorder errors: `a.b.? = 1` with `a` a duplicate is `Syntax`
+  today). `TomlLex.KeyPart` gained `next`, the byte after the segment.
+  `Toml.parse` pays for the syntax: 10,000 keys parse in 1.34 s under
+  `roc test` against 1.28 s before, a 10,000-element array in 0.26 s against
+  0.20 s.
+- **The tree (`TomlSyntax`), written back by concatenation:**
+  - `File : { bom, lines }`; `bom` is `"\u(FEFF)"` or `""`.
+  - `Line : { indent, body, trailing, ending }` with `body` one of `Blank`,
+    `Pair(Pair)`, `Header(Header)`. `trailing` is spaces and a comment;
+    `ending` is `"\n"`, `"\r\n"`, or `""` only on the last line. A key/value
+    whose value spans lines (multi-line string, array, inline table) is one
+    line. Spaces at the end of a file with no line break are a last `Blank`
+    line. Sections are not nested: a header's section is its lines up to the
+    next header (`TomlSyntax.section_end(lines, position)`).
+  - `Header : { is_array, open, key, close }`, `open`/`close` the spaces inside
+    the brackets.
+  - `Key : { parts : List({ raw, name }), dots }`: `raw` the spelling with
+    quotes, `dots` the `len - 1` separators with their spaces (`" . "`).
+  - `Pair : { key, equals, node }`, `equals` the text from the key's end to the
+    value (`" = "`).
+  - `Node :=` `Scalar({ raw, value })` (the spelling and its `Value`),
+    `Array({ elements, close })`, `InlineTable({ entries, close })`.
+    `Element : { before, node, after, has_comma }` and
+    `Entry : { before, pair, after, has_comma }`: `before` is the trivia
+    after `[`, `{` or the previous comma; `after` the trivia up to the comma
+    or bracket; `close` the trivia after the last comma (or all of it when
+    empty) up to the bracket. Every element but the last has a comma; the last
+    has one exactly when the source has a trailing comma, and then `close`
+    holds what follows it.
+  - `Node` is written out in full (no alias backing, per step 3) and has no
+    `is_eq`, so `Line` and `File` do not support `==`; tests compare their
+    text.
+- **The lookup structure (`TomlIndex`)** is rebuilt from lines, not stored:
+  `build(lines)` walks them through `TomlTree` exactly as parsing does (so
+  paths, `Index`es of `[[x]]` elements and table origins agree with `parse`)
+  and answers `{ value, pieces, containers }`. `to_value` is its `value`.
+  - `Piece : { path, form, address, key_length }` for every header
+    (`Header`, `ArrayHeader`), key/value line (`Pair`), inline-table entry
+    (`InlineEntry`) and array element (`Element`), in document order. `path`
+    is the full path defined (`[bin, Index(1), sub]` for `[bin.sub]` in the
+    second element). `address : { line, route }`: the line, then element and
+    entry positions down from that line's node (`t = { a = [1, { b = 2 }] }`
+    puts `b` at route `[0, 1, 0]`). `key_length` is how many trailing path
+    segments the piece's own key spells, so `path.drop_last(key_length)` is
+    the table the piece sits in (a header's is its parent).
+  - `Container : { path, kind }` for every table and array: `Root`,
+    `Implicit` (only named on the way to a header), `Header` (defined by
+    `[x]`, and `[[x]]` elements), `Dotted` (made by dotted keys outside
+    inline tables, including one later extended by a deeper header),
+    `ArrayOfTables`, `Inline` (an inline table or a dotted table inside one),
+    `Array` (an array value).
+  - For step 7b: D-S3-40 removal is `pieces_under(index, prefix)` (headers
+    take their sections by `section_end`, pairs their line, entries and
+    elements their route); D-S3-46's "header-created" is `Implicit` or
+    `Header`, dotted-created is `Dotted`; D-S3-41's parent rules read
+    `container_at(parent)` and, for "all children inline", the pieces with
+    `key_length` 1 directly under it; D-S3-53's family is the `Header` and
+    `ArrayHeader` pieces whose path starts with the parent path, ending at the
+    last one's `section_end`; D-S3-20's inserted line ending is the table's
+    last `Pair` line's `ending`, else the first non-empty ending in the file.
+    Rebuild the index after each edit rather than patching it.
+  - The walk cannot fail on a parsed document; if an edit leaves lines that
+    `TomlTree` refuses, `build` crashes with a message naming that, so 7b's
+    expects and suite find an invalid edit at once instead of a silent
+    `Table([])`.
+- **`TomlDocument`:** `Document :: { bom, lines }` (opaque) with `to_str`,
+  `to_value` and `get` as its methods (`doc.to_str()`), and module functions
+  `parse`, `file`, `from_file` and `index` for the component. Measured: a
+  `::` record's fields are readable by functions outside its method block in
+  the same file, and methods reach users through `Toml.Document`'s alias.
+  Step 7b adds `set`, `set_with`, `remove`, `append` to `Document`'s block,
+  delegating to its own module(s) over `TomlSyntax.File` and `TomlIndex`
+  through `file`/`from_file`. `EditErr` and `Edit` are defined there and
+  aliased in `Toml` as `Err` and `EncodeErr` are.
+- **`get` choices where the log is silent:** it looks up in `to_value` (linear,
+  per D-S3-8). `NotFound` carries the path through the missing key or the
+  index past the end (`[bin, Index(2)]` for `[bin, Index(2), name]`);
+  `NotATable` and `NotAnArray` carry the path of the value the key or index
+  was applied to (`[server, port]` for `[server, port, x]` where `port` is an
+  integer; `[]` for an index into the root).
+- **Measured compiler behaviour:**
+  - A fold whose state nests a record holding lists copies those lists on
+    every append (`{ values, found: { pieces, … } }`: 10,000 appends 540 ms,
+    also when destructured in the lambda's pattern); a flat state record or
+    plain-parameter recursion does not (10 ms). `TomlIndex`'s folds keep flat
+    states; this took an array of 10,000 elements' `to_value` from 1.5 s to
+    0.3 s. Walking 10,000 keys costs what parsing them does (the `TomlTree`
+    work).
+  - `Toml.Edit`'s optional fields read as `edit.?table ?? Auto`; a record
+    pattern with a default (`|{ table ? Auto }|`) does not parse.
+  - Record patterns in `match` must name every field
+    (`Ok({ body: Pair(pair) })` against a `Line` is a type mismatch).
+  - `crash` accepts a `Str` constant, not only a literal.
