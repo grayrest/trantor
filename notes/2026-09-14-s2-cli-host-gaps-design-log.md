@@ -910,10 +910,19 @@ descriptors, which are resources, not numbers).
 
 `Glob.expand!` walks with `follow_symlinks: True`, so an ordinary wildcard or
 literal component searches inside a linked directory — `src/*/main.roc` finds
-one under a linked `src/vendor`. A `**` may not reach through a link, which
-`GlobPattern.could_contain_through_link` decides (the same prefix walk with
-`DoubleStar` unable to consume a component). Cycles end by identity (D-S2-25).
+one under a linked `src/vendor`. `**` neither matches a link's own component
+nor reaches past one: the walk reports the depth of the shallowest link on each
+path, and matching and pruning share one limit (`GlobPattern.Reach`, the index
+from which `DoubleStar` may take nothing). Cycles end by identity (D-S2-25).
 (User, accepting the recommendation.)
+
+**This is zsh's rule, not bash's** — bash's `**` does match a link as the last
+component it takes, and then follows it with ordinary components. The first
+implementation (round 11) was wrong in both directions, and the twelfth review
+measured all three: a pattern with an earlier `**` could not reach a linked
+directory at all, while inside a link `**` consumed the link freely
+(`a/**/*/y.txt` returned `a/lnk/deep/x/y.txt`, which neither shell gives).
+`tests/glob-oracle` now compares expansions with zsh directly.
 
 Found in the eleventh independent review: `src/*` found the link and
 `src/*/main.roc` found nothing inside it, so the two disagreed about whether a
@@ -933,6 +942,68 @@ between `src/*` and `src/*/main.roc` stays); following links for `**` too
 file, so a directory, a link to one and a FIFO are already refused, and
 appending `/.` pushed a path near `PATH_MAX` over it — an executable at 1022
 bytes read as missing while a spawn ran it (eleventh review).
+
+### D-S2-47 Metadata follows a link, except where the kind is the question
+
+`FsOps.size!` and `stat_field!` (`Path.size_in_bytes!`, the time accessors,
+`is_readable!`, `is_writable!`) pass `follow_symlinks: True`, as
+`executable!` has since D-S2-40. `kind!` — `Path.type!`, `is_file!`,
+`is_dir!`, `is_sym_link!` — still reports the link. This amends D-S2-40's
+"every other stat caller passes `False`, unchanged". (User: "follow".)
+
+Found in the twelfth independent review: a symlink to a 100-byte file
+reported 7 bytes (its target name's length), a link to a mode-000 file
+reported readable, and a link to a 0444 file reported writable — while
+`is_executable!` followed. basic-cli reads all of them through
+`fs::metadata`, which follows.
+
+**Why:** one rule for the whole group, and it is basic-cli's (P15). The kind
+accessors are the documented exception, since asking what something *is* is
+the one question a link answers for itself.
+
+**Rejected:** following in none of them (`exec` follows, so
+`check_available!` would be wrong again); leaving the split as it was.
+
+### D-S2-48 `read_via_stream!` answers a result
+
+`Fs.read_via_stream! : Descriptor => Try(Streams.InputStream, [Io(IOErr)])`,
+as WASI's `read-via-stream` does and as `write_via_stream!` already did.
+`IsADirectory` for a directory descriptor, and the clone's failure — no
+descriptors left — is this call's error. `FdHandoff.descriptor_fd!` maps
+`IsADirectory` back to `NotAFile`, keeping its documented answer.
+(User: "error channel".)
+
+Found in the twelfth independent review: under `ulimit -n 64`,
+`File.open_reader!` answered `Ok` and the reader's first read failed with
+EMFILE, blaming the read for the open's failure — the same misattribution
+D-S2-41 fixed on the handoff.
+
+**Why:** a stream that owns a duplicate can fail to be made, so the leaf that
+makes it needs somewhere to say so.
+
+**Rejected:** keeping the erroring-stream (it is still how a stream reports a
+failure it cannot return, but it is no longer how `open_reader!` learns of
+one).
+
+### D-S2-49 A linked directory that cannot be listed is no match
+
+In `Glob.expand!`'s search (`Walk`'s `skip_unreadable_links`), a directory
+reached through a symlink whose listing is refused contributes nothing
+instead of failing the expansion. A real directory that cannot be listed
+still fails it (D-S2-34). (User: "no match".)
+
+Found in the twelfth independent review, as a regression from D-S2-46:
+before links were followed, such an entry could not be reached at all, so one
+unreadable link anywhere under the search turned a working glob into
+`PermissionDenied`. bash and zsh return the other matches.
+
+**Why:** D-S2-38's line — a start is where the search must go, an entry under
+a wildcard is only a candidate — now applies to links the search steps
+through as well.
+
+**Rejected:** failing, as for a real directory (a link the app never named
+decides the whole expansion); skipping refusals everywhere (D-S2-34's reason
+stands: a refusal is not an absence).
 
 ## Still open
 
