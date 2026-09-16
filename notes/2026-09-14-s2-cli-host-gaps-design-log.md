@@ -906,6 +906,34 @@ resources, which is what apps use.
 **Rejected:** leaving it as the raw layer beside `Fs`'s `*_at!` (those take
 descriptors, which are resources, not numbers).
 
+### D-S2-46 A wildcard searches through a link to a directory; `**` does not
+
+`Glob.expand!` walks with `follow_symlinks: True`, so an ordinary wildcard or
+literal component searches inside a linked directory — `src/*/main.roc` finds
+one under a linked `src/vendor`. A `**` may not reach through a link, which
+`GlobPattern.could_contain_through_link` decides (the same prefix walk with
+`DoubleStar` unable to consume a component). Cycles end by identity (D-S2-25).
+(User, accepting the recommendation.)
+
+Found in the eleventh independent review: `src/*` found the link and
+`src/*/main.roc` found nothing inside it, so the two disagreed about whether a
+linked package directory existed. bash, zsh and Python's `glob` all follow
+links for ordinary components and stop only at `**`.
+
+**Why:** monorepo package links, `node_modules` links and `vendor` links are
+common, and a glob that stops at them is surprising in exactly the case people
+use one. Matching bash also keeps the one rule users can already state.
+
+**Rejected:** recording the old behaviour and documenting it (the disagreement
+between `src/*` and `src/*/main.roc` stays); following links for `**` too
+(bash does not, and `**` through links can walk a tree many times over).
+
+**Also amended here:** D-S2-40's "`Cmd`'s directory exclusion checks
+`candidate/.`". That probe is gone: D-S2-43's `can_execute!` requires a regular
+file, so a directory, a link to one and a FIFO are already refused, and
+appending `/.` pushed a path near `PATH_MAX` over it — an executable at 1022
+bytes read as missing while a spawn ran it (eleventh review).
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
