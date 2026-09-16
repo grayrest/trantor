@@ -144,6 +144,9 @@ app-level `import … as Path` as an escape hatch. Zero host duplication — bot
 derived over one bytes primitive. The Windows-`U16` OsStr variant is deferred
 until Windows is a target (a within-`roc:os-path` change). This dissolves the
 OsStr-vs-UTF-8 debate by refusing to make it a platform-wide commitment.
+*(Superseded by B8, which made basic-cli's `Path` the front door, and by
+D-S2-54 in `2026-09-14-s2-cli-host-gaps-design-log.md`, which removed both
+packages.)*
 
 **P12 — Sync I/O is plain blocking hosted calls; no D8 machinery.** Every
 `sync-*` call blocks the runtime thread — no executor, no `Sink`, no `wake`.
