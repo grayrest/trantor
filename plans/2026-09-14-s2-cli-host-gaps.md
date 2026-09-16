@@ -823,3 +823,64 @@ two performance cliffs a user would hit.
     `collect!`'s SIGKILL, which does not follow every `Io`.
   - `cmd-results` checks a tool at a 1022-byte path.
 - trantor-net, trantor-terminal and b8 pass.
+
+### Twelfth review round (2026-09-16; decisions D-S2-47..49)
+
+The reviewers were aimed at what earlier rounds had looked at least — the shim
+layer in trantor-cli, `Cmd`'s builder and `CmdStatus` in trantor-process — and
+at the round-11 link rule, which was wrong in both directions.
+
+- **trantor-cli `277dc45`, `e17d1b6`:**
+  - D-S2-47: `size!` and `stat_field!` follow links; `kind!` does not.
+  - D-S2-48: `read_via_stream!` returns `FsReadViaStreamResult`;
+    `open_read!` fails at the open; `descriptor_fd!` maps `IsADirectory` to
+    `NotAFile`.
+  - `cli-host`'s two stdin mappers use `ioerr_tag!`, so a directory as stdin
+    is `IsADirectory` through the stream and the line reader alike.
+  - `copy.rs` answers `IsADirectory` for a directory source.
+  - Docs: the permission checks say what they check and that they follow; the
+    two-descriptor cost of a `Reader`/`Writer` is on `FsOps` and in the README.
+  - Tests: `tests/relative-cwd` is back (the half that belongs to the package
+    that owns `set_cwd!`, covering every op this work added); `fd-handoff`
+    gains a `readers` mode; `stdin-streams` a `kinds` mode; `backends-agree`
+    four link-metadata lines.
+  - New `tests/path-spellings`: 6 names x 6 spellings x 26 operations on both
+    worlds, outcomes diffed and the trees compared afterwards (936 pairs).
+    Note for later: an app that opens descriptors in a loop and then reports
+    must *name* the list it holds in the reporting branch, or they are
+    released first and the process has fds again.
+- **trantor-files `fcf5e69`:**
+  - `GlobPattern.Reach` (`Anywhere` / `Before(index)`) threads one limit
+    through `match_segments` and `prefix_segments`: `**` may take no component
+    at or past the shallowest link. `matches_within`, `match_kind_within` and
+    `could_contain_within` are the link-aware entry points.
+  - `Walk.Entry.link_at` replaces `link`; `walk_entries!` carries the
+    shallowest link's depth, and `Glob.reach_of` converts it to a component
+    index in the spelled path.
+  - D-S2-49: `Walk`'s `skip_unreadable_links` (default `False`), used by the
+    search.
+  - New `tests/glob-oracle`: 36 patterns compared with zsh (skipped where zsh
+    is absent). Excluded on purpose: a bare trailing `**` (globset's "any
+    depth" against zsh's "one component") and unreadable real directories
+    (D-S2-34).
+  - `walk-glob` gains five link-reach cases.
+- **trantor-process `4ef1029`:** docs — `try_wait!` leaves stdin open (with a
+  test), `check_available!` reads this process's `PATH`, `clear_envs` takes
+  the child's search path with it, the Windows arm's confined-filesystem trap,
+  `collect!`'s unreachable panic mapping, a doc example that could not
+  compile, two stale `exec_status!` claims, and the `libc` comment.
+
+### How this is tested from here
+
+Twelve rounds arrived at a steady six to nine findings each, and most of the
+recent ones were in the previous round's fixes. Two changes to how the work is
+checked, rather than more rounds of the same:
+
+- **Oracles, not example lists.** `tests/path-spellings` (both filesystems)
+  and `tests/glob-oracle` (zsh) replace the hand-written case lists that let
+  the trailing-slash class through four times and the link rule through twice.
+  `tests/backends-agree` keeps pinning the answers that matter; the matrix only
+  says the two backends cannot drift apart.
+- **Review the change, not the package.** A general round now mostly rediscovers
+  whatever was edited last; the next reviews should take the diff of a fix and
+  the reproduction that motivated it.
