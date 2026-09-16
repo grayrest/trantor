@@ -714,7 +714,50 @@ writing to the same device at once stays the app's job. `Terminal` has no view
 of those writes: `Stdout` is trantor-cli's stream, a separate fd that
 `Terminal` never wraps.
 
+**D-K1-34 — a restore pair is kept by its bytes and reused.** Decided by the
+user after the first independent review. Every pair ever registered stays in a
+registry keyed by its enter and exit bytes, and registering bytes seen before
+points the handler-visible pointer back at that allocation. The no-free rule
+D-K1-9 needs for signal safety is unchanged; what changes is that memory grows
+with the number of distinct stacks a program uses, not with the number of
+registrations. The registry is behind a plain `Mutex`, touched only by
+`set_restore!` on normal threads; handlers still do one atomic load.
+
+The review measured about 64 bytes leaked per registration, so a per-frame
+`Ansi.with_pair!` leaked about 27 MB an hour. Skipping a registration whose
+bytes match the current pair was tried first and did not help: a scope pushes
+one stack and pops to another every frame, so neither ever matches the one
+current. Measured after, a 200,000-iteration per-frame scope stays at 1.7 MB
+against a 1.5 MB baseline, where it was 27 MB.
+
+Rejected: skipping identical registrations only (the per-frame case never
+repeats the current pair); documenting that scopes must not be entered per
+frame (the leak stays).
+
+**D-K1-35 — an unterminated paste settles after 1 second of quiet, not 25 ms.**
+Decided by the user after the first independent review. A bracketed paste whose
+end marker never arrives is delivered as `Paste` of what came, after
+`paste_wait_ms` (1 000) with no new input, and is capped at `longest_paste`
+(1 MiB). Escapes keep their 25 ms. `Keys` gains `is_pasting : Decoder -> Bool`,
+one function on the replaceable component's surface, so `Terminal` can tell the
+two waits apart; `Terminal` records when input last arrived so the gap is
+measured across `next_event!` calls, each of which keeps its single deadline.
+
+The review found that a paste without its end marker swallowed every later key,
+`q` included, with memory unbounded. Settling it after an escape's 25 ms was
+tried first; over a slow link a paste pausing longer than that was cut in two
+and its tail delivered as keystrokes (measured: a 200 ms pause split
+`hello world` into `Paste(hello)`, six key events and `Unknown`).
+
+Rejected: 25 ms (splits pastes over ssh); no settling (the original hang). The
+cost accepted: keys typed within a second of a lost end marker join the paste.
+
 ## Still open (raised, not decided)
+
+- `Screen` caches `Unsupported` for synchronized output when its first query is
+  made in Cooked mode, which now answers `Unsupported` without asking. Not
+  caching it would need `Screen` to know the mode, a new export. Found while
+  fixing the first review's Cooked-mode query finding.
 
 - rocjust's migration to `trantor-terminal` for `Tty.is_terminal!` is not part
   of K1.
