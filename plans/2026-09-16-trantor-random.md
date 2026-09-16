@@ -269,4 +269,66 @@ trantor-random/
 
 ## Implementation notes
 
-(Empty until work starts.)
+Repo `~/dev/roc/trantor-random` (new, branch `main`): `69acbbc` vectors from
+Go, `70938ca` `Rng` and `FastRng` with the gate, `bad52b5` saved state,
+`1e5d3a3` `RngDraw` and `Weights`, `b596eeb` `Uuid` and `UuidV7`, `1e48c22`
+`RngStable`, `ef0d596` README, `9e189a4` manifest comments. trantor-cli branch
+`trantor-random-pointer` (worktree `.claude/worktrees/trantor-random-pointer`):
+the `Random.roc` doc line. `trantor test .` passes: 300 expects (66 the
+package's own), `tests/readme` exact, `tests/vectors` 2 cargo tests.
+
+**Gate (D-S4-12), passed.** `python3 bench/alloc/run.py`, roc `10e922df83`,
+`--opt=speed`, arm64 macOS:
+
+| Path | Allocations after construction |
+|---|---|
+| `Rng.next_u64`, 1M draws (about 31k refills) | 0 |
+| `FastRng.next_u64`, 1M draws | 0 |
+| `RngDraw.below(1000)` on `Rng`, 1M draws | 0 |
+| `RngDraw.below(1000)` on `FastRng`, 1M draws | 0 |
+| `UuidV7(Rng).next`, 500k UUIDs | 0 |
+
+`Rng` 8.89–8.90 ns per `u64`, `FastRng` 1.21–1.27 ns, ratio 7.0–7.4× over
+three runs of 10M draws (fastest of 5 per build, minus an empty build). Under
+the 10× stop line.
+
+Details within the plan's design:
+
+- **References.** Go's output agrees with the C2SP sample (372 words, taken
+  from the C2SP repo's `chacha8rand.md`, checked in as
+  `tests/vectors/c2sp/sample-output.hex`) before anything is generated.
+  `go/golden.txt` is committed; `cargo run -- --regen-go` rewrites it. The Go
+  program never calls `Read`.
+- **Layout changes, forced by tooling.** The gate lives in `bench/alloc`, not
+  `tests/alloc`: `trantor test` treats every `tests/<name>` as a suite (app,
+  cargo, or `test.sh`), and this one needs the roc repo's platform. The draw
+  checks through `Rng`'s and `FastRng`'s methods live in a component-only
+  `RngDrawCheck.roc`: `Rng` imports `RngDraw`, so `RngDraw.roc` cannot import
+  `Rng`. `Uuid.roc` and `UuidV7.roc` hold their own vector checks (they may
+  import the generators; nothing imports them back).
+- **`RngStable.roc`** holds hand-copied outputs: words across the first
+  reseed, `FastRng.from_u64(42)`, a saved state at 96 words, one output of each
+  draw on each generator, one v4 and one v7 string. Mutating `below`'s
+  threshold, `shuffle`'s bound, `UuidV7`'s overflow test and v7's `rand_a`
+  shift each failed the matching checks, and the restored code passed.
+- **`Weights.index_for`** takes `x` modulo the total, so it has no failure
+  case; `pick` always passes a value below the total.
+- **`FastRng.from_os!`** falls back to `from_u64` of the first word if all four
+  OS words are zero (probability 2^-256), since `from_words` refuses that
+  state.
+- **`Uuid.v7`** masks `unix_ms` to 48 bits as specified; `UuidV7.next` crashes
+  at 2^48 as specified. The two differ on purpose and both are documented.
+- **Public docs do not mention Go** (D-S4-10): README and `##` comments call
+  saved state opaque. `ChaCha8.roc`'s module comment names the Go file it is
+  ported from, and `Rng.refill` names Go's `Refill`; those describe the
+  algorithm, not the state format.
+- **Not checked:** `Hash.of(uuid)` through trantor-hash (no trantor-hash
+  dev-dep). `encoder_for` is format-generic as trantor-hash requires; the
+  README does not claim hashing.
+- **Compiler findings** (generic-body missing methods, nominal field decoding
+  through `Json.parse`, parameter destructuring of nominal records, names
+  shadowing methods) are recorded in `notes/2026-09-14-upstream-builtin-gaps.md`.
+
+Not done: the main trantor checkout still holds untracked copies of this plan
+and the S4 log and the uncommitted S1 edit from before the worktree existed.
+This session was confined to the worktree and could not remove them.

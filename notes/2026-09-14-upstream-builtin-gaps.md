@@ -43,6 +43,7 @@ ops; `count_leading_zero_bits`, `count_trailing_zero_bits`, `count_one_bits`;
 | `rem_euclid`, `div_euclid` | R |
 | `digits` (base-N digit list) | E |
 | `rotate_left`, `rotate_right` bit rotation | R |
+| A conversion from `U64` a generic function can call (`from_u64_wrap` on every integer type) | trantor-random, D-S4-8 |
 
 ## `Str`
 
@@ -105,3 +106,29 @@ Present: `insert`, `insert_all`, `remove`, `remove_all`, `get`, `contains`,
 | `update_keys`, `map_keys` | C |
 | `symmetric_difference`, `is_subset`, `is_disjoint` | R P |
 | `remove_if_present` returning the removed value | R |
+
+## Compiler behaviour found while building packages
+
+Not builtin methods, and not pursued either (D-S1-13). Recorded so the next
+package does not rediscover them. Found on roc `10e922df83` building
+trantor-random (D-S4).
+
+- **A missing method inside a generic body is not a compile error.** In a
+  function with a `where` clause, a call to a method no type has
+  (`U64.to_le_bytes`, `U64.div_trunc`) prints a "missing method" report, but
+  `roc test` counts "0 compiler errors" and the expect fails at runtime with
+  "runtime error". Read the reports, not only the counts.
+- **A nominal with a format-generic `parser_for` does not decode as a record
+  field through `Json.parse`.** `Json.parse` of the bare value works; of
+  `{ t : Tagged }` the field parser's error type is unified with `[]` and
+  typechecking fails. Reproduced on a minimal nominal (`Tagged`), so it is not
+  specific to `Uuid`. Encoding the same record works.
+- **`Json.to_str` and `Json.parse` of the same nominal in one expect** fail the
+  same way; separate expects pass.
+- **A nominal record cannot be destructured in a parameter** (`|{ seed, buf }|`
+  for `Rng :: { seed, buf, .. }`): use field access. A generator refilled
+  through field access still updates its buffer in place (the D-S4-12 gate
+  counted zero allocations).
+- **A parameter or local named like a method of the enclosing type is a
+  duplicate definition**, e.g. `|bytes|` inside a type that has a `bytes`
+  method, or `rng` inside `UuidV7`, which has `rng`.
