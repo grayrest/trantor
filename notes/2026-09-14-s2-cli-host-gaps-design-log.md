@@ -1079,16 +1079,23 @@ and every twin changes for one package's need).
 
 A compressed body wraps the disconnect once more (`Decompress("gzip", …)`), so
 the change review found a cut-off gzip response — ureq's default — still `Io`.
-The inner error is classified the same way; corrupt data stays `Io`.
+The inner error is classified the same way; corrupt data stays `Io`. A gzip stream
+truncated inside a body that arrived whole is `Io` as well: the decoder reports
+it with the same kind as ureq's disconnect, so only ureq's own disconnect message
+(pinned at 3.4.0) counts as ending early.
 
 ### D-S2-53 `Http.get!` and `get_utf8!` wait at most 30 seconds per phase
 
 The two calls that build their own request give it
 `TimeoutMilliseconds(Http.default_timeout_ms)`, 30 000, which ureq applies to
-each phase — connecting, receiving headers, receiving the body — timed from the
-end of the one before, so a slow server can take up to about 90 seconds in all.
+each phase — connecting, sending the request and body, receiving headers,
+receiving the body — timed from the end of the one before, so a slow server can
+take several times it in all, but no single wait is longer.
 (The first version of this entry said "at most 30 seconds"; the change review
-measured a response that succeeded after 50.) A `Request` built by the
+measured a response that succeeded after 50.) The next review found the header phase had
+no bound at all: without a send timeout ureq renewed its deadline per byte, and
+a 500ms request whose headers trickled in succeeded after 26 seconds. Every
+phase is set now. A `Request` built by the
 caller and passed to `send!` keeps whatever timeout it carries, `NoTimeout`
 included. Amends H9 only for these two calls. (User, accepting the
 recommendation.)
@@ -1138,23 +1145,31 @@ what a migrating program needs.
 `OsStr`'s tag spelling on `Path`; following upstream's `PathErr(IOErr, Path)`
 now.
 
-### D-S2-54 A TCP read that fails keeps its bytes, whatever the failure
+### D-S2-55 A TCP read that times out or ends short keeps its bytes
 
-`read_until!` reaching its limit without the delimiter and `read_exactly!`
-reaching end of stream put what they read back in front of the next read
-(`Sockets.tcp_unread!`), as a read that times out already does. basic-cli
-discards the bytes in both cases; this does not. (User, accepting the
-recommendation.)
+A read that times out part way keeps what it took (the pending buffer), and
+`read_exactly!` reaching end of stream puts what arrived back in front of the
+next read (`Sockets.tcp_unread!`). `read_until!` reaching its limit without the
+delimiter consumes those bytes, as basic-cli does and as
+`TcpReadLimitExceeded(max)` already announces. (User, accepting the
+recommendation twice: first to keep bytes on every failure, then, after the
+third change review, to consume them on the limit again.)
 
 Found in the change review of trantor-net's first fixes, which promised a failed
-read keeps its bytes and then kept them only for a timeout.
+read keeps its bytes and then kept them only for a timeout. First written
+(numbered D-S2-54 by mistake — that number is the path-type decision) as keeping
+them on the limit too; the next review found that turned the basic-cli idiom of
+a loop skipping over-long lines into one retrying the same bytes forever,
+instantly, from the pending buffer.
 
-**Why:** an error that also consumes data leaves the stream readable but
-misaligned with nothing said — the defect the pending buffer was built for. A
-caller that wants to recover can read again with a larger limit, or with
-`read_up_to!`; one that does not is no worse off.
+**Why:** a failure that consumes data without saying so leaves a stream
+misaligned with nobody told — the timeout and the short stream. The limit is
+different: its error names exactly the bytes that went, and a loop that moves
+on past it is the normal way to use it. At end of stream a retry already failed
+at once, so keeping the bytes there adds no new spin.
 
-**Rejected:** matching basic-cli (the silent loss stays in two places).
+**Rejected:** keeping bytes on the limit (spins basic-cli loops); discarding on
+every failure (the silent misalignment this was built to stop).
 
 ## Still open
 
