@@ -924,3 +924,61 @@ about it was too strong, and the suite I added to cover it did not.
   - A bash lesson worth keeping: `for x in $string` drops an empty element, so
     156 of the 936 pairs silently never ran until the spellings became an array.
 - trantor-files, trantor-process, trantor-net, trantor-terminal and b8 pass.
+
+### trantor-net review rounds (2026-09-16; decisions D-S2-51..53, D-S2-55..57)
+
+trantor-net was not in the S2 work list; it builds on trantor-cli and was
+reviewed under the same campaign: once as a package, then twice as the diff of
+the previous fixes. Final `trantor test .` PASS.
+
+- **Round one (`67171c2`):**
+  - `conn.rs` `Conn { reader: BufReader<TcpStream>, pending: Vec<u8> }`; every
+    read takes from `pending` first, and `budget.rs` `read_until_into` /
+    `read_into` append into the caller's buffer, so a timed-out read keeps what
+    it took (D-S2-55).
+  - `tcp_read_exactly!` leaf: one host call under one budget (a Roc loop gave
+    each chunk a fresh timeout; a trickling peer held 500 ms for 5.8 s).
+  - Linux `send` uses `MSG_NOSIGNAL`; http-host `without_sigpipe` (block, then
+    consume a newly pending SIGPIPE with a zero-timeout `sigtimedwait`) wraps
+    `ag.run` (D-S2-51).
+  - `HttpHost.read_body!` answers `BodyErr : [TimedOut, EndedEarly, Io(IOErr)]`
+    via `body_failure` (D-S2-52). `Http.default_get` uses
+    `TimeoutMilliseconds(Http.default_timeout_ms)` = 30 000 (D-S2-53).
+  - `udp_send_to` EINTR retry; docs for the lookup, a timed-out write, a
+    zero-length read and a cut datagram. `tests/partial-reads`.
+- **Round two (`17c9d8a`):**
+  - `body_failure` unwraps ureq `Decompress`; body reads also run under
+    `without_sigpipe` (a TLS read can write an alert).
+  - `tcp_unread!` leaf; `tests/partial-reads` covers the limit, EOF, and
+    `read_up_to!` after a timed-out read.
+  - D-S2-53 corrected: the 30 s is per ureq phase.
+- **Round three (`5e910e2`):**
+  - `LimitExceeded` consumes its bytes again (unreading spun basic-cli's
+    skip-long-lines loop); only `read_exactly!` at EOF unreads (D-S2-55).
+  - `connection_ended` (ConnectionReset/Aborted, or UnexpectedEof with ureq
+    3.4.0's "Peer disconnected", `UREQ_DISCONNECTED`) decides `EndedEarly` for
+    a `Decompress` error; a gzip stream truncated inside a whole body is `Io`.
+  - `timeout_send_request` / `timeout_send_body` set: without them ureq renewed
+    the header deadline per byte (a 500 ms request succeeded after 26 s).
+  - `tests/truncation` gains `/gztrunc` and `/tricklehead`, both failing on the
+    parent; partial-reads fields bracketed.
+- **Open items (`a035a3c`, D-S2-56, D-S2-57):**
+  - `Sockets.tcp_accept! : TcpSocket, U64`; `budget::accept` sets the listener
+    nonblocking, polls through `wait_ready` against a deadline, retries
+    `WouldBlock`/`Interrupted`/`ConnectionAborted`, and sets each accepted
+    stream blocking (macOS inherits `O_NONBLOCK`; reads reset the mode per call
+    anyway, so no test catches its removal).
+  - `NetHost.TcpListener`, `tcp_listen!`, `tcp_accept!` (0 -> `TimedOut`),
+    `tcp_local_port!`; `Tcp.listen!`, `Tcp.Listener.accept!`/`port!`/`to_inspect`,
+    private `listen_err`/`accept_err`. `tests/listen`: budget (201 ms), zero,
+    round trip, bounded read on an accepted stream; four host/NetHost mutations
+    fail it.
+  - The connect's name lookup stays unbounded (D-S2-57); no code change.
+
+### After D-S2-54's path-type refactor (2026-09-16)
+
+trantor-cli `8d7cb51` (one path type, basic-cli 0.21's `Path`; another session)
+landed after the thirteenth round. Re-run against trantor-cli `e877f93`, which
+includes it: trantor-files (`c2160bf`) and trantor-process (`4a2fcb4`) both
+`trantor test .` PASS with no source change; trantor-net and trantor-terminal
+pass against it as above.
