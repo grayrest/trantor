@@ -860,6 +860,52 @@ confinement surface.
 check (it would change `Path.is_executable!`'s basic-cli meaning, and go
 through the confined filesystem, which a spawn does not).
 
+### D-S2-44 A mode at the raw layer, so temps are private
+
+`Fs.open_at!` takes `mode ?: U32` (default `0o666`) and `Fs.create_dir_at!`
+takes a mode (`Fs.default_dir_mode`, `0o777`, everywhere else); both are masked
+by the umask, as `open(2)` and `mkdir(2)` are, and ignored on Windows.
+`Temp` creates files `0o600` and directories `0o700`, as `mkstemp` and
+`mkdtemp` do. This amends D-S2-10's "no `set_permissions_at!`" only for
+creation, which needs no separate call. (User: "Follow Python+Rust".)
+
+Found in the tenth independent review: temps followed the umask, so with
+`umask 022` a temp file was `0644`. On Linux with `TMPDIR` unset that puts a
+secret staged through `Temp.with_file!` in a world-readable `/tmp` file; macOS
+is saved only by its per-user temp directory.
+
+**Why:** an unguessable name protects creation, not what is written afterwards,
+and every standard temp API creates privately. A mode at creation is what the
+OS call already takes; D-S2-39's problem — `Tree.copy!` having no mode to pass,
+since the stat record carries none — does not arise, because `Temp` knows the
+mode it wants.
+
+**Rejected:** documenting the umask behaviour (the exposure stays); a
+`set_permissions_at!` primitive (D-S2-10's reason stands: a second call, and a
+confinement surface, for something creation can do).
+
+### D-S2-45 `SubprocessRaw`: the raw spawn is wired but not exported
+
+`interfaces/subprocess-raw/` holds `spawn_redirected!`, the fd-numbered
+`Redirect`, the `Handle` resource and the `Cmd` record. `Subprocess` aliases
+`Cmd` and `Handle`, and `spawn!` is the only way an app starts a process. The
+package exports `Subprocess` and `Cmd`, not `SubprocessRaw`, exactly as
+trantor-cli wires `FdHandoff` without exporting it (D-S2-14, D-S2-21). (User,
+accepting the recommendation.)
+
+Found in the tenth independent review: `Redirect(Fd(I32))` and
+`spawn_redirected!` were members of the exported `Subprocess`, so an app could
+name any descriptor the process holds — another component's socket or log file
+— as a child's stdout. Round 9 stopped the host closing such a number; this
+stops an app naming one.
+
+**Why:** the same reason `FdHandoff` is unimportable — an fd number is ambient
+authority Roc cannot type. Moving the leaf costs nothing: `Stdio` names
+resources, which is what apps use.
+
+**Rejected:** leaving it as the raw layer beside `Fs`'s `*_at!` (those take
+descriptors, which are resources, not numbers).
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
