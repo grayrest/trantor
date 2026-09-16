@@ -752,6 +752,19 @@ and its tail delivered as keystrokes (measured: a 200 ms pause split
 Rejected: 25 ms (splits pastes over ssh); no settling (the original hang). The
 cost accepted: keys typed within a second of a lost end marker join the paste.
 
+Amended after the change review (user, accepting the recommendation). The
+quiet gap is only judged after a zero-timeout read finds nothing waiting: the
+first version flushed a paste pending across calls before reading, so a
+program polling `next_event!(t, 0)`, or busy between calls, had pastes cut into
+keystrokes that the code before D-K1-35 delivered whole. And a paste past
+`longest_paste` no longer ends paste mode: it arrives as consecutive `Paste`
+pieces of at most 1 MiB up to its end marker, so its bytes are never decoded as
+input, and memory stays bounded. A program sees one long paste as several
+`Paste` events.
+
+Rejected for the cap: dropping bytes past it until the end marker (loses the
+paste's content silently).
+
 ## Still open (raised, not decided)
 
 - `Screen` caches `Unsupported` for synchronized output when its first query is
