@@ -42,6 +42,7 @@ mod package_modules;
 mod package_suites;
 mod package_test;
 mod package_worlds;
+mod path_deps;
 mod pins;
 mod project;
 mod publish;

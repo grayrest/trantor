@@ -8,6 +8,7 @@
 //!   - abi/Cargo.toml, abi/src/lib.rs
 
 use crate::manifest::{component_dir, module_path, Driver, World};
+use crate::path_deps;
 use crate::resolve::Resolved;
 use std::path::{Path, PathBuf};
 
@@ -60,7 +61,7 @@ pub fn emit(
             roots.insert(rt.as_str());
         }
     }
-    for rt in roots {
+    for rt in &roots {
         copy_tree(Path::new(rt).join("components").as_path(), &out.join("components"))?;
     }
     for (name, c) in &world.components {
@@ -98,25 +99,29 @@ pub fn emit(
             w(&format!("{into}/Cargo.toml"), text)?;
         }
     }
-    // A component crate is COPIED into the generated workspace, so any relative
-    // `path` dependency it has is now relative to somewhere else. Siblings
-    // inside the copied tree still resolve and are left alone; anything that
-    // does not resolve after the copy is re-anchored to where the crate
-    // actually lives. Without this, `cargo add --path ../some-lib` writes a
+    // A component crate is COPIED into the generated workspace, so its relative
+    // `path` dependencies are re-anchored to where the crate actually lives
+    // (path_deps.rs). Without this, `cargo add --path ../some-lib` writes a
     // manifest that works for the editor and fails in the build — which is the
     // worst place for these to disagree.
+    let trees: Vec<path_deps::CopiedTree> = std::iter::once(src.join("components"))
+        .chain(roots.iter().map(|rt| Path::new(rt).join("components")))
+        .map(|from| path_deps::CopiedTree { from: absolute(&from), to: absolute(&out.join("components")) })
+        .collect();
     for (name, c) in &world.components {
         if c.kind == "roc" || (c.path.is_some() && c.pkg_root.is_none()) {
             continue;
         }
-        let copied = out.join("components").join(name).join("Cargo.toml");
+        let copy = absolute(&out.join("components").join(name));
+        let copied = copy.join("Cargo.toml");
         if !copied.is_file() {
             continue;
         }
-        let origin = component_dir(src, name, c);
         let text = std::fs::read_to_string(&copied)
             .map_err(|e| format!("read {}: {e}", copied.display()))?;
-        if let Some(fixed) = anchor_path_deps(&text, &origin, &copied) {
+        let origin = absolute(&component_dir(src, name, c));
+        let placement = path_deps::Placement { origin: &origin, copy: &copy, trees: &trees };
+        if let Some(fixed) = path_deps::anchor(&text, &placement) {
             write_if_changed(&copied, fixed.as_bytes())?;
         }
     }
@@ -216,6 +221,13 @@ pub fn emit(
     // crate is materialized above; a `cargo_root` world passes them to cargo
     // as `--features` instead (cargo.rs), owning crates trantor must not copy.
     Ok(())
+}
+
+/// Make a path absolute without resolving symlinks: `path_deps` compares paths
+/// lexically, as cargo does, and a relative world dir (`trantor run shout`)
+/// cannot be compared with anything.
+fn absolute(p: &Path) -> PathBuf {
+    std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 /// Copy a directory tree, writing each file only if it changed.
@@ -425,71 +437,6 @@ fn workspace_toml(world: &World) -> Result<String, String> {
     ))
 }
 
-
-/// Join and normalize `..` LEXICALLY, the way cargo reads a path dependency.
-///
-/// Not `canonicalize`: that resolves symlinks first, and on macOS the temp and
-/// var roots are symlinks (`/var` -> `/private/var`), which inserts a component
-/// and makes the same `..` count land somewhere else entirely. Cargo never
-/// looks at the filesystem to read these, so neither can this — measured, after
-/// a physical resolution silently skipped every rewrite under $TMPDIR while
-/// working perfectly under /private/tmp.
-fn lexical_join(base: &Path, rel: &str) -> PathBuf {
-    let mut out: Vec<std::ffi::OsString> = base
-        .components()
-        .map(|c| c.as_os_str().to_os_string())
-        .collect();
-    for c in Path::new(rel).components() {
-        match c {
-            std::path::Component::ParentDir => {
-                if out.len() > 1 {
-                    out.pop();
-                }
-            }
-            std::path::Component::CurDir => {}
-            other => out.push(other.as_os_str().to_os_string()),
-        }
-    }
-    out.iter().collect()
-}
-
-/// Re-anchor relative `path` dependencies that no longer resolve from the
-/// copied manifest. Returns `None` when nothing needed changing, so the
-/// write-if-changed contract keeps holding.
-///
-/// `trantor-abi` is deliberately exempt: its `../../abi` is meant to resolve in
-/// the GENERATED tree, and anchoring it to the source would point at a crate
-/// that is not there.
-fn anchor_path_deps(text: &str, origin: &Path, copied: &Path) -> Option<String> {
-    let mut doc = text.parse::<toml_edit::DocumentMut>().ok()?;
-    let here = copied.parent()?;
-    let mut changed = false;
-    for table in ["dependencies", "dev-dependencies", "build-dependencies"] {
-        let Some(deps) = doc.get_mut(table).and_then(|d| d.as_table_like_mut()) else {
-            continue;
-        };
-        let names: Vec<String> = deps.iter().map(|(k, _)| k.to_string()).collect();
-        for name in names {
-            if name == "trantor-abi" {
-                continue;
-            }
-            let Some(item) = deps.get_mut(&name) else { continue };
-            let Some(p) = item.get("path").and_then(|v| v.as_str()).map(str::to_string) else {
-                continue;
-            };
-            if Path::new(&p).is_absolute() || lexical_join(here, &p).join("Cargo.toml").is_file() {
-                continue; // absolute, or a sibling that came along with the copy
-            }
-            let abs = lexical_join(origin, &p);
-            if !abs.join("Cargo.toml").is_file() {
-                continue; // not ours to guess about; let cargo report it
-            }
-            item["path"] = toml_edit::value(abs.to_string_lossy().into_owned());
-            changed = true;
-        }
-    }
-    changed.then(|| doc.to_string())
-}
 
 fn driver_cargo(driver: &str) -> String {
     format!(
