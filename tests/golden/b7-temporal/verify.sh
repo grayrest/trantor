@@ -59,7 +59,10 @@ echo "ok: temporal_rs in libtemporal_host.a only, across $n archives (H0c)"
 #
 #     The world lives in a directory NAMED baseline: the composed platform's
 #     path is keyed on the world directory's name, not `[world] name` (D-H7-38).
-SCRATCH=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$SCRATCH"' EXIT
+# mktemp alone first: inside `cd "$(mktemp -d)"` a failed mktemp leaves `cd ""`,
+# which macOS /bin/bash and Ubuntu's bash accept as staying put, so SCRATCH
+# became the repo root, which the EXIT trap then deleted.
+SCRATCH=$(mktemp -d); SCRATCH=$(cd "$SCRATCH" && pwd -P); trap 'rm -rf "$SCRATCH"' EXIT
 S="$SCRATCH/baseline"
 mkdir -p "$S/app"
 printf '[world]\nname = "baseline"\n\n[deps]\ntrantor-cli = { path = "%s" }\n' "$PWD/../trantor-cli" > "$S/world.toml"

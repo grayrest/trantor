@@ -10,7 +10,10 @@ TR=$PWD/target/release/trantor
 CLI=$PWD/../trantor-cli
 [[ -f "$CLI/package.toml" ]] || { echo "SKIP: needs trantor-cli checked out beside trantor"; exit 0; }
 cargo build --release -q
-T=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$T"' EXIT
+# mktemp alone first: inside `cd "$(mktemp -d)"` a failed mktemp leaves `cd ""`,
+# which macOS /bin/bash and Ubuntu's bash accept as staying put, so T
+# became the repo root, which the EXIT trap then deleted.
+T=$(mktemp -d); T=$(cd "$T" && pwd -P); trap 'rm -rf "$T"' EXIT
 # trantor test keeps a failed run's scratch worlds; keep them inside $T.
 export TMPDIR="$T/tmp"; mkdir -p "$TMPDIR"
 

@@ -19,7 +19,10 @@ FIX=$REPO/tests/golden/u1-front-door
 # `pwd -P`, because mktemp hands back /var/folders/... and /var is a symlink to
 # /private/var: `cargo add --path` counts its relative path from the resolved
 # directory, and a harness path that disagrees with it is a harness bug.
-T=$(cd "$(mktemp -d)" && pwd -P); P=$T/resize
+# mktemp alone first: inside `cd "$(mktemp -d)"` a failed mktemp leaves `cd ""`,
+# which macOS /bin/bash and Ubuntu's bash accept as staying put, so T
+# became the repo root, which the EXIT trap then deleted.
+T=$(mktemp -d); T=$(cd "$T" && pwd -P); P=$T/resize
 trap 'rm -rf "$T"' EXIT
 cargo build --release -q
 TR=$REPO/target/release/trantor

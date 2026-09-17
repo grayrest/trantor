@@ -11,7 +11,10 @@ TR=$PWD/target/release/trantor
 CLI=$PWD/../trantor-cli
 [[ -f "$CLI/package.toml" ]] || { echo "SKIP: needs trantor-cli checked out beside trantor"; exit 0; }
 cargo build --release -q
-T=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$T"' EXIT
+# mktemp alone first: inside `cd "$(mktemp -d)"` a failed mktemp leaves `cd ""`,
+# which macOS /bin/bash and Ubuntu's bash accept as staying put, so T
+# became the repo root, which the EXIT trap then deleted.
+T=$(mktemp -d); T=$(cd "$T" && pwd -P); trap 'rm -rf "$T"' EXIT
 export TRANTOR_HOME="$T/home" TMPDIR="$T/tmp"; mkdir -p "$TMPDIR"
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.file://$T/remotes/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/org/"
 
