@@ -4,13 +4,14 @@
 # The scenario is the one the plan was written around — do the work by shelling
 # out first, then move it into a Rust library — with `tr` standing in for
 # imagemagick and a local crate for the image crate, so the gate needs no
-# network and no installed tools beyond the toolchain.
+# network and no installed tools beyond the toolchain. Then, for work that needs
+# no host at all, replace the Rust with a Roc component.
 #
-# The property under test is NOT that both halves work. It is that the app does
-# not know which half it got: the same interface, the same Roc source, byte for
-# byte, across a subprocess implementation and a library one. If moving the work
-# changes the app, the interface boundary did not hold and the walkthrough
-# proved nothing.
+# The property under test is NOT that all three work. It is that the app does
+# not know which one it got: the same interface, the same Roc source, byte for
+# byte, across a subprocess implementation, a library one and a Roc one. If
+# moving the work changes the app, the interface boundary did not hold and the
+# walkthrough proved nothing.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 REPO=$PWD
@@ -48,6 +49,9 @@ step "trantor new" "$TR" new "$P" --cli --from "$FIX/base"
 # fixture's baseline long after trantor-cli's contract had moved on — so the
 # untouched scaffold is checked here, before the next step replaces it.
 step "trantor check (the untouched scaffold)" "$TR" check "$P"
+# And tests. The scaffold's workspace has no members, which cargo refuses to
+# test, so `trantor test` failed on a project before it had any Rust in it.
+step "trantor test (the untouched scaffold)" "$TR" test "$P"
 
 # ---- 2. the app, written once and never touched again -----------------------
 cat > "$P/app/main.roc" <<'ROC'
@@ -141,4 +145,51 @@ echo "ok: same output, same app source ($APP_BEFORE), work moved from a subproce
 	|| { echo "FAIL: the implementations did not keep the generated signature"; exit 1; }
 step "trantor check" "$TR" check "$P"
 step "trantor test" "$TR" test "$P"
+
+# ---- 9. the same interface, in Roc ------------------------------------------
+# Uppercasing needs no host, so the last move takes the Rust out entirely. The
+# baseline's `stdout` interface is what the Roc component prints through; the
+# app cannot see it (the baseline exports nothing), so it cannot matter to the
+# app which side does the printing.
+#
+# Measured before the switch, so the "not linked" check after it is not
+# vacuously true of a binary that never had the symbol. Symbols go to a file
+# first: `grep -q` quits at the first match, and under pipefail nm's SIGPIPE
+# would fail a check that found what it looked for.
+nm "$P/target/trantor/resize/bin/app" > "$T/syms.rust"
+grep -q 'trantor__upper_host__shout' "$T/syms.rust" \
+	|| { echo "FAIL: positive control — the Rust build did not link the host implementation"; exit 1; }
+mkdir -p "$P/components/upper-roc"
+cat > "$P/components/upper-roc/Upper.roc" <<'ROC'
+import Stdout
+
+Upper :: [].{
+	shout! : Str => {}
+	shout! = |words| Stdout.line!(Str.with_ascii_uppercased(words))
+}
+ROC
+# The declaration swapped in place, and the wiring pointed at it. The host
+# component goes with it rather than being left unwired: a leftover crate is
+# what a reader would take for the implementation.
+perl -0pi -e 's/\[components\.upper-host\]\nkind = "host"\nlang = "rust"\nexports = \["upper"\]\n/[components.upper-roc]\nkind = "roc"\nimports = ["stdout"]\nexports = ["upper"]\n/; s/^upper = "upper-host"$/upper = "upper-roc"/m' "$P/world.toml"
+rm -r "$P/components/upper-host"
+sed -i '' 's|members = \["components/upper-host"\]|members = []|' "$P/Cargo.toml"
+! grep -q 'upper-host' "$P/world.toml" "$P/Cargo.toml" \
+	|| { echo "FAIL: the host component is still named in the project"; exit 1; }
+
+step "trantor run (in Roc)" "$TR" run "$P" -- ignored
+IN_ROC=$("$TR" run "$P" 2>/dev/null)
+[[ "$IN_ROC" == "$SHELLED" ]] || { echo "FAIL: Roc run gave '$IN_ROC', not '$SHELLED'"; exit 1; }
+[[ "$(shasum "$P/app/main.roc" | cut -d' ' -f1)" == "$APP_BEFORE" ]] \
+	|| { echo "FAIL: the app changed when the implementation moved into Roc"; exit 1; }
+# Positive control: the platform that ran carries this component's source, and
+# the binary no longer carries the Rust one.
+cmp -s "$P/components/upper-roc/Upper.roc" "$P/target/trantor/resize/platform/Upper.roc" \
+	|| { echo "FAIL: the composed platform's Upper is not the Roc component"; exit 1; }
+nm "$P/target/trantor/resize/bin/app" > "$T/syms.roc"
+! grep -q 'trantor__upper_host__' "$T/syms.roc" \
+	|| { echo "FAIL: the Roc build still links the host implementation"; exit 1; }
+echo "ok: same output, same app source ($APP_BEFORE), work moved from a crate into Roc"
+step "trantor check (in Roc)" "$TR" check "$P"
+step "trantor test (in Roc)" "$TR" test "$P"
 echo "U1 front door PASS"

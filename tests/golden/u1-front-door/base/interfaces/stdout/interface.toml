@@ -1,0 +1,5 @@
+module = "Stdout"
+# `trantor__stdout_host__line` in components/stdout-host.
+[[hosted]]
+leaf = "line!"
+symbol_stem = "line"

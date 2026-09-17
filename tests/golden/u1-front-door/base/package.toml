@@ -1,5 +1,5 @@
-# A CLI baseline: it provides the driver and nothing else. Everything the app
-# can do, the app's author adds.
+# A CLI baseline: it provides the driver and one line of output, and nothing
+# else. Everything the app can do, the app's author adds.
 [package]
 name = "base"
 version = "0.1.0"
@@ -9,3 +9,18 @@ provides_driver = "drv"
 kind = "driver"
 lang = "rust"
 provides_runtime = true
+
+# Output for components, not for the app: nothing is exported, so the app
+# cannot import it. A host component prints with `println!` on its own; a Roc
+# component has no way to print unless some interface gives it one, and the
+# walkthrough's last stage implements `Upper` in Roc. A real baseline ships a
+# stdout interface anyway, so this is the smallest stand-in for one.
+[interfaces.stdout]
+
+[components.stdout-host]
+kind = "host"
+lang = "rust"
+exports = ["stdout"]
+
+[provides]
+stdout = "stdout-host"
