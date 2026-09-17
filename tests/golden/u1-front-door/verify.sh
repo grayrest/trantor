@@ -17,10 +17,8 @@ cd "$(dirname "$0")/../../.."
 REPO=$PWD
 FIX=$REPO/tests/golden/u1-front-door
 # `pwd -P`, because mktemp hands back /var/folders/... and /var is a symlink to
-# /private/var. `cargo add --path` writes a relative path counted from the
-# resolved root, and cargo then resolves it from the resolved root too — so the
-# alias works everywhere except where the two disagree. Nothing to do with
-# trantor; the harness just has to use a real path.
+# /private/var: `cargo add --path` counts its relative path from the resolved
+# directory, and a harness path that disagrees with it is a harness bug.
 T=$(cd "$(mktemp -d)" && pwd -P); P=$T/resize
 trap 'rm -rf "$T"' EXIT
 cargo build --release -q
@@ -120,7 +118,15 @@ SHELLED=$("$TR" run "$P" 2>/dev/null)
 echo "ok: the work happens in a subprocess — '$SHELLED'"
 
 # ---- 6. move it into a Rust library -----------------------------------------
-step "cargo add" cargo add --path "$FIX/upper-lib" --manifest-path "$P/components/upper-host/Cargo.toml"
+# The crate sits beside the project, the way a user's own crate does, so cargo
+# writes `path = "../../../upper-lib"`. That path is right from the component
+# and wrong from its copy under target/trantor/<world>/components, two levels
+# deeper — which is what `trantor run` builds. A crate further away (the repo
+# fixture) is written with enough `..` to climb to / from both, and hid this.
+cp -R "$FIX/upper-lib" "$T/upper-lib"
+step "cargo add" cargo add --path "$T/upper-lib" --manifest-path "$P/components/upper-host/Cargo.toml"
+grep -q 'path = "../../../upper-lib"' "$P/components/upper-host/Cargo.toml" \
+	|| { echo "FAIL: positive control — cargo add did not write the short relative path"; exit 1; }
 step "cargo metadata (rust-analyzer's precondition)" cargo metadata --format-version 1 --manifest-path "$P/Cargo.toml"
 impl_with <<'RUST'
 {
@@ -129,8 +135,12 @@ impl_with <<'RUST'
     println!("{loud}");
 }
 RUST
-step "trantor run (in Rust)" "$TR" run "$P" -- ignored
-NATIVE=$("$TR" run "$P" 2>/dev/null)
+# From beside the project, named relatively, as `trantor new resize` taught.
+# A relative world dir is what the user types, and the re-anchoring has to
+# work from it: it once compared the relative path with nothing and gave up.
+in_parent() { (cd "$T" && "$@"); }
+step "trantor run (in Rust)" in_parent "$TR" run resize -- ignored
+NATIVE=$(in_parent "$TR" run resize 2>/dev/null)
 
 # ---- 7. what the walkthrough is actually for --------------------------------
 [[ "$NATIVE" == "$SHELLED" ]] || { echo "FAIL: '$NATIVE' != '$SHELLED'"; exit 1; }
