@@ -1230,3 +1230,105 @@ checker 208 valid and 501 invalid. trantor-hash 262 expects run, 28 its own,
 `tests/layout` 12 lines. trantor-temporal 909 expects run, 174 its own,
 `tests/formats` 11 lines and `tests/offsets` 8 lines (as of step 6; not rerun
 here, since step 8 touched neither package).
+
+### Code review fixes
+
+trantor-encoding `3167899` (the crash), `0e80e23` (CSV writing), `c17eca6`
+(CSV reading), `a238a0b` (TOML `set`), `2f301d2` (TOML messages and
+equality). Each finding got a regression test first, seen failing, then the
+fix. `trantor test .`: PASS, full output read, no warnings; 1376 expects run,
+1142 the package's own (was 1339/1105); `tests/toml-edit` 74 cases (was 65);
+conformance, round trips, `tests/readme` (59 lines) and `tests/date-codecs`
+unchanged; the reversed 10,000-key compare 15 ms.
+
+- **Compiler bug: `drop_last(1).append(x)` corrupts memory in a compiled
+  app.** `TomlRemove.merged` segfaulted (exit 139, every run) removing
+  `server` from `[server]\nhost = "x"\n[logging]\n[server.tls]\ncert = "a"\n[metrics]\n[server.limits]\n`;
+  `roc test` (the interpreter) never showed it, so the two crashing documents
+  are `tests/toml-edit` cases (`remove-interleaved-sub-sections*`). Minimal
+  reproduction (roc `release-fast-10e922df`, a world with only trantor-cli):
+
+  ```roc
+  main! = |args| {
+  	is_take = (args.map(OsStr.display).get(1) ?? "drop") == "take"
+  	numbers : List(U64)
+  	numbers = [0, 2, 3, 5]
+  	for _ in List.repeat({}, 100000) {
+  		m = if is_take { Str.inspect(runs_take(numbers)) } else { Str.inspect(runs_drop(numbers)) }
+  		Stdout.line!(m)?
+  	}
+  	Ok({})
+  }
+
+  runs_drop : List(U64) -> List(U64)
+  runs_drop = |numbers|
+  	numbers.fold([], |joined, n|
+  		match joined.last() {
+  			Ok(previous) if n <= previous + 1 => joined.drop_last(1).append(n)
+  			_ => joined.append(n)
+  		})
+  ```
+
+  `runs_take` is the same with `joined.take_first(joined.len() - 1)`. Measured:
+  `drop` crashed 20 of 20 runs, `take` 0 of 20; each crash came after
+  correct output, as SIGSEGV (exit 139) or a Rust "failed to lock mutex" panic
+  caught at the driver boundary (exit 70). With 1,000 iterations `drop`
+  crashed 6-18% of runs. Every `drop_last(1).append` in the package became
+  `take_first(len - 1).append` (`TomlRemove.merged`, `TomlLayout.with_last`,
+  `TomlLines.with_last_ending`, `TomlCursor.advanced`, and a test in
+  `TomlTestValue`), with a comment at each; the last two guard the empty list
+  that `drop_last` tolerated. Avoid `drop_last` followed by `append` on the
+  same list.
+- **CSV output changes (D-S3-17, a fix within its intent: the old bytes did
+  not read back as written).** A record of one empty field is written `""`
+  instead of an empty line, which reading skipped (or, as the last record,
+  never saw): `Csv.to_str([[""]])` is `""` quoted, `[["a"], [""], ["b"]]` is
+  `a\n""\nb`, a one-column `encode` with an empty cell and a `Table` with a
+  `[""]` header likewise. A record's first field starting with U+FEFF is
+  quoted, since reading skips a leading byte-order mark; later fields are not.
+  Everything else writes the same bytes as before; the one golden
+  expect that pinned the old output (`to_str([[""]]) == ""`) changed.
+- **CSV reading:** `with_header` reads and checks the header record before the
+  rest, so `table`/`decode` of `a,a\n1,2\n3` or `a,a\n1,"2` is
+  `DuplicateHeader` at line 1, column 3. Under `trim`, an unquoted field loses
+  only trailing spaces and tabs (U+00A0 and U+3000 are data, as around a quoted
+  field), and a line of only spaces and tabs is blank for `skip_blank_lines`
+  (documented on `Dialect`).
+- **An emptied dotted or implicit table (#3).** Chosen representation: a table
+  set to `Table([])` in its own style stays as an empty table, written the way
+  the edit rules already write one. A dotted table becomes `name = {}` in place
+  of its first dotted key (its other pieces removed, as a dotted table replaced
+  by key/values is), matching `Dotted`'s existing `v = {}` for a new empty
+  table (D-S3-41/47); a table only named by deeper headers becomes a `[name]`
+  section (the header form that created it, D-S3-46), placed by D-S3-53; a
+  dotted table inside an inline table goes and comes back as `x = {}` at the
+  end of the inline table, as replacing it by a scalar already did. Header and
+  inline tables were unaffected. It applies wherever `set` merges, so nested
+  empty tables inside a set value (`[[x]]` elements, `set([], …)`) keep too.
+  README's kind-change bullet says so.
+- **CRLF after a kind change:** `readded` takes the file's line ending before
+  the removal and hands it to `TomlAdd.add` (new `ending` parameter, also on
+  `add_blocks`), which uses it only when no line has an ending left, so
+  `[c]\r\n` set to `42` is `c = 42\r\n`.
+- **`err_to_str`** spells keys with `TomlText.key(_, V1_0)`, escapes included.
+- **`Value` equality (#10):** entries are still sorted by key (stable sort);
+  the compare walks both lists, and where a key's run holds more than one entry
+  it requires the run to end at the same index in both and matches the values
+  as a multiset (each left value removes one equal right value). Unique keys
+  compare in one linear pass, so the reversed 10,000-key budget is unchanged
+  (15 ms); `Value`'s `==` is an equivalence (NaN equals NaN), so greedy
+  matching is exact.
+- `TomlSet.roc` is now 312 lines, past the 300-line guideline, like
+  `TomlString.roc` (347) before it.
+- **Random invariant check after the fixes:** the review's harness (random
+  documents from TOML fragments, 4000 documents, seed 7; every single edit and
+  edit pair checked for output that parses, a value equal to the model's,
+  `to_value` equal to a re-parse and a byte-identical re-read), rebuilt
+  against the fixed package, ran 2,902,661 edits without a crash: 0 `BUG`
+  lines, 0 strict value mismatches (49,520 against the review's patched copy,
+  every one an emptied table vanishing), 16,968 `Encode` errors (the same
+  count as before, `set([], non-table)` refused as it should be) and 22 CRLF
+  notes (418 before). The 22 are `remove` of a CRLF file's only section
+  followed by a separate `set`: the removal leaves a file with no line break,
+  so the next edit has no ending to follow and writes LF. Not changed: nothing
+  in an empty document records the ending it once had.
