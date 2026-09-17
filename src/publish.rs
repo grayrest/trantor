@@ -115,18 +115,23 @@ pub fn publish(dir: &Path) -> Result<(), String> {
                 .collect(),
             Err(_) => std::collections::BTreeSet::new(),
         };
-    // copy prebuilt archives per target
+    // copy prebuilt archives per target, and a glibc target's staged C runtime:
+    // the published main.roc names those files in its inputs, so a baseline
+    // without them cannot link a Tier-1 app (measured on two-component).
     let tdir = pdir.join("targets");
     if let Ok(targets) = std::fs::read_dir(&tdir) {
         for t in targets.flatten() {
             if t.path().is_dir() {
                 let name = t.file_name();
+                let is_glibc = crate::host_target::is_glibc(&name.to_string_lossy());
                 let dest = dist.join("platform/targets").join(&name);
                 std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
                 for a in std::fs::read_dir(t.path()).map_err(|e| e.to_string())?.flatten() {
                     let ap = a.path();
-                    let is_test = ap.file_name().and_then(|f| f.to_str()).is_some_and(|f| test_archives.contains(f));
-                    if ap.extension().is_some_and(|x| x == "a") && !is_test {
+                    let file = ap.file_name().and_then(|f| f.to_str()).unwrap_or_default();
+                    let is_test = test_archives.contains(file);
+                    let is_c_runtime = is_glibc && crate::host_target::is_glibc_runtime_file(file);
+                    if (ap.extension().is_some_and(|x| x == "a") && !is_test) || is_c_runtime {
                         std::fs::copy(&ap, dest.join(ap.file_name().unwrap()))
                             .map_err(|e| e.to_string())?;
                     }

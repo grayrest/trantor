@@ -31,6 +31,7 @@ mod deps;
 mod glue_placeholder;
 mod glue_unions;
 mod help;
+mod host_target;
 mod interrupt;
 mod journal;
 mod main_contract;
@@ -122,7 +123,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut world_file = String::from("world.toml");
             let mut world_given = false;
             let mut app = String::from("app");
-            let mut target = String::from("arm64mac");
+            let mut target: Option<String> = None;
             let mut rest: Vec<String> = Vec::new();
             while let Some(f) = it.next() {
                 match f.as_str() {
@@ -131,7 +132,7 @@ fn run(args: &[String]) -> Result<(), String> {
                         world_given = true;
                     }
                     "--app" => app = it.next().ok_or("--app: missing dir")?.clone(),
-                    "--target" => target = it.next().ok_or("--target: missing triple")?.clone(),
+                    "--target" => target = Some(it.next().ok_or("--target: missing triple")?.clone()),
                     // Everything after `--` belongs to the app, not to trantor.
                     "--" => rest.extend(it.by_ref().cloned()),
                     other => return Err(format!("unknown flag {other:?}")),
@@ -148,6 +149,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
                 "test" => build::test(&dir, &world_file, &app),
                 _ => {
+                    let target = host_target::target_or_host(target)?;
                     let status = build::run_app(&dir, &world_file, &app, &target, &rest)?;
                     // The app's exit code is the app's, not a build result.
                     std::process::exit(status.code().unwrap_or(70));
@@ -197,14 +199,14 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut world_file = String::from("world.toml");
             let mut app = String::from("app");
             let mut out = String::from("app");
-            let mut target = String::from("arm64mac");
+            let mut target: Option<String> = None;
             let mut app_link = true;
             while let Some(f) = it.next() {
                 match f.as_str() {
                     "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
                     "--app" => app = it.next().ok_or("--app: missing dir")?.clone(),
                     "--out" => out = it.next().ok_or("--out: missing name")?.clone(),
-                    "--target" => target = it.next().ok_or("--target: missing triple")?.clone(),
+                    "--target" => target = Some(it.next().ok_or("--target: missing triple")?.clone()),
                     // Prepare the platform (through the scan) without linking
                     // an app: for a repo whose gates `roc build` many apps
                     // against one composed platform.
@@ -213,6 +215,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             let app = if app_link { Some(app.as_str()) } else { None };
+            let target = host_target::target_or_host(target)?;
             return build::build(&dir, &world_file, app, &out, &target);
         }
         "scan" => {
@@ -220,17 +223,18 @@ fn run(args: &[String]) -> Result<(), String> {
             // component archives (unlike compose, which stops at sources).
             let mut world_file = String::from("world.toml");
             let mut targets_dir: Option<PathBuf> = None;
-            let mut target = String::from("arm64mac");
+            let mut target: Option<String> = None;
             while let Some(f) = it.next() {
                 match f.as_str() {
                     "--world" => world_file = it.next().ok_or("--world: missing file")?.clone(),
                     "--targets-dir" => {
                         targets_dir = Some(PathBuf::from(it.next().ok_or("--targets-dir: missing path")?))
                     }
-                    "--target" => target = it.next().ok_or("--target: missing triple")?.clone(),
+                    "--target" => target = Some(it.next().ok_or("--target: missing triple")?.clone()),
                     other => return Err(format!("unknown flag {other:?}")),
                 }
             }
+            let target = host_target::target_or_host(target)?;
             return scan::scan(&dir, &world_file, targets_dir, &target);
         }
         "tier" => {

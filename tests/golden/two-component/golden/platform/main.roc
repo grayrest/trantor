@@ -14,6 +14,8 @@ platform ""
 		inputs_dir: "targets/",
 		arm64mac: { inputs: ["libcli.a", "libcapstdfs.a", "libenv.a", "libstdio.a", "libaudit.a", app] },
 		x64mac: { inputs: ["libcli.a", "libcapstdfs.a", "libenv.a", "libstdio.a", "libaudit.a", app] },
+		arm64glibc: { inputs: ["Scrt1.o", "crti.o", "libcli.a", "libcapstdfs.a", "libenv.a", "libstdio.a", "libaudit.a", app, "crtn.o", "libc.so", "libm.so.6", "libgcc_s.so.1"] },
+		x64glibc: { inputs: ["Scrt1.o", "crti.o", "libcli.a", "libcapstdfs.a", "libenv.a", "libstdio.a", "libaudit.a", app, "crtn.o", "libc.so", "libm.so.6", "libgcc_s.so.1"] },
 	}
 
 import Env

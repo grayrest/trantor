@@ -157,7 +157,8 @@ fn scaffold(dir: &Path, from: Option<&str>, marker: &mut Marker) -> Result<(), S
     // Compose now: `cargo add` and rust-analyzer need the abi crate the patch
     // points at, and it does not exist until something composes.
     marker.creating_dir("target")?;
-    crate::build::build(dir, "world.toml", None, "app", "arm64mac")?;
+    let target = crate::host_target::host_target()?;
+    crate::build::build(dir, "world.toml", None, "app", target)?;
     marker.creating_dir("app")?;
     let app = ensure_app(dir, &name)?;
     if let App::Written = app {

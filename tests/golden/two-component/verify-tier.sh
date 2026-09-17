@@ -45,7 +45,7 @@ Greet :: [].{
 	banner = |n| Str.concat("~ ", Str.concat(n, " ~"))
 }
 ROC
-sed -i '' 's/exposes \[Path, Stdio, Env\]/exposes [Path, Stdio, Env, Greet]/; s/^import Env$/import Env\nimport Greet/' "$T/baseline/platform/main.roc"
+perl -pi -e 's/exposes \[Path, Stdio, Env\]/exposes [Path, Stdio, Env, Greet]/; s/^import Env$/import Env\nimport Greet/' "$T/baseline/platform/main.roc"
 mkdir -p "$T/app" "$T/target/trantor/two-component/bin"   # D-H7-38 moved bin/ too
 cat > "$T/app/main.roc" <<'ROC'
 app [main!] { pf: platform "../baseline/platform/main.roc" }

@@ -13,7 +13,8 @@
 //! 2. roc glue — generate abi/src/generated.rs from the composed platform.
 //! 3. cargo build — build every host/driver component archive.
 //! 4. stage — copy the archives main.roc links into platform/targets/ (exactly
-//!    the link set, so a stale archive from another world can't leak in).
+//!    the link set, so a stale archive from another world can't leak in), and
+//!    for a glibc target the host's C runtime files its inputs name.
 //! 5. framework sysroot — generate platform/targets/macos-sysroot from the
 //!    frameworks the world's components declare (roc links a framework only
 //!    from a bundled sysroot), or remove a stale one when none do.
@@ -226,6 +227,9 @@ pub fn build(
     // 4. stage exactly the archives main.roc links (resolved.archive_order),
     //    clearing stale ones so another world's archive can't leak in.
     stage_archives(&gen, target, &built)?;
+    if crate::host_target::is_glibc(target) {
+        crate::host_target::stage_glibc_runtime(&gen.join("platform").join("targets").join(target))?;
+    }
 
     // 5. macOS framework sysroot: generate it from the frameworks the world's
     //    components declare (e.g. turso's CoreFoundation), or remove a stale one
@@ -255,7 +259,12 @@ pub fn build(
     std::fs::create_dir_all(gen.join("bin")).map_err(|e| format!("mkdir bin: {e}"))?;
     let bin = abs(&gen.join("bin"))?;
     let out_flag = format!("--output={bin}/{out}");
-    roc_capped(&["build", &out_flag, &app_main], dir, "roc build")?;
+    // The target trantor staged, named to roc rather than left to its default:
+    // roc prefers a target matching ITS OWN libc, so a musl-built roc on a glibc
+    // host links a world that also lists `arm64musl` for musl — against a
+    // staging dir nothing was built into (measured).
+    let target_flag = format!("--target={target}");
+    roc_capped(&["build", &target_flag, &out_flag, &app_main], dir, "roc build")?;
     eprintln!("trantor build: linked {bin}/{out}");
     Ok(())
 }

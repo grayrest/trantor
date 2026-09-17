@@ -124,6 +124,9 @@ pub extern "C-unwind" fn trantor__turso_host__turso_register_scalar(name: RocStr
 // the crate is bundled into a staticlib — roc's linker never sees it. Emitting
 // an explicit `#[link]` here puts an LC_LINKER_OPTION load command into this
 // archive, which roc's ld64 honors (the same way temporal_host's CF deps link).
+// macOS only: `iana_time_zone` reads /etc/localtime elsewhere, and rustc refuses
+// a framework link on any other target.
+#[cfg(target_os = "macos")]
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {}
 

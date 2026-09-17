@@ -8,6 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 S=tests/golden/sqlite-unsound
+source tests/golden/host-target.sh
 ROC="${ROC:-$HOME/.bin/roc}"
 cap() { perl -e 'alarm shift; exec @ARGV' 120 "$@"; }
 cargo build --release -q
@@ -29,7 +30,7 @@ grep -q 'live=0' <<<"$g" || { echo "FAIL: fold leaked heap: $g"; exit 1; }
 echo "ok: fold drop-balanced ($g)"
 
 # H0c: libsqlite3 lives only in librusqlite_host.a.
-T="$S/target/trantor/sqlite-unsound/platform/targets/arm64mac"
+T="$S/target/trantor/sqlite-unsound/platform/targets/$HOST_TARGET"
 { ar t "$T/librusqlite_host.a" 2>/dev/null || true; } | grep -iE 'sqlite3|libsqlite' >/dev/null || { echo "FAIL: rusqlite-host bundles no libsqlite3"; exit 1; }
 for a in "$T"/lib*.a; do
   [[ "$(basename "$a")" == "librusqlite_host.a" ]] && continue
@@ -134,7 +135,7 @@ grep -q 'clone-on-incref' "$S/record-app/main.roc" || { echo "FAIL: record-app n
 cap "$ROC" check "$S/record-app/main.roc" >/dev/null 2>&1 || { echo "FAIL: record decode does not type-check (API shape broken)"; exit 1; }
 echo "ok: record decode type-checks (API shape) — the documented clone-on-incref target, not run"
 
-D="$S/target/trantor/sqlite-unsound/dist/platform/targets/arm64mac"
+D="$S/target/trantor/sqlite-unsound/dist/platform/targets/$HOST_TARGET"
 
 # Publish the TURSO world first, so the rusqlite publish below leaves the
 # committed default composed and built as a side effect. Done the other way

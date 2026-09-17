@@ -36,8 +36,15 @@ echo "ok: HostCtx.data_dir — the component read the directory the driver decla
 
 # (5) allocator shims: which class does each archive define them in? Feeds
 # D-H7-11 (per-archive allocators) and the H0c exemption model.
-for a in "$FIX"/platform/targets/arm64mac/lib*.a; do
-	cls=$( { nm -m "$a" 2>/dev/null || true; } | { grep -E "___rust_alloc$" || true; } | sed -E 's/^[^)]*\) ([a-z ]+external|non-external).*/\1/' | sort -u | tr '\n' ',' )
+# The class is macho's `nm -m` attribute on macOS, the ELF binding and
+# visibility on Linux, where `nm -m` does not exist.
+source tests/golden/host-target.sh
+for a in "$FIX"/target/trantor/im-services/platform/targets/$HOST_TARGET/lib*.a; do
+	if [[ "$(uname -s)" == Darwin ]]; then
+		cls=$( { nm -m "$a" 2>/dev/null || true; } | { grep -E "___rust_alloc$" || true; } | sed -E 's/^[^)]*\) ([a-z ]*external|non-external).*/\1/' | sort -u | tr '\n' ',' )
+	else
+		cls=$( { readelf -sW "$a" 2>/dev/null || true; } | awk '$NF ~ /__rust_alloc$/ && $(NF-1) != "UND" { print $5 " " $6 }' | sort -u | tr '\n' ',' )
+	fi
 	echo "   $(basename "$a"): rust_alloc shims = ${cls:-absent}"
 done
 echo "H7 service components (spliced unions, generated shim, wake, env, gates) PASS"

@@ -15,6 +15,8 @@ platform ""
 		inputs_dir: "targets/",
 		arm64mac: { inputs: ["libcli.a", "libcell.a", "libenv.a", "libstdio.a", app] },
 		x64mac: { inputs: ["libcli.a", "libcell.a", "libenv.a", "libstdio.a", app] },
+		arm64glibc: { inputs: ["Scrt1.o", "crti.o", "libcli.a", "libcell.a", "libenv.a", "libstdio.a", app, "crtn.o", "libc.so", "libm.so.6", "libgcc_s.so.1"] },
+		x64glibc: { inputs: ["Scrt1.o", "crti.o", "libcli.a", "libcell.a", "libenv.a", "libstdio.a", app, "crtn.o", "libc.so", "libm.so.6", "libgcc_s.so.1"] },
 	}
 
 import Cell

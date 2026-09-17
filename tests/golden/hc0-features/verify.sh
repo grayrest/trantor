@@ -11,8 +11,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 H=tests/golden/hc0-features
+source tests/golden/host-target.sh
 MARK="$H/target/trantor/hc0-features/components/marker/Cargo.toml"
-ARCH="$H/target/trantor/hc0-features/platform/targets/arm64mac/libmarker.a"
+ARCH="$H/target/trantor/hc0-features/platform/targets/$HOST_TARGET/libmarker.a"
 cargo build --release -q
 
 feat_line() { grep -E '^default = ' "$MARK"; }

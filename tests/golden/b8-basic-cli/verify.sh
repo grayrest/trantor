@@ -12,6 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 B=tests/golden/b8-basic-cli
+source tests/golden/host-target.sh
 PKG=$PWD/../trantor-cli
 NET=$PWD/../trantor-net
 TERMINAL=$PWD/../trantor-terminal
@@ -182,8 +183,8 @@ echo "ok: terminal-app-snake — draws, moves on a key, quits on q, terminal res
 # ---- 3. publish + tier ----
 ./target/release/trantor publish "$B" >/dev/null 2>&1
 [[ -f "$B/target/trantor/b8-basic-cli/dist/baseline.lock" ]] && grep -q abi_fingerprint "$B/target/trantor/b8-basic-cli/dist/baseline.lock" || { echo "FAIL: publish produced no baseline.lock"; exit 1; }
-[[ -f "$B/target/trantor/b8-basic-cli/dist/platform/targets/arm64mac/libsubprocess_host.a" ]] || { echo "FAIL: dist lacks archives"; exit 1; }
-[[ ! -f "$B/target/trantor/b8-basic-cli/dist/platform/targets/arm64mac/libtestnet_host.a" ]] || { echo "FAIL: test scaffolding leaked into the published baseline"; exit 1; }
+[[ -f "$B/target/trantor/b8-basic-cli/dist/platform/targets/$HOST_TARGET/libsubprocess_host.a" ]] || { echo "FAIL: dist lacks archives"; exit 1; }
+[[ ! -f "$B/target/trantor/b8-basic-cli/dist/platform/targets/$HOST_TARGET/libtestnet_host.a" ]] || { echo "FAIL: test scaffolding leaked into the published baseline"; exit 1; }
 # Captured, not piped into `grep -q`: grep exits on the first match, and the
 # "(N component(s) examined)" line `tier` prints after it then hits a closed
 # pipe, panics, and `pipefail` turns that into a failure of THIS check.

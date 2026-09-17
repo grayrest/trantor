@@ -1,12 +1,15 @@
-//! Reading an archive's global DEFINED symbols, in the two object formats the
-//! scan meets: macho (native, `nm -m`) and wasm32 (`llvm-readobj --symbols`).
-//! The policy of what to do with them lives in `scan.rs`; this module only
-//! answers "which symbols does this archive define at global scope?", with the
-//! same classification in both formats — a symbol counts only when it is a
-//! real definition that is neither hidden/private nor weak.
+//! Reading an archive's global DEFINED symbols, in the object formats the scan
+//! meets: macho (a macOS host, `nm -m`), ELF (a Linux host, `readelf -sW`) and
+//! wasm32 (`llvm-readobj --symbols`). The policy of what to do with them lives
+//! in `scan.rs`; this module only answers "which symbols does this archive
+//! define at global scope?", with the same classification in every format — a
+//! symbol counts only when it is a real definition that is neither
+//! hidden/private nor weak.
 //!
 //! Measured: on macho the class is the attribute right after the section —
-//! `external`, not `private external` / `weak external`; on wasm it is the
+//! `external`, not `private external` / `weak external`; on ELF it is the
+//! symbol table's `GLOBAL` binding with `DEFAULT`/`PROTECTED` visibility (Rust's
+//! compiler-builtins and std internals are `HIDDEN` or `WEAK` there); on wasm it is the
 //! absence of the `BINDING_WEAK` / `BINDING_LOCAL` / `VISIBILITY_HIDDEN` /
 //! `UNDEFINED` flags (`llvm-nm` alone prints hidden symbols such as
 //! compiler-builtins' `__popcountsi2` and LLVM's `anon.*.llvm.*` constants as
@@ -16,20 +19,45 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Where the LLVM binutils live when `LLVM_BIN` is unset (Homebrew's llvm).
-pub const DEFAULT_LLVM_BIN: &str = "/opt/homebrew/opt/llvm/bin";
+/// Where Homebrew installs the LLVM binutils, which Xcode does not ship.
+const HOMEBREW_LLVM_BIN: &str = "/opt/homebrew/opt/llvm/bin";
 
+/// An LLVM tool from `$LLVM_BIN`, else Homebrew's llvm when it is installed,
+/// else the bare name for `PATH` to find. Linux distributions put the LLVM
+/// binutils on `PATH` (`apt install llvm`), so a Homebrew-only default made
+/// every lookup there a spawn failure on a directory that cannot exist.
 pub fn llvm_tool(name: &str) -> PathBuf {
-    let bin = std::env::var("LLVM_BIN").unwrap_or_else(|_| DEFAULT_LLVM_BIN.to_string());
-    Path::new(&bin).join(name)
+    if let Ok(bin) = std::env::var("LLVM_BIN") {
+        return Path::new(&bin).join(name);
+    }
+    let homebrew = Path::new(HOMEBREW_LLVM_BIN).join(name);
+    if homebrew.exists() {
+        homebrew
+    } else {
+        PathBuf::from(name)
+    }
 }
 
-/// How an archive's symbols are read: macho `nm -m` (native) or `llvm-readobj`
-/// (wasm32 members), whose mangled names carry one underscore fewer.
+/// How an archive's symbols are read: macho `nm -m`, ELF `readelf -sW`, or
+/// `llvm-readobj` (wasm32 members). ELF and wasm names carry no macho
+/// underscore.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Format {
     Macho,
+    Elf,
     Wasm,
+}
+
+impl Format {
+    /// The format of the archives cargo builds on this host: the native path
+    /// never passes cargo a `--target`, so the host decides.
+    pub fn native() -> Format {
+        if cfg!(target_os = "macos") {
+            Format::Macho
+        } else {
+            Format::Elf
+        }
+    }
 }
 
 /// Is this a Rust-mangled symbol? v0 is `_R…` (macho `__R…`); the legacy
@@ -37,7 +65,7 @@ pub enum Format {
 pub fn is_rust_mangled(nm_name: &str, format: Format) -> bool {
     match format {
         Format::Macho => nm_name.starts_with("__R") || nm_name.starts_with("__Z"),
-        Format::Wasm => nm_name.starts_with("_R") || nm_name.starts_with("_ZN"),
+        Format::Elf | Format::Wasm => nm_name.starts_with("_R") || nm_name.starts_with("_ZN"),
     }
 }
 
@@ -73,6 +101,31 @@ fn plain_external_defs(nm_output: &str) -> BTreeSet<String> {
         // The symbol name is the final token (symbols carry no spaces); this
         // skips any `[cold func]`-style annotation nm places before it.
         if let Some(name) = rest.split_whitespace().next_back() {
+            out.insert(name.to_string());
+        }
+    }
+    out
+}
+
+/// Parse `readelf -sW` output over an ELF archive, returning the plain-global
+/// DEFINED symbols. Each symbol row is
+/// `<num>: <value> <size> <type> <bind> <vis> [annotations…] <ndx> <name>`;
+/// readelf may print a bracketed annotation after the visibility (aarch64's
+/// `[VARIANT_PCS]`), so the section index and name are taken from the END of the
+/// row rather than by column. Header, `File:` and blank lines have no `<num>:`
+/// and are skipped; so is the unnamed null symbol.
+fn elf_global_defs(readelf_output: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for line in readelf_output.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let [num, _value, _size, ty, bind, vis, .., ndx, name] = f.as_slice() else {
+            continue;
+        };
+        let is_symbol_row = num.strip_suffix(':').is_some_and(|n| n.parse::<u64>().is_ok());
+        // A reference (UND) is not a definition; a section or file symbol is
+        // not something two archives can collide on.
+        let is_definition = *ndx != "UND" && !matches!(*ty, "SECTION" | "FILE");
+        if is_symbol_row && is_definition && *bind == "GLOBAL" && matches!(*vis, "DEFAULT" | "PROTECTED") {
             out.insert(name.to_string());
         }
     }
@@ -123,12 +176,14 @@ fn wasm_global_defs(readobj_output: &str) -> BTreeSet<String> {
 pub fn archive_defs(archive: &Path, format: Format) -> Result<BTreeSet<String>, String> {
     let out = match format {
         Format::Macho => Command::new("nm").arg("-m").arg(archive).output(),
+        Format::Elf => Command::new("readelf").arg("-sW").arg(archive).output(),
         Format::Wasm => Command::new(llvm_tool("llvm-readobj")).arg("--symbols").arg(archive).output(),
     }
     .map_err(|e| format!("run nm on {}: {e}", archive.display()))?;
     let text = String::from_utf8_lossy(&out.stdout);
     let defs = match format {
         Format::Macho => plain_external_defs(&text),
+        Format::Elf => elf_global_defs(&text),
         Format::Wasm => wasm_global_defs(&text),
     };
     if defs.is_empty() {
@@ -173,6 +228,31 @@ mod tests {
         assert!(!is_rust_mangled("_vendored_answer", Format::Macho));
         assert!(is_rust_mangled("_RNvMs_NtCs_12trantor_abi9RocStr8from_str", Format::Wasm));
         assert!(!is_rust_mangled("trantor__b__seed", Format::Wasm));
+        assert!(is_rust_mangled("_RNvCs_12trantor_abi4host", Format::Elf));
+        assert!(!is_rust_mangled("sqlite3_open", Format::Elf));
+    }
+
+    #[test]
+    fn parses_elf_global_defs_by_binding_and_visibility() {
+        let sample = "\
+File: libprobe_a.a(probe_a.o)\n\
+\n\
+Symbol table '.symtab' contains 7 entries:\n\
+   Num:    Value          Size Type    Bind   Vis      Ndx Name\n\
+     0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT  UND \n\
+     1: 0000000000000000     0 SECTION LOCAL  DEFAULT    3 .text\n\
+     2: 0000000000000000    24 FUNC    GLOBAL DEFAULT    3 trantor_probe_collision\n\
+     3: 0000000000000000     0 NOTYPE  GLOBAL DEFAULT  UND roc_alloc\n\
+     4: 0000000000000010    12 FUNC    GLOBAL HIDDEN     3 __udivti3\n\
+     5: 0000000000000020     8 FUNC    WEAK   DEFAULT    3 weak_thing\n\
+     6: 0000000000000030     8 FUNC    GLOBAL DEFAULT [VARIANT_PCS]     3 annotated_def\n\
+     7: 0000000000000040     8 OBJECT  GLOBAL PROTECTED  4 DATA_SYM\n";
+        let defs = elf_global_defs(sample);
+        assert_eq!(
+            defs.into_iter().collect::<Vec<_>>(),
+            ["DATA_SYM", "annotated_def", "trantor_probe_collision"],
+            "undefined, section, hidden and weak symbols are not global definitions"
+        );
     }
 
     #[test]

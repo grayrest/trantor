@@ -17,7 +17,7 @@
 //!   5. the H0c scan over the wasm archives, `roc check`, `roc build
 //!      --target=wasm32` → `bin/<out>.wasm`.
 //!
-//! Tools: `LLVM_BIN` (default Homebrew llvm) for `llvm-ar`/`llvm-nm`;
+//! Tools: `LLVM_BIN` (default Homebrew llvm, else `PATH`) for `llvm-ar`/`llvm-nm`;
 //! `wasm-ld` from `LLVM_BIN` when present, else `PATH`.
 
 use crate::manifest::World;

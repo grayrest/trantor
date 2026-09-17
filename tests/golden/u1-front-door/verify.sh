@@ -77,7 +77,7 @@ Upper :: [].{
 	shout! : Str => {}
 }
 ROC
-sed -i '' 's/do_it!/shout!/; s/do_it/shout/' "$P/interfaces/upper/interface.toml"
+perl -pi -e 's/do_it!/shout!/; s/do_it/shout/' "$P/interfaces/upper/interface.toml"
 
 step "trantor build --platform-only (glue)" "$TR" build "$P" --platform-only
 
@@ -186,7 +186,7 @@ ROC
 # what a reader would take for the implementation.
 perl -0pi -e 's/\[components\.upper-host\]\nkind = "host"\nlang = "rust"\nexports = \["upper"\]\n/[components.upper-roc]\nkind = "roc"\nimports = ["stdout"]\nexports = ["upper"]\n/; s/^upper = "upper-host"$/upper = "upper-roc"/m' "$P/world.toml"
 rm -r "$P/components/upper-host"
-sed -i '' 's|members = \["components/upper-host"\]|members = []|' "$P/Cargo.toml"
+perl -pi -e 's|members = \["components/upper-host"\]|members = []|' "$P/Cargo.toml"
 ! grep -q 'upper-host' "$P/world.toml" "$P/Cargo.toml" \
 	|| { echo "FAIL: the host component is still named in the project"; exit 1; }
 

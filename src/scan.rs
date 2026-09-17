@@ -37,9 +37,10 @@
 //! binary's), and this scan refuses a `#[global_allocator]` in any other
 //! component.
 //!
-//! wasm32 archives (D-H7-9) are read through `llvm-readobj` flags instead of
-//! macho `nm -m`; both readers live in `symbols.rs` and apply the same
-//! classification (a real definition, neither hidden/private nor weak).
+//! wasm32 archives (D-H7-9) are read through `llvm-readobj` flags, and a Linux
+//! host's ELF archives through `readelf`, instead of macho `nm -m`; the readers
+//! live in `symbols.rs` and apply the same classification (a real definition,
+//! neither hidden/private nor weak).
 
 use crate::manifest::{component_dir, World};
 use crate::resolve::sanitize;
@@ -94,7 +95,7 @@ fn matches_shared(sym: &str, pattern: &str) -> bool {
 /// Scan every host/driver component archive of a composed world for global
 /// symbol collisions (H0c). `targets_dir` is the directory holding the
 /// per-target archive dirs (default `<dir>/platform/targets`); `target` names
-/// the archive subdir (default `arm64mac`).
+/// the archive subdir (default: the host's roc target).
 pub fn scan(
     dir: &Path,
     world_file: &str,
@@ -109,7 +110,7 @@ pub fn scan(
             .join("targets"),
     }
     .join(target);
-    scan_archives(dir, world_file, &arch_dir, Format::Macho)
+    scan_archives(dir, world_file, &arch_dir, Format::native())
 }
 
 /// Refuse a `#[global_allocator]` outside the driver (D-H7-13): the allocator

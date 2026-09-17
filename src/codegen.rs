@@ -322,6 +322,47 @@ fn rename_ident(text: &str, from: &str, to: &str) -> String {
     out
 }
 
+/// The native entries of the `targets` block, in order: the ones every platform
+/// declares, the host's own (a musl host's is not among those), then whatever
+/// else the world links for — a device target, typically. Each once: a world
+/// listing `arm64glibc` for its device now repeats a declared one. roc accepts
+/// the repeat (measured), so this is not for roc: a platform that names a
+/// target twice leaves its reader to work out that both entries are the same.
+fn native_targets(world: &World) -> Vec<&str> {
+    let host = crate::host_target::host_target().ok();
+    let mut out: Vec<&str> = Vec::new();
+    let candidates = crate::host_target::DECLARED_NATIVE_TARGETS
+        .iter()
+        .copied()
+        .chain(host)
+        .chain(world.world.targets.iter().map(String::as_str));
+    for t in candidates {
+        if !out.contains(&t) {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// One native target's `inputs`: the archives and the app, and for a glibc
+/// target the C runtime around them. roc's glibc link adds no libc of its own
+/// (measured: every `malloc`, `free` and `_Unwind_*` the Rust archives call is
+/// undefined without these), so the platform names the files, in the order
+/// roc's own glibc test platforms use; `build` stages them from the host.
+fn native_inputs(target: &str, archives: &[String]) -> String {
+    let quoted = |files: &[&str]| files.iter().map(|f| format!("\"{f}\"")).collect::<Vec<_>>();
+    let mut inputs: Vec<String> = Vec::new();
+    if crate::host_target::is_glibc(target) {
+        inputs.extend(quoted(crate::host_target::GLIBC_START_FILES));
+    }
+    inputs.extend(archives.iter().cloned());
+    inputs.push("app".to_string());
+    if crate::host_target::is_glibc(target) {
+        inputs.extend(quoted(crate::host_target::GLIBC_END_FILES));
+    }
+    format!("[{}]", inputs.join(", "))
+}
+
 fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {
     let mut s = String::new();
     s.push_str("platform \"\"\n");
@@ -364,14 +405,10 @@ fn main_roc(world: &World, driver: &Driver, r: &Resolved) -> String {
         .iter()
         .map(|a| format!("\"lib{}.a\"", crate::resolve::sanitize(a)))
         .collect();
-    let inputs = format!("[{}, app]", archives.join(", "));
     s.push_str("\ttargets: {\n");
     s.push_str("\t\tinputs_dir: \"targets/\",\n");
-    s.push_str(&format!("\t\tarm64mac: {{ inputs: {inputs} }},\n"));
-    s.push_str(&format!("\t\tx64mac: {{ inputs: {inputs} }},\n"));
-    // Whatever else the world links for — a device target, typically.
-    for t in &world.world.targets {
-        s.push_str(&format!("\t\t{t}: {{ inputs: {inputs} }},\n"));
+    for t in native_targets(world) {
+        s.push_str(&format!("\t\t{t}: {{ inputs: {} }},\n", native_inputs(t, &archives)));
     }
     if !driver.wasm_exports.is_empty() {
         // ONE merged host.wasm (D-H7-9 revised): roc links wasm inputs

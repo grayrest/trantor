@@ -14,6 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 B=tests/golden/b7-temporal
+source tests/golden/host-target.sh
 cargo build --release -q
 
 if ! _b=$(./target/release/trantor build "$B" --app app --out b7 2>&1); then echo "FAIL: build b7" >&2; echo "$_b" >&2; exit 1; fi
@@ -33,7 +34,7 @@ grep -q 'live=0' <<<"$g" || { echo "FAIL: temporal resources leaked: $g"; exit 1
 echo "ok: trantor-temporal composes on trantor-cli; NY/Tokyo conversion; $g"
 
 # (2) H0c: temporal_rs natives live in libtemporal_host.a and nowhere else.
-T="$B/target/trantor/b7-temporal/platform/targets/arm64mac"
+T="$B/target/trantor/b7-temporal/platform/targets/$HOST_TARGET"
 ar t "$T/libtemporal_host.a" | grep "^temporal_rs-" >/dev/null || { echo "FAIL: libtemporal_host.a has no temporal_rs symbols"; exit 1; }
 n=0
 for a in "$T"/lib*.a; do
@@ -74,7 +75,7 @@ main! : List(OsStr) => Try({}, _)
 main! = |_args| Stdout.line!("baseline")
 ROC
 ./target/release/trantor build "$S" --app app --out base >/dev/null 2>&1 || { echo "FAIL: build the baseline-only world"; exit 1; }
-BA="$S/target/trantor/baseline/platform/targets/arm64mac"
+BA="$S/target/trantor/baseline/platform/targets/$HOST_TARGET"
 bn=0; carriers=0
 for a in "$BA"/lib*.a; do
   bn=$((bn+1))

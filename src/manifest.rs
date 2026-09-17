@@ -61,8 +61,9 @@ pub struct WorldMeta {
     /// `interfaces`). Several worlds of one repo share one directory.
     #[serde(default)]
     pub interfaces_dir: Option<String>,
-    /// Native targets the composed `main.roc` declares, beyond the two every
-    /// world gets (`arm64mac`, `x64mac`). roc emits one link per entry and
+    /// Native targets the composed `main.roc` declares, beyond the ones every
+    /// world gets (`host_target::DECLARED_NATIVE_TARGETS`, plus the host's
+    /// own); one already declared is not repeated. roc emits one link per entry and
     /// rejects a name it does not know, so these are roc target names —
     /// `arm64musl` and `arm64glibc` for roc-solid's e-ink device, whose ELF
     /// and PIE variants are what the Nomad links against.

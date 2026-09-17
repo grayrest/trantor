@@ -347,6 +347,38 @@ behaviour of an app that stays inside its sandbox either way.
 user's call, and `{ github = … }` resolution is unexercised against it until
 then. `{ path = … }` works today and is what the gate uses.
 
+**D-U1-18 — trantor builds on Linux; the default target is the host's.**
+(User, 2026-09-17.) A native `--target` defaults to the host's roc target name
+(`arm64mac`/`x64mac`, `arm64glibc`/`x64glibc`, or the musl pair when trantor
+itself was built for musl) instead of `arm64mac`, and `roc build` is told that
+target rather than choosing its own. Every composed `main.roc` declares
+`arm64mac`, `x64mac`, `arm64glibc` and `x64glibc`, plus the host's and the
+world's `targets`, each once. A glibc target's inputs name the C runtime around
+the archives (`Scrt1.o`, `crti.o` … `crtn.o`, `libc.so`, `libm.so.6`,
+`libgcc_s.so.1`), staged from `cc -print-file-name` at build time. The symbol
+scan reads ELF with `readelf -sW` (GLOBAL, DEFAULT/PROTECTED only), and finds
+LLVM at `$LLVM_BIN`, then Homebrew, then `PATH`.
+
+Measured in the colima VM (Ubuntu 24.04, aarch64, roc built from the same
+commit as the Mac's): cargo builds the components for the host triple, so the
+old default staged Linux archives under the Mac name and linked nothing; roc's
+glibc link adds no libc, leaving `malloc`, `free` and `_Unwind_*` undefined; and
+a musl-built roc prefers a musl target when a world lists one. With the change
+all 20 golden fixtures and the unit tests pass on Linux and on macOS.
+
+**Why:** the platform is an ordinary Roc platform, and nothing in it was
+Mac-specific except names trantor chose. Declaring every native target keeps a
+composed platform independent of the machine that composed it.
+
+**Rejected:** declaring only the host's target (a platform composed on a Mac
+would not link on Linux); leaving roc to pick the target (picks by its own
+libc, not by what was built).
+
+**Not verified:** glibc before 2.34 (the runtime list assumes util, rt, pthread
+and dl live in libc), x86_64 Linux, a musl host, and a cross build for a glibc
+device such as roc-solid's Nomad, whose `arm64glibc` entry now names runtime
+files that staging copies from the building host's C compiler.
+
 ## Still open (raised, not decided)
 
 - **`out_dir` keys on the world DIRECTORY name while the app hardcodes that
@@ -363,10 +395,6 @@ then. `{ path = … }` works today and is what the gate uses.
   currently not merely unresolved but unexpressible. Deferring the resolver is
   fine; shipping a syntax with no room for a constraint is not, and P3 should
   reserve the field even while ignoring it.
-- **macOS only.** `nm -m`, Mach-O as the only native reader, `xcrun`,
-  `std::os::unix::fs::symlink`, and `arm64mac`/`x64mac` hardcoded in
-  `codegen.rs:296-297`. A legitimate scope choice that "the front door" implies
-  otherwise; the plan states the matrix in one line rather than pretending.
 - **Deferred with Track B (D-U1-9):** the `test_only`/`dist` inconsistency, the
   empty `macos-sysroot` in a published baseline, architecture in the asset
   name, whether appending a hosted leaf relayouts shared glue types (the
