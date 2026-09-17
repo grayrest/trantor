@@ -314,13 +314,34 @@ pub fn test(dir: &Path, world_file: &str, app: &str) -> Result<(), String> {
     } else {
         eprintln!("trantor test: no app at {app_main}, skipping roc test");
     }
-    // The user's own workspace, when there is one. Their components are the
-    // only Rust here that is theirs to test.
-    if dir.join("Cargo.toml").is_file() {
-        run("cargo", &["test", "--quiet"], dir, "cargo test")?;
-        eprintln!("trantor test: cargo tests pass");
+    // The user's own workspace, when it holds a crate. Their components are
+    // the only Rust here that is theirs to test. `trantor new` writes an empty
+    // workspace, and a project whose components are all Roc keeps one; cargo
+    // refuses to test that ("the workspace has no members"), so a project with
+    // no Rust of its own failed `trantor test` for having nothing to test.
+    let manifest = dir.join("Cargo.toml");
+    if manifest.is_file() {
+        let text = std::fs::read_to_string(&manifest).map_err(|e| format!("read {}: {e}", manifest.display()))?;
+        if has_crates(&text)? {
+            run("cargo", &["test", "--quiet"], dir, "cargo test")?;
+            eprintln!("trantor test: cargo tests pass");
+        } else {
+            eprintln!("trantor test: no crates in Cargo.toml, skipping cargo test");
+        }
     }
     Ok(())
+}
+
+/// Whether a Cargo.toml names anything cargo can test: a package of its own,
+/// or a workspace with at least one member.
+fn has_crates(cargo_toml: &str) -> Result<bool, String> {
+    let doc: toml::Table = cargo_toml.parse().map_err(|e| format!("Cargo.toml: {e}"))?;
+    let has_members = doc
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array())
+        .is_some_and(|m| !m.is_empty());
+    Ok(doc.contains_key("package") || has_members)
 }
 
 /// `--app` names a directory holding main.roc, or a .roc file directly.
@@ -450,4 +471,24 @@ pub fn compose(dir: &Path, world_file: &str, out: Option<std::path::PathBuf>) ->
         resolved.driver,
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_crates;
+
+    #[test]
+    fn an_empty_workspace_has_no_crates_to_test() {
+        assert!(!has_crates("[workspace]\nresolver = \"2\"\nmembers = []\n").unwrap());
+    }
+
+    #[test]
+    fn a_workspace_member_is_a_crate_to_test() {
+        assert!(has_crates("[workspace]\nmembers = [\"components/upper-host\"]\n").unwrap());
+    }
+
+    #[test]
+    fn a_root_package_is_a_crate_to_test() {
+        assert!(has_crates("[package]\nname = \"app\"\nversion = \"0.1.0\"\n").unwrap());
+    }
 }
