@@ -1,48 +1,57 @@
-# trantor
+# Trantor
 
-A build tool that composes Roc platforms out of components.
+A system for building Roc platforms by composition.
 
-A Roc app talks to the outside world through its platform, and a platform is
-normally one hand-written unit: its Roc API, the Rust host behind it and the
-glue between them. Using a Rust library the platform didn't anticipate means
-forking the platform. trantor splits the platform into parts:
+By default Roc's access to the outside world is mediated through its platform.
+This has some benefits but a drawback is that a Roc app can only have one platform
+and that one platform must provide *all* services the app will need over its
+lifetime. Needing something the platform didn't anticipate means a Roc developer
+would need to learn Rust/Zig/Go and fork the platform, which seems like a tall
+ask.
 
-- **Interfaces** are the Roc API an app sees, declared without bodies.
+Trantor is a system for building a platform from a composition of Rust/Roc parts:
+
+- **Interfaces** are the Roc API an app sees, declared without bodies (abstract).
 - **Components** implement interfaces, either in Rust (a *host* component) or in
   Roc.
-- **The driver** is the one component that owns `main`.
+- **Driver** is the one component that owns `main`.
 
 A **world** (`world.toml`) names the interfaces, the components and which
-component implements each interface. `trantor` turns that into an ordinary Roc
-platform that stock `roc build` compiles: the platform's `main.roc`, the binding
-modules, a cargo workspace for the host components, and the generated ABI crate
-they link against.
+component implements each interface. The `trantor` binary turns that into an
+ordinary Roc platform that stock `roc build` compiles: the platform's `main.roc`,
+the binding modules, a cargo workspace for the host components, and the
+generated ABI crate they link against.
 
 The API an app sees is set by the interface, not by what implements it, so
-the implementation can change without the app changing. That's what the
-walkthrough below shows.
+the implementation can change without the app changing. These are intended
+to be small enough that replacing one when different behavior is needed is
+a reasonable amount of work.
 
-Most apps start from a baseline package and add packages to it:
+A set of related components are grouped together as a **package**. The idea is
+to start from a baseline package providing the Driver and add packages to it.
+The currently released set of packages are written around a CLI baseline and
+intended to function as a standard library. A second baseline around building
+GUI applications is mostly built but unreleased and a third baseline around
+network services is planned.
 
-| Package | What it gives an app |
+| Package | Domain |
 |---|---|
-| [trantor-cli](https://github.com/grayrest/trantor-cli) | The baseline: a Roc port of WASI 0.3's `wasi:cli`, plus a `basic-cli` 0.21 shim |
+| [trantor-cli](https://github.com/grayrest/trantor-cli) | Baseline: a Roc port of WASI 0.3's `wasi:cli`, plus a `basic-cli` 0.21 shim |
 | [trantor-files](https://github.com/grayrest/trantor-files) | Walking directories, globs, temporary files, copying trees |
-| [trantor-process](https://github.com/grayrest/trantor-process) | Starting child processes |
+| [trantor-process](https://github.com/grayrest/trantor-process) | Starting and controlling child processes |
 | [trantor-net](https://github.com/grayrest/trantor-net) | Sockets and a blocking HTTP client |
-| [trantor-terminal](https://github.com/grayrest/trantor-terminal) | Raw mode, key input and screen drawing |
-| [trantor-temporal](https://github.com/grayrest/trantor-temporal) | `Temporal`-shaped calendar and time-zone arithmetic |
+| [trantor-terminal](https://github.com/grayrest/trantor-terminal) | Terminal handling, raw modek, key input, and ANSI escapes|
+| [trantor-temporal](https://github.com/grayrest/trantor-temporal) | TC39 `Temporal`-shaped calendar and time-zone arithmetic |
 | [trantor-hash](https://github.com/grayrest/trantor-hash) | Structural hashing of encodable values |
 | [trantor-encoding](https://github.com/grayrest/trantor-encoding) | Base64, hex, CSV and TOML |
-| [trantor-random](https://github.com/grayrest/trantor-random) | Seeded generators and UUIDs |
+| [trantor-random](https://github.com/grayrest/trantor-random) | PRNG generators and UUIDs |
 
-A package that can't do something doesn't give an app that power: an app
-without trantor-process can't start processes, and one without trantor-net
-can't open a socket.
+Packages are intended to rely on the least amount of authority that's
+reasonable. An app without `trantor-process` can't start processes and
+one without `trantor-net` can't open a socket or make a network request.
 
-## Requirements
+## Building the `trantor` binary
 
-- macOS.
 - Rust (stable; `rust-toolchain.toml` pins the channel).
 - A Roc compiler, found at `$ROC`, then `roc` on `$PATH`, then `~/.bin/roc`.
 - The `RustGlue.roc` spec that matches that compiler, found at `$GLUE`, then
@@ -52,23 +61,28 @@ can't open a socket.
 
 ```bash
 cargo build --release
+./target/release/trantor --help # lists the commands.
 ```
 
-`target/release/trantor --help` lists the commands.
 
-## Moving a capability without touching the app
+## Example: Growing a platform
 
-Say your app needs a text service. For this walkthrough it's capitalizing a
-string, but the path is the same for resizing images or anything else a Rust
-library does well. You'll usually take it in three steps:
+Say your app needs a service. For this example it'll be capitalizing a
+string, but the path is the same for resizing images, talking to a database,
+or anything else a Rust library does well. We'll take it in steps:
 
-1. **Shell out.** A tool on the machine already does the job, so call it.
-2. **Move it into a Rust package** when you'd rather not depend on the tool
-   being installed: `cargo add` a crate and call it in-process.
-3. **Move it into Roc** once the work needs no host at all, so there's no Rust
-   left to build.
+1. **Shell out** There are CLI utilities for many tasks, matches what you'd
+   do in `basic-cli`.
+2. **Trantor package** Not demonstrated in this example but a goal for this
+   project is to provide an ecosystem for common app needs. Hopefully one
+   without a capitalization or left-pad service.
+3. **Move it into a Rust package** When you want more control or don't want
+   to depend on a utility being installed on the machine. The Rust ecosystem 
+   is large enough to cover most needs.
+4. **Move it into Roc** Optimized Roc can match the host languages for speed
+   so the long term dream is to move dependencies into Roc.
 
-The app is written once, before step 1, and isn't edited again.
+For this example the app is written once, before step 1, and isn't edited again.
 
 ### The project
 
@@ -78,10 +92,11 @@ cd shout
 trantor new-interface . upper
 ```
 
-`new` writes `world.toml`, `app/main.roc`, a cargo workspace for your components
-and a `.gitignore`, then composes once so the project builds from the start.
-`new-interface` adds an interface and a host component that implements it, and
-wires them together:
+`trantor new` writes `world.toml`, `app/main.roc`, a cargo workspace for
+components and a `.gitignore`, then composes once so the project builds
+from the start. `trantor new-interface` adds an interface and a host
+component that implements it, and wires them together with the `world.toml`.
+Step 1 starts a child process, so add `trantor-process` to `[deps]` as well:
 
 ```toml
 # world.toml
@@ -91,6 +106,7 @@ exports = ["Upper"]
 
 [deps]
 base = { path = "../trantor-cli" }
+trantor-process = { path = "../trantor-process" }
 
 [interfaces.upper]
 
@@ -103,16 +119,17 @@ exports = ["upper"]
 upper = "upper-host"
 ```
 
-Declare what the app can call in `interfaces/upper/Upper.roc`, and name the
-matching hosted function in `interfaces/upper/interface.toml`:
+For the interface declaration:
 
 ```roc
+# interfaces/upper/Upper.roc
 Upper :: [].{
 	shout! : Str => {}
 }
 ```
 
 ```toml
+# interfaces/upper/interface.toml
 module = "Upper"
 
 [[hosted]]
@@ -120,9 +137,10 @@ leaf = "shout!"
 symbol_stem = "shout"
 ```
 
-The app only ever sees `Upper`:
+The app consumes `Upper`:
 
 ```roc
+# src/main.roc
 app [main!] { pf: platform "../target/trantor/shout/platform/main.roc" }
 
 import pf.IOErr
@@ -138,7 +156,67 @@ main! = |_args| {
 
 ### Step 1: shell out
 
-Ask trantor for the Rust signature instead of writing it by hand:
+Shell out from Roc using `trantor-process`'s `Cmd`:
+
+```roc
+# components/upper-shell/Upper.roc
+import Cmd
+import Stdout
+
+Upper :: [].{
+	shout! : Str => {}
+	shout! = |words| {
+		_ = shouted!(words)
+		{}
+	}
+}
+shouted! = |words| {
+	child = Cmd.new_str("tr").arg_str("a-z").arg_str("A-Z").spawn!({ stdin: Pipe, stdout: Pipe })?
+	out = child.collect!(Str.to_utf8(words))?
+	Stdout.line!(Str.from_utf8_lossy(out.stdout))
+}
+```
+
+Declare it and point the wiring at it:
+
+```toml
+# world.toml
+[components.upper-shell]
+kind = "roc"
+exports = ["upper"]
+
+[wiring]
+upper = "upper-shell"
+```
+
+```bash
+trantor run .    # RESIZE ME
+```
+
+### Step 3: Rust package
+
+This is expected to generally be wrapping pre-written crates and the example
+will do it as an ordinary cargo workspace in `components/upper-host`.
+
+We'll need to change the wiring by deleting the `[components.upper-shell]` entry,
+and dropping the `trantor-process` from `[deps]`.
+
+```toml
+# world.toml
+[deps]
+base = { path = "../trantor-cli" }
+## DELETE
+## trantor-process = { path = "../trantor-process" }
+##
+## [components.upper-shell]
+## kind = "roc"
+## exports = ["upper"]
+
+[wiring]
+upper = "upper-host"
+```
+
+Ask Trantor for the Rust signature instead of writing it by hand:
 
 ```bash
 trantor build . --platform-only
@@ -155,41 +233,13 @@ pub extern "C-unwind" fn trantor__upper_host__shout(arg0: RocStr) {
 }
 ```
 
-Fill in the body with a call to `tr`:
-
-```rust
-pub extern "C-unwind" fn trantor__upper_host__shout(arg0: RocStr) {
-    let s = arg0.as_str().to_string();
-    unsafe { arg0.decref(abi::host()); }
-    let out = std::process::Command::new("tr").arg("a-z").arg("A-Z")
-        .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped())
-        .spawn().and_then(|mut c| {
-            use std::io::Write;
-            c.stdin.take().unwrap().write_all(s.as_bytes())?;
-            c.wait_with_output()
-        }).expect("tr");
-    println!("{}", String::from_utf8_lossy(&out.stdout));
-}
-```
-
-```bash
-trantor run .    # RESIZE ME
-```
-
-### Step 2: a Rust package
-
-`components/upper-host` is an ordinary crate in an ordinary cargo workspace, so
-cargo and rust-analyzer work on it as usual:
-
-```bash
-cargo add convert_case --manifest-path components/upper-host/Cargo.toml
-```
+Then fill it in:
 
 ```rust
 use convert_case::{Case, Casing};
 
 pub extern "C-unwind" fn trantor__upper_host__shout(arg0: RocStr) {
-    let loud = arg0.as_str().to_case(Case::Upper);
+    let loud = arg0.as_str().to_uppercase();
     unsafe { arg0.decref(abi::host()); }
     println!("{loud}");
 }
@@ -199,13 +249,12 @@ pub extern "C-unwind" fn trantor__upper_host__shout(arg0: RocStr) {
 trantor run .    # RESIZE ME, with no subprocess
 ```
 
-The signature didn't change and neither did the app.
+No change to the app.
 
-### Step 3: Roc
+### Step 4: Roc
 
-Capitalizing needs no host, so the Rust can go. Write a Roc component that
-implements the same interface, printing through trantor-cli's `Stdout` as the
-Rust versions print with `println!`:
+Capitalizing is a pure function and pure fuctions belong in Roc! Alas,
+we lose unicode support in the process.
 
 ```roc
 # components/upper-roc/Upper.roc
@@ -223,6 +272,7 @@ Upper :: [].{
 Declare it in place of the host component and point the wiring at it:
 
 ```toml
+# world.toml
 [components.upper-roc]
 kind = "roc"
 exports = ["upper"]
@@ -231,34 +281,15 @@ exports = ["upper"]
 upper = "upper-roc"
 ```
 
-Then delete `components/upper-host` and remove it from `members` in
-`Cargo.toml`:
-
 ```bash
-trantor run .    # RESIZE ME, with no Rust of your own
+trantor run .    # RESIZE ME, in Roc
 ```
 
-The app still calls `Upper.shout!`, and its source is the same file, byte for
-byte, in all three steps.
-
-The walkthrough also runs as a test,
-[`tests/golden/u1-front-door/verify.sh`](tests/golden/u1-front-door/verify.sh).
-It runs all three steps and fails if any of these checks don't hold:
-
-- the output is the same in all three steps;
-- `app/main.roc` has the same hash throughout;
-- step 2 really calls the crate;
-- step 3's binary no longer contains the host symbol.
-
-To stay offline, the test swaps in two stand-ins:
-
-- **Crate:** a local crate instead of one from crates.io.
-- **Baseline:** a minimal one instead of trantor-cli. It provides the driver and
-  a one-line `Stdout`, which its Roc component calls directly.
+Still no change to the app through the whole process.
 
 ## Testing
 
-### Your app or world
+### Testing an app
 
 ```bash
 trantor test .
@@ -270,9 +301,9 @@ In a directory with `world.toml`, this does three things:
 2. Runs `roc test` over the app's `expect`s.
 3. Runs `cargo test` over your own crates, if the workspace has any.
 
-`trantor check .` is the faster inner loop: compose and typecheck, no build.
+`trantor check .` performs a compose and typecheck without a build.
 
-### A package
+### Testing a package
 
 In a directory with `package.toml`, `trantor test .` treats the package the way
 a consumer would:
@@ -300,7 +331,7 @@ Use `test.sh` for anything a stdout diff can't express:
 - a peer process such as a test server;
 - comparing against an oracle.
 
-The trantor packages lean on scripts. A few examples:
+The current trantor packages lean on scripts. A few examples:
 
 - [trantor-files' glob tests](https://github.com/grayrest/trantor-files/tree/main/tests/glob-oracle)
   compare every pattern's matches against zsh's.
@@ -311,10 +342,7 @@ The trantor packages lean on scripts. A few examples:
   drive the app through a real pseudo-terminal. Each has a mutation control that
   breaks the code and checks that the row notices.
 
-README examples aren't checked automatically. A package that wants its examples
-checked keeps a suite for them.
-
-### trantor itself
+### Testing the trantor binary
 
 ```bash
 cargo test --release        # unit tests
@@ -341,6 +369,3 @@ and the runner reports it as skipped, not passed.
 - `plans/`: what each piece of work set out to build, and notes on how it went.
 - `notes/`: the decisions behind it, as numbered decision records with the
   alternatives that were rejected.
-
-Package decisions are recorded here too. For example, `D-S2-*` covers
-trantor-cli's host gaps, trantor-files and trantor-process.
