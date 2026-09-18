@@ -1203,6 +1203,175 @@ the case it defends against — a hostile or broken resolver — is not worth th
 
 **Rejected:** a lookup thread abandoned on timeout.
 
+### D-S2-58 An empty path is `NotFound`
+
+Every filesystem operation, on both backends and at the raw `Fs` layer, answers
+`NotFound` for an empty path, as `std::fs` and WASI do. (User, accepting the
+recommendation after the package review of 2026-09-18.)
+
+Found in that review: an empty path was joined onto the cwd and named the
+working directory itself, so `Path.delete_all!(Path.utf8(""))` deleted the cwd
+(confined: emptied the whole root), and `Fs.read_dir_at!(root, [])` listed `/`.
+
+**Why:** an empty string is almost always a bug upstream of the call; a name
+that silently means "here" turns it into a recursive delete of the wrong tree.
+
+**Rejected:** `""` as "the current directory" (the reason it deleted the cwd).
+
+### D-S2-59 A recursive removal of a name ending in `.` is refused
+
+`delete_all!` / `remove_dir_all_at!` of `dir/.`, `./dir/./` or `link/.` is
+`Unsupported`, before anything is deleted, on both backends, as D-S2-50 refuses
+`..`. A bare `.` is still the confined root's own name and still works.
+`delete_empty!` is unchanged. (User, accepting the recommendation.)
+
+Found in the same review: `remove_dir_all` deleted the contents and only then
+failed its final `rmdir` with EINVAL, and through `link/.` it emptied the
+directory the link points at while `link/` alone was refused.
+
+**Why:** D-S2-50's rule — a removal must not delete what the caller did not
+name, and must not report failure after deleting.
+
+**Rejected:** stripping the `/.` and removing the directory (the link case would
+then remove the target by a name that is not its own).
+
+### D-S2-60 `cwd`, `exe_path` and `temp_dir` cross as bytes, with errors
+
+`CliEnv.cwd!` and `exe_path!` return `Try(OsStr, [Io(IOErr)])` and `temp_dir!`
+returns `OsStr`, like `args!`, `var!` and `env!`; `Cli.cwd!`, `exe_path!` and
+`temp_dir!` pass the leaf types through. `Env.cwd!`/`exe_path!` answer
+`CwdUnavailable`/`ExePathUnavailable` and keep non-UTF-8 bytes as `UnixBytes`,
+as their docs always said. With no cwd, a relative path fails `NotFound`
+instead of resolving against `""`. (User, accepting the recommendation.)
+
+Found in the same review: the host returned lossy `Str`s and `""` on failure, so
+a deleted cwd was `Ok("")` and a relative read then opened `/etc/hosts` for
+`etc/hosts`.
+
+**Why:** the shim's documented contract; and a path that cannot be spelled back
+is a path the app cannot open.
+
+**Rejected:** keeping `Cli`'s `Str` (lossy, or a crash on a non-UTF-8 cwd).
+
+### D-S2-61 An unhandled `Err` from `main!` is printed
+
+The driver writes `Program exited with error: <Str.inspect(err)>` to stderr and
+exits 1, in basic-cli 0.21's words; a failed write is ignored. There is still no
+`Exit(code)` arm: exit is an effect (`CliExit.exit!`), so an app returning
+`Err(Exit(3))` gets the message and 1. (User, accepting the recommendation.)
+
+**Why:** an app failing through `?` exited 1 with nothing said about why, which
+basic-cli users porting an app would read as a crash.
+
+**Rejected:** staying silent; restoring an `Exit(I32)` arm (reverses the
+exit-as-effect decision for one idiom).
+
+### D-S2-62 `Env.var!`, `Locale` and `read_line!` follow their references
+
+- `Env.var!` rejects an empty name or one containing `=` or NUL with basic-cli's
+  `EnvErr` and message (macOS `getenv` stopped the name at `=` and returned
+  another variable).
+- `Locale.all!`/`get!` take the effective locale from the first set of
+  `LC_ALL`, `LC_MESSAGES`, `LANG`; `C`/`POSIX` is no locale (`NotAvailable`), and
+  `LANGUAGE` is then ignored, as gettext does. With none of the three set,
+  `LANGUAGE` is still used. Tags are deduplicated case-insensitively.
+- `File.read_line!` reports `LineTooLong` only past 1 MiB: a final line of
+  exactly 1 MiB without a newline was reported too long and lost.
+
+(User, accepting the recommendation.)
+
+### D-S2-63 `Url` diverges from basic-cli where basic-cli's answer is unsafe
+
+- `append_path_segments` returns `Try(Url, [DotSegment(Str)])` and refuses an
+  item that is `.` or `..`: `["..", "..", "admin"]` on `/v1/users/` used to
+  give `/admin`. (First written as percent-encoding the item; the change review
+  showed WHATWG and RFC 3986 read `%2E%2E` as `..`, so no encoding keeps it
+  literal.) `...` is an ordinary name, as in WHATWG. Empty items are kept as
+  empty segments, and path normalization keeps empty segments throughout (RFC
+  3986 §5.2.4): `/v1//x/../y` is `/v1//y`.
+- `resolve` treats any `scheme:` reference as absolute (RFC 3986 §4.2): http and
+  https are parsed as absolute URLs (`http:g` is `MissingAuthority`), anything
+  else is `UnsupportedScheme`, which is now also what `ftp://x` answers.
+  `javascript:alert(1)` used to become a path under the base. A reference with
+  `://` later on (`?next=https://x.com/`) is relative, as it always should
+  have been; only a leading `//` is refused. The scheme is found by RFC 3986
+  §3.1 in both `parse` and `resolve`, for every scheme: `http:/x://y` is
+  `MissingAuthority`, and any scheme but http/https is
+  `UnsupportedScheme(scheme)` from either function.
+- `validate_host` rejects a dotted-decimal octet with a leading zero and any host
+  whose last label is numeric or `0x` hex but is not dotted-decimal IPv4
+  (`InvalidIpv4`), following WHATWG's "ends in a number" rule:
+  `0x7f.0.0.1` resolved to 127.0.0.1 while `Url.host` reported a DNS name.
+
+(User, accepting the recommendation, "including the Url changes".) Each change
+is noted in `Url.roc` as a divergence from basic-cli 0.21, whose code this was.
+
+**Why:** a host an allowlist approves must be the host the client reaches, and
+a segment the caller passes must not climb the path.
+
+**Rejected:** keeping basic-cli's behaviour for compatibility.
+
+### D-S2-64 The confined root accepts an aliased spelling of itself
+
+An absolute path that does not start with the root's canonical spelling is
+accepted when one of its leading prefixes, made only of plain names (no `.` or
+`..`), canonicalizes to exactly the root; the rest goes to cap-std as spelled.
+Anything else is `PermissionDenied`. `/tmp/x/f` reaches a root at
+`/private/tmp/x`. (User, accepting the recommendation, twice.)
+
+The first version canonicalized the deepest existing ancestor, `..` included;
+the change review showed that let a confined app learn whether paths outside
+its root exist (`/home/u/.ssh/../../../<root>/f` read, `.nope/..` was refused),
+and follow an outside link chain back in.
+
+The walk stops at the first prefix that does not exist (the second change
+review measured the unbounded walk: refusing a long path under an existing
+outside directory took 8.1 ms against 5.2 ms under a missing one). The answer
+never depends on what exists outside; how long it takes still does, a little,
+since an existing outside prefix is walked further before it is refused.
+
+**Why:** the code's comment already promised the alias, and macOS spells
+`$TMPDIR` under `/var`, a link to `/private/var`. The remaining timing signal
+says only whether an outside path exists, never what it holds, and removing it
+means removing the alias.
+
+**Rejected:** dropping the alias (the `$TMPDIR` case again).
+
+### D-S2-65 trantor-net sends every method, and UDP matches the socket's family
+
+- The HTTP agent allows non-standard methods, so `QUERY` and `Unknown(ext)` go
+  out with their verbs; ureq refused them before sending and the refusal read
+  as `BadBody`. A request ureq refuses is now `Other(message)`; response-side
+  protocol errors stay `BadBody` (H3). Three ureq errors that can come from
+  either side stay `BadBody`. This names `ureq-proto` directly, pinned to the
+  `=0.6.4` ureq 3.4.0 already resolves, because ureq does not re-export its
+  protocol errors.
+- `udp_send_to` sends to the first resolved address of the socket's own family,
+  falling back to the first: `localhost` from a `::1` socket failed with EINVAL.
+- The connect deadline is taken after the lookup, as D-S2-57 and the docs
+  already said; the code took it before, so a slow lookup spent the budget.
+
+(User, accepting the recommendation after the package review of 2026-09-18.)
+
+### D-S2-66 The confined root cannot be removed, and a link cannot point at nothing
+
+- `delete_all!` / `remove_dir_all_at!` of the confined root, by any spelling
+  that names it (absolute, with a slash, through an alias, or `.` components),
+  is `Unsupported` before anything is deleted; it used to empty the root and
+  then fail EINVAL. Unconfined, removing a directory by its absolute name is
+  unchanged.
+- `symlink_at!` with an empty target is `NotFound` on both backends (D-S2-58).
+  A link with an empty target made by another program is still followed as
+  "this directory" by cap-std and answered `NotFound` unconfined; that is
+  documented, not fixed.
+- An unhandled `Err`'s message (D-S2-61) goes to stderr like any write: with
+  stderr's reader gone the process dies of SIGPIPE, which apps keep (D-S2-26).
+- trantor-net: `Unknown` has a method code of its own, so `Unknown("")` is
+  `Other(invalid HTTP method)` and nothing is sent; it shared QUERY's code and
+  went out as QUERY once non-standard methods were allowed (D-S2-65).
+
+(User, accepting the recommendations from the change review of 2026-09-18.)
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7
