@@ -123,6 +123,8 @@ fn run() -> i32 {
     }
     let view = unsafe { roc_im_view(model, env()) };
     println!("{}", render(&view.tree));
+    // The driver is done: every component releases what it holds (D-H7-46).
+    services::shutdown();
     0
 }
 

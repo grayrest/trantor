@@ -83,3 +83,10 @@ pub extern "C-unwind" fn trantor__svc_tick__gate(name: RocStr, argv: RocList<Roc
     }
     -1
 }
+
+/// The driver is quitting (D-H7-46). Says so on stderr with the ticks it saw,
+/// which is how the fixture proves the hook ran, and ran after the last drain.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn trantor__svc_tick__shutdown() {
+    eprintln!("[tick] shutdown after {} ticks", TICKS.load(Ordering::Relaxed));
+}

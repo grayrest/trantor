@@ -9,7 +9,7 @@
 //! `__complete(token) -> RocList<Completion<MEvent>>` (a wake yields 0..n
 //! completions, in order — a coalesced no-op says nothing, a dying child's
 //! last lines precede its exit; D-H7-20), `__env() -> MEnv`,
-//! `__gate(name, argv, out) -> i32` — and gives the driver:
+//! `__gate(name, argv, out) -> i32`, `__shutdown()` — and gives the driver:
 //!   - `init(wake, measure_text, groups)`: hands every component its `HostCtx`
 //!     (D8) — wake, text measure (D-H7-22), and the group registry a document
 //!     service publishes page draw lists through (D-H7-11);
@@ -22,7 +22,10 @@
 //!     `complete` builds the Roc values, the shim wraps each;
 //!   - `env_<m>()`: each env block, for the driver's per-frame `Env` assembly;
 //!   - `gate(name, argv) -> Option<GateResult>`: the chain, components before
-//!     the driver (D-H7-8); a hook answers with a code AND text (D-H7-40).
+//!     the driver (D-H7-8); a hook answers with a code AND text (D-H7-40);
+//!   - `shutdown()`: the driver is quitting; every component's `__shutdown()`
+//!     releases what would outlive the process or be left broken by its end
+//!     — a child's process group, an unfinalized recording (D-H7-46).
 //!
 //! Measured in P0 (`tests/golden/im-services`) by hand; this generates the same
 //! text from the manifest.
@@ -56,6 +59,7 @@ pub fn services_rs(r: &Resolved, always: bool) -> Option<String> {
     s.push_str(&on_wake_fn(&r.services));
     s.push_str(&env_fns(&r.services));
     s.push_str(&gate_fn(&r.services));
+    s.push_str(&shutdown_fn(&r.services));
     Some(s)
 }
 
@@ -220,6 +224,7 @@ fn component_decls(svc: &Service, id: u32) -> String {
         decls.push_str(&format!("    fn {p}env() -> {env};\n"));
     }
     decls.push_str(&format!("    fn {p}gate(name: RocStr, argv: RocList<RocStr>, out: *mut RocStr) -> i32;\n"));
+    decls.push_str(&format!("    fn {p}shutdown();\n"));
     // `C-unwind` natively (H0d: a component's panic reaches the driver's
     // catch_unwind); plain `C` on wasm32, where nothing unwinds and a
     // `C-unwind` call under immediate-abort panics is lowered to a wasm
@@ -372,6 +377,28 @@ fn gate_fn(services: &[Service]) -> String {
     s.replace("N_SERVICES", &services.len().to_string())
 }
 
+/// D-H7-46. Every component, in world order: none depends on another's
+/// cleanup, so the order is only fixed so a run is repeatable.
+fn shutdown_fn(services: &[Service]) -> String {
+    let mut s = String::from(
+        "\n/// The driver is quitting — a closed window, SIGINT/SIGTERM, an activity's\n\
+         /// destroy (D-H7-46). Every component releases what the process's end would\n\
+         /// otherwise leak or break: a child's process group keeps running, a\n\
+         /// recording that is not finalized is not a valid file. Runtime thread,\n\
+         /// after the last drain; each hook returns promptly, so no deadline here.\n\
+         pub fn shutdown() {\n",
+    );
+    if !services.is_empty() {
+        s.push_str("    unsafe {\n");
+        for svc in services {
+            s.push_str(&format!("        {}shutdown();\n", svc.symbol_prefix()));
+        }
+        s.push_str("    }\n");
+    }
+    s.push_str("}\n");
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,6 +466,38 @@ mod tests {
         let r = world_with(vec![Service { component: "svc-audio".into(), module: "Audio".into(), event_module: None, env_module: None }]);
         let s = services_rs(&r, false).unwrap();
         assert_eq!(s.matches("let host = host();").count(), 1, "only the gate chain uses host");
+    }
+
+    /// D-H7-46: the shutdown hook is part of every component's contract.
+    #[test]
+    fn should_declare_a_shutdown_export_for_every_component() {
+        let r = world_with(vec![
+            Service { component: "svc-echo".into(), module: "Echo".into(), event_module: Some("EchoEvent".into()), env_module: None },
+            Service { component: "svc-tick".into(), module: "Tick".into(), event_module: None, env_module: None },
+        ]);
+        let s = services_rs(&r, false).unwrap();
+        let declared = ["fn trantor__svc_echo__shutdown();", "fn trantor__svc_tick__shutdown();"];
+        // Twice each: the native `C-unwind` block and the wasm32 `C` block.
+        assert!(declared.iter().all(|d| s.matches(d).count() == 2), "{s}");
+    }
+
+    #[test]
+    fn should_call_every_component_shutdown_from_the_driver_shutdown() {
+        let r = world_with(vec![
+            Service { component: "svc-echo".into(), module: "Echo".into(), event_module: Some("EchoEvent".into()), env_module: None },
+            Service { component: "svc-tick".into(), module: "Tick".into(), event_module: None, env_module: None },
+        ]);
+        let s = services_rs(&r, false).unwrap();
+        assert!(s.contains(
+            "pub fn shutdown() {\n    unsafe {\n        trantor__svc_echo__shutdown();\n        trantor__svc_tick__shutdown();\n    }\n}\n"
+        ));
+    }
+
+    /// D-H7-33's shim-with-nothing-wired still gives the driver the entry point.
+    #[test]
+    fn should_emit_a_no_op_shutdown_when_no_service_is_wired() {
+        let s = services_rs(&world_with(vec![]), true).unwrap();
+        assert!(s.contains("pub fn shutdown() {\n}\n"));
     }
 
     #[test]
