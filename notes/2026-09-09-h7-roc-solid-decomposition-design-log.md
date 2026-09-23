@@ -1210,6 +1210,38 @@ event. Rejected: checking the existing alias against the accessor type — glue
 derives both from the same layout, and a mismatch would fail the abi build
 loudly anyway.
 
+## D-H7-46 — A `shutdown` hook: the driver tells every component it is quitting (2026-09-23)
+
+Raised by roc-solid's 2026-09-22 review: nothing told a service the process
+was ending. `svc-spawn` puts each child in its own process group, so a Ctrl-C
+at the terminal does not reach it and a quit left it running; `svc-audio`
+writes FLAC, whose header is only valid once the take is finalized, so a quit
+mid-take left a broken file. Both need a call on the way out, and the contract
+had `init`, `cmd`, `complete`, `env` and `gate` but no exit.
+
+The contract gains `trantor__<c>__shutdown()`, no arguments and no answer, on
+every component, and the shim gains `services::shutdown()`, which calls each
+in world order. The driver calls it on its runtime thread after its last
+drain: after a native run loop returns, from a SIGINT/SIGTERM handler that
+only flags the loop (the call itself happens back on the main thread), and on
+Android best-effort from the activity's destroy. A world with nothing wired
+(D-H7-33) gets an empty `shutdown()`. There is no deadline in the shim: each
+hook is required to return promptly, and the services that do real work there
+are bounded (`svc-audio`'s writer drains at most its 10 s queue). A component
+with nothing to release still exports the hook, as it does `gate`; roc-solid's
+`svc-contract` has a `no_shutdown!` for that.
+
+A driver that never quits in the native sense (the DOM driver: a closed tab
+runs no code) does not call it, and its components still export it so the
+shim links. The `im-services` fixture's driver calls it after the last wake,
+and `svc-tick`'s hook reports the ticks it saw on stderr, which the fixture
+checks.
+
+Rejected: the host dispatching a synthetic stop command per known service,
+which names specific services from the driver (the thing D-H7-7 avoids); and
+per-component `atexit`/signal handlers, which a normal window close on Linux
+does not run and which several components would fight over.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just
