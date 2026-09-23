@@ -36,6 +36,6 @@ pub extern "C-unwind" fn trantor__svc_bell__gate(name: RocStr, argv: RocList<Roc
     -1
 }
 
-/// Nothing outlives the process here (D-H7-46).
+/// Nothing outlives the process here (D-H7-47).
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn trantor__svc_bell__shutdown() {}

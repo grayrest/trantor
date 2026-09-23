@@ -5,7 +5,7 @@
 # contract. Asserts: (1) the wrapper unions cross OUT (List(Cmd)) and IN
 # (Event) of Roc; (2) HostCtx.wake from a worker thread -> runtime-thread
 # complete; (3) the env block; (4) the gate hook chain; (5) the shutdown
-# hook reaches a component after the last drain (D-H7-46); (6) records the
+# hook reaches a component after the last drain (D-H7-47); (6) records the
 # allocator-shim symbol class per archive (one first-wins v0-mangled symbol —
 # the reason the driver archive is linked first).
 set -euo pipefail
