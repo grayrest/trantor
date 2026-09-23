@@ -1210,6 +1210,66 @@ event. Rejected: checking the existing alias against the accessor type — glue
 derives both from the same layout, and a mismatch would fail the abi build
 loudly anyway.
 
+## D-H7-46 — `[world] exports` defaults to the driver's `exposes`; a world adds `exports_extra` (2026-09-23)
+
+**Revises D-H7-35's "Rejected: defaulting `[world] exports`".** D-H7-35 kept
+the app's import list per-world because colorhunt's differed from clay's. That
+reason is gone: colorhunt's world was folded into clay (D-H7-39), and on
+roc-solid `98b05104` all nine native world files carried the same 53-name
+list, differing only in the service modules appended after it (`Audio`,
+`AudioEnv`; `Doc`, `DocEvent`, `Vault`, `VaultEvent`; ...). Adding one module
+to host-im was an eleven-file edit (`8abfbcb3`, InkSelection), and that edit
+missed the dom world's list. The row came from roc-solid's review-decisions
+log, #17.
+
+The shape:
+
+- `driver.toml` gains `exposes`, the part of `exports` an app may import.
+  trantor refuses an `exposes` entry that `exports` lacks and names it: that
+  module would reach `exposes` with no `.roc` behind it, and `roc build`
+  segfaults on that (H1b).
+- `[world] exports`, when omitted, is the driver's `exposes` followed by the
+  new `[world] exports_extra`. The packages' exports still come after both,
+  as they came after a stated list.
+- A world that states `exports` is unchanged, and the driver's `exposes` is not
+  consulted. An empty `exports` counts as omitted, because TOML cannot tell
+  `exports = []` from no `exports` once parsed. No driver had `exposes` before
+  this, so no existing world changes meaning.
+- **Both `exports` and `exports_extra` is an error**, not a precedence. They
+  mean different things (the whole list, and an addition to the driver's), so a
+  world holding both has one stale list, and any precedence would drop the
+  other one silently. This follows the deps rules (two deps providing a
+  driver, two claiming one wiring key): ambiguity is refused and named.
+- **An extra the driver already exposes, or one listed twice, is an error.**
+  Deduplicating would hide exactly the drift this removes: a world restating a
+  driver module is a world that has not noticed the driver ships it.
+- "Its driver" is the one `World::driver()` names (stated, or inherited from
+  the single dep that provides one, D-U1-6). There is exactly one; no union
+  over components. `kind = "roc"` components contribute nothing, and neither
+  does `contract_from`, for the reason D-H7-35 gives for `exports`: host-dom
+  borrows host-im's contract but ships none of its modules, so the dom world
+  still states its list.
+
+**An allowlist, not a list of private modules.** host-im ships 59 modules and
+exposes 53. The other six (`Cursor`, `Hash`, `HashFormat`, `HashVectors`,
+`RapidHash`, `SipHash`) are helpers that exposed modules import. The upcoming
+split tranche will add more internal leaf modules (`GridFilter`, `GridSort`
+out of `Grid`). With `exposes` they stay private by being absent. With a
+`private = [...]` list, each new leaf would have to be named there, and
+forgetting one would publish it. Forgetting an entry in `exposes` gives an
+import error the first time an app reaches for it, which is the safer way to
+fail.
+
+Rejected: `[components.<driver>] exports_extra`. The driver component's
+`exports` is the list trantor copies from the driver's crate, so a service
+module there (`Audio`, shipped by its interface) is a read error. Rejected:
+defaulting `[world] exports` from the driver's `exports`. That would expose
+the six helpers in every world.
+
+Measured on roc-solid: every native world composes with the same exposed
+module set as before, in the driver's order and then its extras; only the
+dom world changes, gaining the `InkSelection` that `8abfbcb3` left out.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

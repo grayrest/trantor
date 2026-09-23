@@ -58,6 +58,7 @@ mod splice;
 mod stub;
 mod symbols;
 mod wasm;
+mod world_exports;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

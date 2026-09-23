@@ -119,6 +119,14 @@ exports = ["upper"]
 upper = "upper-host"
 ```
 
+`[world] exports` lists the modules an app may import, and each dependency
+appends the modules its package exports. When a world leaves `exports` out, the
+list starts from its driver's `exposes` (declared in the driver's
+`driver.toml`), and `[world] exports_extra` appends the world's own modules.
+A world whose driver exposes a UI toolkit then lists only its service modules,
+e.g. `exports_extra = ["Audio"]`. Stating both `exports` and `exports_extra` is
+an error.
+
 For the interface declaration:
 
 ```roc

@@ -39,8 +39,18 @@ pub struct WorldMeta {
     /// `World::driver()`, which reports the two failure modes separately.
     #[serde(default)]
     pub driver: Option<String>,
+    /// Every module an app may import: the composed platform's `exposes`.
+    /// Omitted, it is the driver's `exposes` followed by `exports_extra`
+    /// (D-H7-46); stated, it is the whole list and the driver's is not
+    /// consulted. A module missing here SEGFAULTS `roc build` when an app
+    /// imports it, rather than failing to typecheck (D-H7-35's finding).
     #[serde(default)]
     pub exports: Vec<String>,
+    /// The world's own app-facing modules (its service interfaces' modules),
+    /// appended to the driver's `exposes` when `exports` is omitted. Stating
+    /// both is an error; see `world_exports::default_world_exports`.
+    #[serde(default)]
+    pub exports_extra: Vec<String>,
     /// Symbols the world explicitly declares as a shared/deduplicated native
     /// dependency, exempting them from the H0c archive collision scan (the
     /// escape hatch the policy names). Each entry is a source symbol name
@@ -482,6 +492,15 @@ pub struct Driver {
     /// exports` defaults to this when it omits it (D-H7-35).
     #[serde(default)]
     pub exports: Vec<String>,
+    /// The part of `exports` an app may import (D-H7-46). A world's `[world]
+    /// exports` defaults to it, so a world lists only its own modules in
+    /// `exports_extra`. An allowlist rather than a list of private modules:
+    /// a module the driver adds for its own use (a helper an exposed module
+    /// imports) stays private without being named anywhere, and a name here
+    /// that `exports` lacks is refused. Not inherited through `contract_from`,
+    /// like `exports` itself.
+    #[serde(default)]
+    pub exposes: Vec<String>,
     /// The macOS system frameworks this driver links, defaulted into the
     /// world's `[components.<driver>] frameworks` the same way and for the
     /// same reason.
@@ -522,11 +541,45 @@ pub fn load_world(dir: &Path, file: &str) -> Result<World, String> {
     let p = dir.join(file);
     let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
     let mut w: World = toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))?;
+    // `deps::expand` appends the packages' exports to `[world] exports`, so
+    // set the world's own list aside first: whether the world stated one
+    // decides whether the driver's `exposes` applies (D-H7-46), and the
+    // packages' modules still come after it, as they always have.
+    let own_exports = std::mem::take(&mut w.world.exports);
     // Before anything reads components or wiring, and before the driver's own
     // lists are defaulted — the driver itself may come from a dependency.
     crate::deps::expand(dir, &mut w)?;
-    default_driver_lists(dir, &mut w)?;
+    let dep_exports = std::mem::replace(&mut w.world.exports, own_exports);
+    let driver = own_driver_toml(dir, &w)?;
+    let exposes = driver.as_ref().map_or(&[][..], |d| &d.exposes[..]);
+    crate::world_exports::default_world_exports(&mut w.world, exposes)?;
+    for e in dep_exports {
+        if !w.world.exports.contains(&e) {
+            w.world.exports.push(e);
+        }
+    }
+    if let Some(d) = driver {
+        default_driver_lists(&mut w, d);
+    }
     Ok(w)
+}
+
+/// The world's driver's own `driver.toml`, with its `exposes` checked against
+/// its `exports`. `None` when the world names no driver component or the file
+/// is missing or unreadable, which `load_driver` reports.
+///
+/// NOT merged through `contract_from`: borrowing another driver's app contract
+/// does not make you ship its modules, link its frameworks or expose anything
+/// (roc-solid's host-dom borrows host-im's contract, ships no modules of its
+/// own — a separate `kind = "roc"` component carries them — and links nothing).
+fn own_driver_toml(dir: &Path, w: &World) -> Result<Option<Driver>, String> {
+    let Some(name) = w.world.driver.as_deref() else { return Ok(None) };
+    let Some(c) = w.components.get(name) else { return Ok(None) };
+    let p = component_dir(dir, name, c).join("driver.toml");
+    let Ok(text) = std::fs::read_to_string(&p) else { return Ok(None) };
+    let d: Driver = toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))?;
+    crate::world_exports::check_exposes(&d, &p)?;
+    Ok(Some(d))
 }
 
 /// Fill the driver component's `exports` and `frameworks` from the driver's own
@@ -541,29 +594,15 @@ pub fn load_world(dir: &Path, file: &str) -> Result<World, String> {
 ///
 /// A world that states either list still wins outright, which is how a world
 /// ships a driver's modules selectively.
-///
-/// NOT inherited through `contract_from`: borrowing another driver's app
-/// contract does not make you ship its modules or link its frameworks
-/// (roc-solid's host-dom borrows host-im's contract, ships no modules of its
-/// own — a separate `kind = "roc"` component carries them — and links nothing).
-/// A missing or unreadable `driver.toml` is left to `load_driver` to report.
-fn default_driver_lists(dir: &Path, w: &mut World) -> Result<(), String> {
-    let Some(name) = w.world.driver.clone() else { return Ok(()) };
-    let Some(c) = w.components.get(&name) else { return Ok(()) };
-    if !c.exports.is_empty() && !c.frameworks.is_empty() {
-        return Ok(());
-    }
-    let p = component_dir(dir, &name, c).join("driver.toml");
-    let Ok(text) = std::fs::read_to_string(&p) else { return Ok(()) };
-    let d: Driver = toml::from_str(&text).map_err(|e| format!("parse {}: {e}", p.display()))?;
-    let c = w.components.get_mut(&name).expect("present, checked above");
+fn default_driver_lists(w: &mut World, d: Driver) {
+    let Some(name) = w.world.driver.as_deref() else { return };
+    let Some(c) = w.components.get_mut(name) else { return };
     if c.exports.is_empty() {
         c.exports = d.exports;
     }
     if c.frameworks.is_empty() {
         c.frameworks = d.frameworks;
     }
-    Ok(())
 }
 
 pub fn load_interface(dir: &Path, world: &World, name: &str) -> Result<Interface, String> {
@@ -653,6 +692,50 @@ mod tests {
         write_world(&dir, "");
         let w = load_world(&dir, "world.toml").unwrap();
         assert!(w.components["drv"].exports.is_empty() && w.components["drv"].frameworks.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A world whose `[world]` table carries `meta` and whose driver is `drv`.
+    fn write_world_meta(dir: &Path, meta: &str) {
+        std::fs::write(
+            dir.join("world.toml"),
+            format!("[world]\nname = \"w\"\ndriver = \"drv\"\n{meta}[components.drv]\nkind = \"driver\"\n[wiring]\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn should_default_world_exports_from_the_driver_toml_exposes() {
+        let dir = fixture("exposes", "exports = [\"Ui\", \"Hash\"]\nexposes = [\"Ui\"]\n");
+        write_world_meta(&dir, "exports_extra = [\"Audio\"]\n");
+        let w = load_world(&dir, "world.toml").unwrap();
+        assert_eq!(w.world.exports, ["Ui", "Audio"], "Hash ships but is not exposed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn should_refuse_a_driver_exposing_a_module_it_does_not_ship() {
+        let dir = fixture("exposes-bad", "exports = [\"Ui\"]\nexposes = [\"Ghost\"]\n");
+        write_world_meta(&dir, "");
+        let e = load_world(&dir, "world.toml").unwrap_err();
+        assert!(e.contains("`Ghost`"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// host-dom borrows host-im's contract and ships no modules, so a world
+    /// over it gets no default `exposes` from host-im.
+    #[test]
+    fn should_not_default_world_exports_through_contract_from() {
+        let dir = fixture("exposes-borrow", "exports = [\"Ui\"]\nexposes = [\"Ui\"]\n");
+        std::fs::create_dir_all(dir.join("components/dom")).unwrap();
+        std::fs::write(dir.join("components/dom/driver.toml"), "contract_from = \"../drv/driver.toml\"\n").unwrap();
+        std::fs::write(
+            dir.join("world.toml"),
+            "[world]\nname = \"w\"\ndriver = \"dom\"\n[components.dom]\nkind = \"driver\"\n[wiring]\n",
+        )
+        .unwrap();
+        let w = load_world(&dir, "world.toml").unwrap();
+        assert!(w.world.exports.is_empty(), "got {:?}", w.world.exports);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -451,4 +451,26 @@ mod tests {
         assert!(e.contains("cycle"), "{e}");
         std::fs::remove_dir_all(&t).ok();
     }
+
+    /// A package's exports still follow the world's list when that list is the
+    /// driver's `exposes` plus `exports_extra` (D-H7-46), as they follow a
+    /// stated one.
+    #[test]
+    fn should_append_package_exports_after_the_driver_default() {
+        let t = tmp();
+        pkg(&t.join("base"), "base", "text", "text-host", None);
+        let mut body = std::fs::read_to_string(t.join("base/package.toml")).unwrap();
+        body = body.replace("name = \"base\"\n", "name = \"base\"\nexports = [\"Text\"]\n");
+        write(&t.join("base"), "package.toml", &body);
+        write(&t.join("app"), "components/drv/driver.toml", "exports = [\"Ui\"]\nexposes = [\"Ui\"]\n");
+        write(
+            &t.join("app"),
+            "world.toml",
+            "[world]\nname = \"a\"\ndriver = \"drv\"\nexports_extra = [\"Audio\"]\n\
+             \n[deps]\nbase = { path = \"../base\" }\n\n[components.drv]\nkind = \"driver\"\n",
+        );
+        let w = load_world(&t.join("app"), "world.toml").unwrap();
+        assert_eq!(w.world.exports, ["Ui", "Audio", "Text"]);
+        std::fs::remove_dir_all(&t).ok();
+    }
 }
