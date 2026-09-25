@@ -1302,6 +1302,37 @@ which names specific services from the driver (the thing D-H7-7 avoids); and
 per-component `atexit`/signal handlers, which a normal window close on Linux
 does not run and which several components would fight over.
 
+## D-H7-48 — A `pending` hook: how many answers each component still owes (2026-09-25)
+
+Raised by roc-solid's quit notice. A native driver now tells its app it is
+quitting and gives the app's last commands a bounded time to be answered
+before `shutdown` (D-H7-47) — a final save to a database or a server is the
+reason. For that it has to know when the answers are in, and it cannot: an
+`Answer`/`Completion` carries a route key and an event, and whether a stream
+is finished lives inside each service's own event type (`last`, `Exited`),
+which the driver does not read and some services do not have.
+
+The contract gains `trantor__<c>__pending() -> u32` on every component: the
+requests it has accepted through `cmd` whose final answer has not yet gone
+out through `complete`. The shim gains `services::pending()`, the saturating
+sum over the world, and a world with nothing wired (D-H7-33) gets one that
+answers 0. The driver reads only the sum, so it still names no service. A
+synchronous component (every verb answered inside `cmd`) owes nothing between
+calls and says 0; a long-lived stream that only `shutdown` ends (a spawned
+job, a recording) is not "owed" either, or a quit would always wait out its
+deadline for it. roc-solid's `svc-contract` has a `no_pending!` for those.
+
+The `im-services` fixture's components all export the hook; `svc-tick` counts
+a `Start` until its last tick completes, and the driver prints the sum before
+and after its wakes (1, then 0), which the fixture checks.
+
+Rejected: quiescence — draining until no wake has arrived for a quiet period
+— which needs no contract change but cuts off a slow write with a long quiet
+gap silently, the very loss the wait exists to prevent; an app-sent
+"ready to quit" command, which makes every app that ignores the notice wait
+the full deadline; and per-component counts in the shim, which would let the
+driver's policy name services.
+
 ## Still open (raised, not decided)
 
 - Whether `platform/signals` is retired later (a separate decision; `just

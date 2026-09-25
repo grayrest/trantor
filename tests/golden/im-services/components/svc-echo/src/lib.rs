@@ -95,3 +95,10 @@ pub extern "C-unwind" fn trantor__svc_echo__gate(name: RocStr, argv: RocList<Roc
 /// Nothing outlives the process here (D-H7-47).
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn trantor__svc_echo__shutdown() {}
+
+/// Every command is answered inside `cmd`, so nothing is ever in flight
+/// between calls (D-H7-48).
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn trantor__svc_echo__pending() -> u32 {
+    0
+}

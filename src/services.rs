@@ -9,7 +9,8 @@
 //! `__complete(token) -> RocList<Completion<MEvent>>` (a wake yields 0..n
 //! completions, in order — a coalesced no-op says nothing, a dying child's
 //! last lines precede its exit; D-H7-20), `__env() -> MEnv`,
-//! `__gate(name, argv, out) -> i32`, `__shutdown()` — and gives the driver:
+//! `__gate(name, argv, out) -> i32`, `__shutdown()`, `__pending() -> u32` —
+//! and gives the driver:
 //!   - `init(wake, measure_text, groups)`: hands every component its `HostCtx`
 //!     (D8) — wake, text measure (D-H7-22), and the group registry a document
 //!     service publishes page draw lists through (D-H7-11);
@@ -25,7 +26,10 @@
 //!     the driver (D-H7-8); a hook answers with a code AND text (D-H7-40);
 //!   - `shutdown()`: the driver is quitting; every component's `__shutdown()`
 //!     releases what would outlive the process or be left broken by its end
-//!     — a child's process group, an unfinalized recording (D-H7-47).
+//!     — a child's process group, an unfinalized recording (D-H7-47);
+//!   - `pending()`: the requests every component has accepted and not yet
+//!     answered for the last time, summed — what a driver telling its app it
+//!     is quitting waits on before `shutdown` (D-H7-48).
 //!
 //! Measured in P0 (`tests/golden/im-services`) by hand; this generates the same
 //! text from the manifest.
@@ -60,6 +64,7 @@ pub fn services_rs(r: &Resolved, always: bool) -> Option<String> {
     s.push_str(&env_fns(&r.services));
     s.push_str(&gate_fn(&r.services));
     s.push_str(&shutdown_fn(&r.services));
+    s.push_str(&pending_fn(&r.services));
     Some(s)
 }
 
@@ -225,6 +230,7 @@ fn component_decls(svc: &Service, id: u32) -> String {
     }
     decls.push_str(&format!("    fn {p}gate(name: RocStr, argv: RocList<RocStr>, out: *mut RocStr) -> i32;\n"));
     decls.push_str(&format!("    fn {p}shutdown();\n"));
+    decls.push_str(&format!("    fn {p}pending() -> u32;\n"));
     // `C-unwind` natively (H0d: a component's panic reaches the driver's
     // catch_unwind); plain `C` on wasm32, where nothing unwinds and a
     // `C-unwind` call under immediate-abort panics is lowered to a wasm
@@ -399,6 +405,30 @@ fn shutdown_fn(services: &[Service]) -> String {
     s
 }
 
+/// D-H7-48. A sum, not a per-component list: the driver waits for "nothing in
+/// flight", and a count that named its component would be the driver naming
+/// services (what D-H7-7 avoids). Saturating, because a component's count is
+/// its own claim and one wild answer must not wrap the total to "done".
+fn pending_fn(services: &[Service]) -> String {
+    let mut s = String::from(
+        "\n/// How many requests every component has accepted and not yet answered for\n\
+         /// the last time (D-H7-48): the answers the app is still owed. A driver that\n\
+         /// tells its app it is quitting waits on this, up to a deadline of its own,\n\
+         /// before `shutdown`. Runtime thread; each hook only reads a counter.\n\
+         pub fn pending() -> u32 {\n",
+    );
+    if services.is_empty() {
+        s.push_str("    0\n}\n");
+        return s;
+    }
+    s.push_str("    let mut n: u32 = 0;\n    unsafe {\n");
+    for svc in services {
+        s.push_str(&format!("        n = n.saturating_add({}pending());\n", svc.symbol_prefix()));
+    }
+    s.push_str("    }\n    n\n}\n");
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -498,6 +528,41 @@ mod tests {
     fn should_emit_a_no_op_shutdown_when_no_service_is_wired() {
         let s = services_rs(&world_with(vec![]), true).unwrap();
         assert!(s.contains("pub fn shutdown() {\n}\n"));
+    }
+
+    /// D-H7-48: the in-flight count is part of every component's contract.
+    #[test]
+    fn should_declare_a_pending_export_for_every_component() {
+        let r = world_with(vec![
+            Service { component: "svc-echo".into(), module: "Echo".into(), event_module: Some("EchoEvent".into()), env_module: None },
+            Service { component: "svc-tick".into(), module: "Tick".into(), event_module: None, env_module: None },
+        ]);
+        let s = services_rs(&r, false).unwrap();
+        let declared = ["fn trantor__svc_echo__pending() -> u32;", "fn trantor__svc_tick__pending() -> u32;"];
+        // Twice each: the native `C-unwind` block and the wasm32 `C` block.
+        assert!(declared.iter().all(|d| s.matches(d).count() == 2), "{s}");
+    }
+
+    #[test]
+    fn should_sum_pending_across_components() {
+        let r = world_with(vec![
+            Service { component: "svc-echo".into(), module: "Echo".into(), event_module: Some("EchoEvent".into()), env_module: None },
+            Service { component: "svc-tick".into(), module: "Tick".into(), event_module: None, env_module: None },
+        ]);
+        let s = services_rs(&r, false).unwrap();
+        assert!(
+            s.contains(
+                "pub fn pending() -> u32 {\n    let mut n: u32 = 0;\n    unsafe {\n        n = n.saturating_add(trantor__svc_echo__pending());\n        n = n.saturating_add(trantor__svc_tick__pending());\n    }\n    n\n}\n"
+            ),
+            "{s}"
+        );
+    }
+
+    /// D-H7-33's shim-with-nothing-wired: nothing is ever in flight.
+    #[test]
+    fn should_emit_zero_pending_when_no_service_is_wired() {
+        let s = services_rs(&world_with(vec![]), true).unwrap();
+        assert!(s.contains("pub fn pending() -> u32 {\n    0\n}\n"), "{s}");
     }
 
     #[test]

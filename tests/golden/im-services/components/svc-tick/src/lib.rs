@@ -7,7 +7,7 @@
 //! Ownership (D9 / D-H7-11): the token is a `Box` this crate allocates and
 //! this crate frees inside `complete`. Nothing Rust-allocated crosses.
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering};
 use trantor_abi as abi;
 use abi::services::{self, HostCtx};
 use abi::{RocList, RocStr, Tick, TickEnv, TickEvent, TickEventPayload, TickEventTag, TickTag};
@@ -17,10 +17,13 @@ type Answer = services::Answer<TickEvent>;
 type Completion = services::Completion<TickEvent>;
 
 /// Component-owned; travels as the opaque wake token.
-struct Pending { request: u64, route_key: String, n: u64 }
+struct Pending { request: u64, route_key: String, n: u64, of: u64 }
 
 static CTX: AtomicPtr<HostCtx> = AtomicPtr::new(core::ptr::null_mut());
 static TICKS: AtomicU64 = AtomicU64::new(0);
+/// `Start` requests whose last tick has not gone out through `complete` yet
+/// (D-H7-48): raised in `cmd`, dropped when tick `n` of `n` completes.
+static IN_FLIGHT: AtomicU32 = AtomicU32::new(0);
 
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn trantor__svc_tick__init(ctx: *const HostCtx) {
@@ -34,6 +37,9 @@ pub extern "C-unwind" fn trantor__svc_tick__cmd(request: u64, cmd: Tick) -> RocL
         let start = unsafe { cmd.borrow_payload_start_unchecked() };
         let n = start._2;
         let key = start._1.as_str().to_string(); // the service's own route key (D-H7-17)
+        if n > 0 {
+            IN_FLIGHT.fetch_add(1, Ordering::AcqRel);
+        }
         let ctx = CTX.load(Ordering::Acquire);
         assert!(!ctx.is_null(), "svc-tick: cmd before init");
         // SAFETY: the driver's HostCtx is a static that outlives every call.
@@ -41,7 +47,7 @@ pub extern "C-unwind" fn trantor__svc_tick__cmd(request: u64, cmd: Tick) -> RocL
         std::thread::spawn(move || {
             for i in 1..=n {
                 std::thread::sleep(std::time::Duration::from_millis(5));
-                let token = Box::into_raw(Box::new(Pending { request, route_key: key.clone(), n: i }));
+                let token = Box::into_raw(Box::new(Pending { request, route_key: key.clone(), n: i, of: n }));
                 wake(id, token as *mut c_void);
             }
         });
@@ -59,6 +65,9 @@ pub extern "C-unwind" fn trantor__svc_tick__complete(token: *mut c_void) -> RocL
     // back exactly once.
     let p = unsafe { Box::from_raw(token as *mut Pending) };
     TICKS.fetch_add(1, Ordering::Relaxed);
+    if p.n == p.of {
+        IN_FLIGHT.fetch_sub(1, Ordering::AcqRel);
+    }
     let host = abi::host();
     let done = [Completion {
         request: p.request,
@@ -89,4 +98,12 @@ pub extern "C-unwind" fn trantor__svc_tick__gate(name: RocStr, argv: RocList<Roc
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn trantor__svc_tick__shutdown() {
     eprintln!("[tick] shutdown after {} ticks", TICKS.load(Ordering::Relaxed));
+}
+
+/// The `Start` requests still ticking (D-H7-48). The driver reads it before
+/// and after its wakes, which is how the fixture proves the count is a real
+/// one: 1 while the ticks are owed, 0 once the last has completed.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn trantor__svc_tick__pending() -> u32 {
+    IN_FLIGHT.load(Ordering::Acquire)
 }

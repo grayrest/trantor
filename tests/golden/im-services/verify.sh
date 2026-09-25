@@ -5,7 +5,8 @@
 # contract. Asserts: (1) the wrapper unions cross OUT (List(Cmd)) and IN
 # (Event) of Roc; (2) HostCtx.wake from a worker thread -> runtime-thread
 # complete; (3) the env block; (4) the gate hook chain; (5) the shutdown
-# hook reaches a component after the last drain (D-H7-47); (6) records the
+# hook reaches a component after the last drain (D-H7-47); (5b) the pending
+# count is owed while an async request streams and 0 after it (D-H7-48); (6) records the
 # allocator-shim symbol class per archive (one first-wins v0-mangled symbol —
 # the reason the driver archive is linked first).
 set -euo pipefail
@@ -23,6 +24,8 @@ echo "ok: wrapper unions cross both ways; 3 async wakes completed on the runtime
 err=$("$FIX/target/trantor/im-services/bin/imsvc" 2>&1 >/dev/null)
 grep -qx "\[tick\] shutdown after 3 ticks" <<<"$err" || { echo "FAIL: services::shutdown() did not reach svc-tick after the last wake; stderr: $err"; exit 1; }
 echo "ok: services::shutdown() reached svc-tick after the last drain (it saw all 3 ticks)"
+grep -qx "\[imview\] pending 1 before the wakes, 0 after" <<<"$err" || { echo "FAIL: services::pending() did not count the ticking request until its last tick; stderr: $err"; exit 1; }
+echo "ok: services::pending() counted the Start request until its last tick completed (1, then 0)"
 echo "ok: one-variant service unions work — a three-field command whose first field is Str, beside a two-field event (Bell); a no-payload command and a one-field event (Nudge) (D-H7-44); a one-record-field command and event glue names itself (Chime) (D-H7-45)"
 
 set +e

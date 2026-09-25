@@ -114,6 +114,8 @@ fn run() -> i32 {
     let mut model = unsafe { roc_im_init(env()) };
     let (m, promised) = drain(model, &mut next_request);
     model = m;
+    // What the components still owe, before and after the wakes (D-H7-48).
+    let owed = services::pending();
     for _ in 0..promised {
         let Wake(id, token) = rx.recv().expect("wake channel closed");
         for (_request, route_key, event) in services::on_wake(id, token) {
@@ -123,6 +125,7 @@ fn run() -> i32 {
     }
     let view = unsafe { roc_im_view(model, env()) };
     println!("{}", render(&view.tree));
+    eprintln!("[imview] pending {owed} before the wakes, {} after", services::pending());
     // The driver is done: every component releases what it holds (D-H7-47).
     services::shutdown();
     0
