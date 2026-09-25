@@ -1164,6 +1164,32 @@ holds a pin only through a github dependency.
   Manila's 1844 date-line change. The gate grows from about 4 to about 5
   minutes.
 
+### D-T2-41 Private modules carry the package's prefix, and the zone memo is keyed on the zone
+
+- `Plain` and `Strftime` are `TemporalPlain` and `TemporalStrftime`. They are
+  absent from `[package] exports` and were never a surface, but a component's
+  exports are written into the composed platform directory all the same, and a
+  second source for one platform module name is a hard compose error. The two
+  most generic names in the ecosystem were therefore claimed for every world
+  this package is in, with nothing in `[package] exports` to tell a consumer.
+  Every sibling package already prefixes its private modules (`GlobPattern`,
+  `CsvParse`, `InternalHttp`, trantor-cli's `InternalDateTime`). `tests/modules`
+  reads the composed platform directory and refuses any module this package
+  writes there without the prefix, so a new one cannot reintroduce the problem.
+- The zone memo (D-T2-6) is keyed on the zone's own identifier, never on what
+  the caller spelled. `TimeZone : Str`, so an identifier reaches `zoned!` or
+  `with_time_zone!` straight from a config file, a CSV column or a request
+  parameter, and `try_from_str` accepts every case permutation of a name — over
+  a billion for `America/Argentina/ComodRivadavia`. Keyed on the spelling the
+  map grew one entry per accepted input and never shrank. Measured after:
+  100,000 spellings of one zone hold one entry, and the whole accepted input
+  space is 3,476 entries — 597 tzdb identifiers plus 2,879 minute-precision
+  offsets, which is everything `try_from_str` can produce. No cap was added; the
+  key space is now bounded by the tzdb, which is what a cap would be protecting.
+
+(User, from the full-set code review of 2026-09-25; the cross-package findings
+are in D-S2-67.)
+
 ## Still open (raised, not decided)
 
 - **b8's intermittent failure is unexplained.** Not reproducible after ~20

@@ -1372,6 +1372,71 @@ means removing the alias.
 
 (User, accepting the recommendations from the change review of 2026-09-18.)
 
+### D-S2-67 The full-set review: confinement fails like an operation, and the cwd follows the wiring
+
+**trantor-cli.**
+
+- The confined root is found and opened by a fallible `Confinement`, not by
+  `current_dir().expect("cwd")` and `open_ambient_dir(..).expect(..)`. A working
+  directory deleted after the process started, or one searchable but not
+  readable, is the calling operation's `NotFound` or `PermissionDenied` on both
+  backends; the confined build used to panic and exit 70 where the unconfined
+  one answered and exited 0. Both `.expect()`s were reachable and both were
+  measured.
+- The root is memoised **with its failure**. It is the process's whole
+  filesystem authority — `preopens` publishes it and every path resolved so far
+  is relative to it — so a root that established itself later, at whatever
+  directory then answers to the name, would let one run resolve the same
+  relative path under two different roots. The case that argues for retrying
+  does not recover anyway: measured, once the working directory is removed
+  `getcwd` still answers ENOENT after the name is recreated, because the process
+  holds the unlinked inode and not the name.
+- `preopens` names the root (`Desc::Root`) instead of resolving it. That
+  signature has nowhere to put the reason there is no path, and answering an
+  empty list would crash the layer above, which is right to expect a preopen —
+  the panic in a different coat.
+- `metadata_hash_at` takes its two SipHash passes under a key drawn once per
+  process. `DefaultHasher::new()` is keyed (0, 0), so the value was a pure
+  function of a low-entropy input: stat your own files for `dev`, then walk
+  `ino`, which is well under 2^32 on a real filesystem, and the two numbers
+  D-S2-25 says it withholds come back out. Equality within a run is what the
+  API promises and is unchanged; the suites compare hashes to each other and
+  never across processes.
+- `/dev/urandom` failures map through `ioerr_tag!` as every other reach path
+  does. Both arms built `Other(e.to_string())` whatever the errno was, so an app
+  matching `PermissionDenied` or `NotFound` on `Random.seed_u64!` was matching
+  arms nothing could reach. Nothing in `tests/` called that leaf at all.
+
+**trantor-process.** The cwd reaches the host as an argument the Roc layer reads
+from `Cwd.get!`, per call, at the two functions every path funnels through.
+`subprocess-host` declared `extern trantor__cwd_host__get` — a *component*
+symbol, which is what an in-package call became when process creation left the
+baseline (D-S2-19). A world with `[wiring] cwd = "my-cwd"` still linked, and its
+children ran in the process's directory while Roc's file operations saw the
+userland one; `check_available!` read the same slot nobody wrote.
+`spawn_redirected!` and `can_execute!` (moved to `subprocess-raw`) now take the
+cwd, and `imports` stays `["sync-io", "fd-handoff"]`, which is the truth: it was
+never declared for `cwd`, which is why the composer never saw the dependency.
+
+Rejected: teaching the composer to emit a host-to-interface binding, so a host
+component that imports an interface could call the wired component's symbol
+without naming it. It fixes the class rather than the case and would make
+`imports` mean what it reads like, but it is a feature in the tool, well beyond
+this package. Rejected: declaring `cwd` in `imports` and keeping the extern,
+which records the dependency and leaves the defect.
+
+**trantor-net.** The README now states that `HttpHost` and `Http` honour a proxy
+named in the environment: the six variables ureq reads in order, that the one it
+finds is used for every scheme so `HTTPS_PROXY` also captures plaintext `http://`
+(curl picks per scheme), and that `NO_PROXY` is the only exemption. Behaviour
+unchanged — an app whose authority is otherwise explicit should not learn this
+from a packet capture. `TRANTOR_HTTP_EXTRA_CA` and `TRANTOR_HTTP_MAX_REDIRECTS`
+stay as they are, by decision.
+
+(User, accepting the recommendations of the full-set code review of 2026-09-25.
+The review's other findings are recorded against their own packages: D-K1-37,
+D-T2-41, D-S4-14.)
+
 ## Still open
 
 - Named preopens (`Fs.preopens!` returning names, WASI's shape) — D-S2-7

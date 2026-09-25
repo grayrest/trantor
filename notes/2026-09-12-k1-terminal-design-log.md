@@ -784,6 +784,31 @@ be queried every frame); a distinct `Cooked` error from `query!` (widens a
 union every caller matches, for one caller's benefit); documenting that raw
 mode must come before the first draw (the fix is one accessor).
 
+### D-K1-37 The README says what the package claims process-wide
+
+The restoring works by taking process state, and nothing said so outside this
+log. The README's restore table listed which signals are survived; it now also
+records what is installed to survive them: an `atexit` hook and a handler for
+each of those thirteen signals on the first `set_mode!`/`set_restore!`, plus
+SIGCONT for resume, with SIGWINCH registered earlier at `open!` and blocked on
+the thread that opened the terminal (D-K1-29).
+
+It also records the two things that reach other packages, because both were
+paid for elsewhere before they were written down anywhere a reader would look:
+a handler on every SIGWINCH is why a bounded socket call cannot rely on
+`SO_RCVTIMEO` (trantor-net's `budget`, and D-K1-28's choice to keep
+`SA_RESTART`), and the inherited block is why trantor-process clears the child's
+signal mask before `exec`. And that a handler installed afterwards with a bare
+`sigaction` displaces the package's, so that signal stops restoring — which
+`testnet-host` does for SIGUSR1 in test builds.
+
+Documentation only; no behaviour changed. Rejected, for now: moving
+signal-disposition arbitration into the baseline so it is not first-caller-wins.
+That is a real design question and a larger one than a disclosure.
+
+(User, from the full-set code review of 2026-09-25; the cross-package findings
+are in D-S2-67.)
+
 ## Still open (raised, not decided)
 
 - Nothing. rocjust's migration to `trantor-terminal` for `Tty.is_terminal!`,

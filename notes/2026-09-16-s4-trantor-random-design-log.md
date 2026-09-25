@@ -347,6 +347,27 @@ unchanged except for one doc line pointing to trantor-random. (User.)
 **Rejected:** vendoring into rocjust the D-S1-8 way. That pattern retired
 compiler patches; nothing needs retiring here.
 
+### D-S4-14 `Uuid.to_hash` is annotated, and `from_parts` trims its arguments
+
+- `to_hash` had no type annotation, so it inferred a structural type and a
+  `Uuid` could not be a `Dict` key or a `Set` member from any module except the
+  one defining it — which README.md:112 promised it could. It was the only
+  block member in the package without an annotation. The test for it lives in
+  `tests/uuid-keys`, a consumer app, because an in-module `expect` structurally
+  cannot catch this: inside `Uuid.roc` a structural `to_hash` still unifies with
+  the `Uuid` it is handed, and the mismatch appears only where a consumer names
+  the nominal type.
+- `from_parts` masks `unix_ms` to 48 bits and `rand_a` to 12, as `v7` does, and
+  the doc comment says so. It is the only way an app can build a v7 from its own
+  timestamp and counter, and an unmasked `rand_a` spilled into the version
+  nibble beside it: `from_parts(0, 0x8000, 0)` reported version 15. Masking
+  rather than refusing keeps the `U64, U64, U64 -> Uuid` signature and matches
+  what `v7` already did. (`UuidV7.next` still rejects an out-of-range time
+  rather than wrapping one, which would break the stream's monotonicity.)
+
+(User, from the full-set code review of 2026-09-25; the cross-package findings
+are in D-S2-67.)
+
 ## Still open
 
 Nothing.
