@@ -60,7 +60,7 @@ app [main!] { pf: platform "../target/trantor/resize/platform/main.roc" }
 
 import pf.Upper
 
-main! : {} => Try({}, [Exit(I32), ..])
+main! : {} => Try({}, [Exit(I32)])
 main! = |{}| {
 	Upper.shout!("resize me")
 	Ok({})

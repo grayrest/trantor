@@ -7,7 +7,7 @@ import pf.Report
 ## while the on-disk file is ciphertext (verify greps the plaintext out).
 db = "/tmp/trantor-sq3-enc.db"
 
-main! : {} => Try({}, [Exit(I32), ..])
+main! : {} => Try({}, [Exit(I32)])
 main! = |{}| {
 	Sql.sql_exec!({ db, sql: "DROP TABLE IF EXISTS secrets", params: [] }) ? |_| Exit(1)
 	Sql.sql_exec!({ db, sql: "CREATE TABLE secrets (id INTEGER, val TEXT)", params: [] }) ? |_| Exit(2)

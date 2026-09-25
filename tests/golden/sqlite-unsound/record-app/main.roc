@@ -25,7 +25,7 @@ db = ":memory:"
 
 Person : { id : I64, name : Str }
 
-main! : {} => Try({}, [Exit(I32), ..])
+main! : {} => Try({}, [Exit(I32)])
 main! = |{}| {
 	Sql.sql_exec!({ db, sql: "CREATE TABLE t (id INTEGER, name TEXT)", params: [] }) ? |_| Exit(1)
 	Sql.sql_exec!({ db, sql: "INSERT INTO t VALUES (1,'alice'),(2,'amy'),(3,'bob')", params: [] }) ? |_| Exit(2)

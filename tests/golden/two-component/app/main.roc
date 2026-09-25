@@ -5,7 +5,7 @@ import pf.Stdio
 import pf.Env
 
 ## Reads the file named by the first CLI arg (via Env) and prints its line count.
-main! : {} => Try({}, [Exit(I32), ..])
+main! : {} => Try({}, [Exit(I32)])
 main! = |{}| {
 	path = Env.path_arg!({})
 	n = Path.line_count!(path) ?? 0

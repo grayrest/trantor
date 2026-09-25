@@ -51,7 +51,7 @@ cat > "$T/app/main.roc" <<'ROC'
 app [main!] { pf: platform "../baseline/platform/main.roc" }
 import pf.Stdio
 import pf.Greet
-main! : {} => Try({}, [Exit(I32), ..])
+main! : {} => Try({}, [Exit(I32)])
 main! = |{}| { Stdio.line!(Greet.banner("per-app world")) ?? {} 
 	Ok({}) }
 ROC

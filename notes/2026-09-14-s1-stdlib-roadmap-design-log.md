@@ -232,6 +232,70 @@ remaining work ("`rocjust` green") is likewise not required for a release.
 
 **Rejected:** migrating rocjust with S2 or K1; making it a release exit.
 
+### D-S1-15 The family moves to roc `d861ad`: no `..` in an output position
+
+`~/.bin/roc` and `RustGlue.roc` were replaced on 2026-09-25 with
+`release-fast-d861ad68`. Under it a tag union in an output position is
+implicitly open, so an explicit `..` there is a warning — and trantor treats a
+`roc check` warning as a failure, so nothing in the family built. A freshly
+scaffolded app over an untouched trantor-cli produced 68 of them.
+
+**This is a migration, not a cleanup.** Removing a return-position `..` CLOSES
+the union on the previous compiler: measured on `roc-554a76-rebased-main`,
+`validate_ipv4 : Str -> Try(Str, [InvalidIpv4(Str)])` stops unifying with
+`Try(Str, Url.ParseErr)`. The swept family therefore builds only on `d861ad`,
+and there is no going back short of reverting the sweep.
+
+What was swept, and how each site was found:
+
+- **241 sites** in the packages' components and interfaces, taken from the
+  compiler's own `file:line:col` rather than a pattern, and applied bottom-up.
+- **12 sites** in test apps and one bench app, by a depth-aware rule: only after
+  the last top-level `=>`/`->`. The five like
+  `outcome : Try(a, [PathErr(IOErr), ..]) -> Str` are ARGUMENTS and were left.
+- **106 signature snippets** in the packages' READMEs, so the documented API
+  still matches the code.
+- **27 sites** in this repo's golden fixtures, by the same rule.
+- `main_contract.rs`: `trantor new` copied the platform's `requires` entry
+  verbatim, so every scaffolded app inherited a `..` and warned on its own first
+  check. The copy is trimmed now; `close_output_unions` leaves an argument's
+  `..`, a named extension, and a lone `[..]` (which would otherwise become `[]`
+  and mean the opposite).
+
+**A `requires` block keeps its `..`, and that is not negotiable.** It is the
+contract an app must satisfy, not an output position: closed, it refuses an app
+whose `main!` returns a tag of its own — `argv-bytes` failed exactly that way,
+`[StdoutErr(IOErr)]` against a `[Io(IOErr)]` requirement. The compiler warns
+there anyway, and both remedies its message offers are unavailable: `..others`
+is "Type variables must be introduced in a type annotation before they can be
+used", and `[err] for main! : ...` fails to parse the header. The ten fixture
+`driver.toml`s and the two expected-output `golden/platform/main.roc` files
+keep theirs for the same reason.
+
+**Four things are red on `d861ad`, and a control proves the sweep caused none
+of them:**
+
+1. `trantor-encoding`'s gate dies in `roc test` with
+   `RuntimeHostEnv: double-free or untracked free` (SIGABRT). Reproduced with
+   the package's own sweep reverted and everything else held constant, so it is
+   a compiler bug. Its `tests/` suites — including the toml-test conformance
+   vectors — cannot run on this compiler at all.
+2. `b8-basic-cli`'s `file-size` example warns on basic-cli 0.21.0's OWN `..`.
+   The fixture's premise is that upstream examples check unmodified, so the
+   file is not ours to edit.
+3. `b8-basic-cli`'s `url` example fails with three `missing method` errors on
+   static dispatch. Checked against an UNSWEPT trantor-cli: the same three.
+4. `seahaven-slice` asserts its `stdio-lib/Stdout.roc` is byte-identical to
+   seahaven's. Sweeping the copy breaks that assertion; keeping it fails the
+   build on the warning. The copy is kept identical, so the fixture records
+   that seahaven has not migrated.
+
+Green: eight packages (cli, files, process, net, terminal, temporal, hash,
+random), 18 of 20 fixtures, 135 unit tests, clippy clean.
+
+(User, 2026-09-25, after the sweep was priced: the one-way cost and the four
+red items were on the table before it landed.)
+
 ## Still open
 
 - Moving the compiler fork's `local-fixes` off the hashing commits, and

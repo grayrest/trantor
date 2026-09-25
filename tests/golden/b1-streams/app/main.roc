@@ -6,7 +6,7 @@ import pf.FileIo
 ## Reads a memory-backed and a file-backed stream through the SAME
 ## InputStream resource. Exit code == memory bytes (11) iff every stream
 ## dropped (live == 0); -1 (255) on a leak.
-run! : {} => Try({}, [Exit(I32), ..])
+run! : {} => Try({}, [Exit(I32)])
 run! = |{}| {
 	m = Memory.open!(Str.to_utf8("hello world"))
 	mem_len = List.len(Streams.read!(m, 1024) ?? [])

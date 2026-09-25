@@ -7,7 +7,7 @@ import pf.Report
 ## negative half). Same app, both worlds.
 db = ":memory:"
 
-main! : {} => Try({}, [Exit(I32), ..])
+main! : {} => Try({}, [Exit(I32)])
 main! = |{}| {
 	Sql.sql_exec!({ db, sql: "CREATE TABLE docs (id INTEGER, name TEXT, emb BLOB)", params: [] }) ?? {}
 	result = match Sql.sql_exec!({ db, sql: "INSERT INTO docs VALUES (1,'near',vector32('[1.0,0.0,0.0]')),(2,'mid',vector32('[0.7,0.7,0.0]')),(3,'far',vector32('[0.0,1.0,0.0]'))", params: [] }) {

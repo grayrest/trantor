@@ -29,7 +29,6 @@ pub fn main_contract(platform: &str) -> Result<MainContract, String> {
     if entries.len() > 1 {
         return Err(format!("the composed platform requires {} as well as `main!`, and the scaffold writes only `main!`", names.iter().filter(|n| **n != "main!").map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")));
     }
-    let signature = format!("main! : {ty}");
     let exposed: Vec<String> = text
         .split_once("exposes")
         .and_then(|(_, r)| r.split_once('[').and_then(|(_, r)| r.split_once(']')))
@@ -42,7 +41,15 @@ pub fn main_contract(platform: &str) -> Result<MainContract, String> {
         .collect();
     imports.sort();
     imports.dedup();
-    let (args, ret) = split_top_level(ty, "=>").or_else(|| split_top_level(ty, "->")).unwrap_or((ty, ""));
+    let (args, sep, ret) = split_top_level(ty, "=>")
+        .map(|(a, r)| (a, "=>", r))
+        .or_else(|| split_top_level(ty, "->").map(|(a, r)| (a, "->", r)))
+        .unwrap_or((ty, "", ""));
+    // Not a verbatim copy of the requires entry: see `close_output_unions`.
+    let signature = match sep {
+        "" => format!("main! : {ty}"),
+        _ => format!("main! : {args}{sep}{}", close_output_unions(ret)),
+    };
     let arity = if args.trim().is_empty() { 0 } else { top_level_commas(args) + 1 };
     let param = match arity {
         _ if args.trim() == "{}" => "{}".to_string(),
@@ -113,6 +120,39 @@ fn starts_entry(line: &str) -> bool {
     })
 }
 
+/// The app's `main!` annotation drops a bare `..` that ends a union in the
+/// RETURN type, and keeps everything else.
+///
+/// The `requires` entry is copied from the platform, and there the `..` is
+/// load-bearing: it is the contract an app must satisfy, so closing it refuses
+/// an app whose `main!` returns a tag of its own (`StdoutErr(IOErr)` against a
+/// `[Io(IOErr)]` requirement). In the app the same union is an output position,
+/// which the compiler now opens implicitly and warns about spelling — and a
+/// scaffold whose first `trantor check` prints a warning is a bad first
+/// impression, so the copy is trimmed rather than the contract.
+///
+/// Only a bare `..` that ends a union: a named extension (`..others`) is
+/// referred to elsewhere, `[..]` alone would become `[]` and mean the opposite,
+/// and a `..` in an argument is still doing work.
+fn close_output_unions(ret: &str) -> String {
+    let mut out = String::with_capacity(ret.len());
+    let mut rest = ret;
+    while let Some(at) = rest.find("..") {
+        let (head, tail) = (&rest[..at], &rest[at + 2..]);
+        if tail.trim_start().starts_with(']') {
+            if let Some(h) = head.trim_end().strip_suffix(',') {
+                out.push_str(h);
+                rest = tail;
+                continue;
+            }
+        }
+        out.push_str(&rest[..at + 2]);
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
+}
+
 fn split_top_level<'a>(s: &'a str, sep: &str) -> Option<(&'a str, &'a str)> {
     let mut depth = 0;
     for (i, c) in s.char_indices() {
@@ -173,6 +213,29 @@ mod tests {
         assert!(contract("\t\tmain! : {} => Try(I32, [Exit(I32), ..])").unwrap().body.starts_with("crash"));
     }
 
+    /// The contract keeps its `..`; the app's copy of it does not. An app that
+    /// inherited one warned on its own first `trantor check`, and closing the
+    /// contract instead refuses an app returning a tag of its own.
+    #[test]
+    fn the_app_signature_drops_a_bare_trailing_open_marker_and_nothing_else() {
+        assert_eq!(contract("\t\tmain! : {} => Try({}, [Exit(I32), ..])").unwrap().signature, "main! : {} => Try({}, [Exit(I32)])");
+        assert_eq!(
+            contract("\t\tmain! : List([Raw, ..]) => Try({}, [Io(IOErr), ..])").unwrap().signature,
+            "main! : List([Raw, ..]) => Try({}, [Io(IOErr)])",
+            "an argument's `..` is still doing work"
+        );
+        assert_eq!(
+            contract("\t\tmain! : {} => Try({}, [Io(IOErr), ..others])").unwrap().signature,
+            "main! : {} => Try({}, [Io(IOErr), ..others])",
+            "a named extension is referred to elsewhere"
+        );
+        assert_eq!(
+            contract("\t\tmain! : {} => Try({}, [..])").unwrap().signature,
+            "main! : {} => Try({}, [..])",
+            "`[..]` alone would become `[]`, which means the opposite"
+        );
+    }
+
     #[test]
     fn a_record_argument_wrapped_over_lines_is_one_argument() {
         let c = contract("\t\tmain! : {\n\t\t\tname : Str,\n\t\t\tage : U8,\n\t\t} => Try({}, _)").unwrap();
@@ -197,10 +260,10 @@ mod tests {
     #[test]
     fn the_scaffold_takes_main_from_the_platform_it_was_composed_on() {
         let app = app_main("myapp", &main_contract(CLI).unwrap());
-        assert!(app.contains("main! : List(OsStr) => Try({}, [Io(IOErr), ..])\nmain! = |_args| {"), "{app}");
+        assert!(app.contains("main! : List(OsStr) => Try({}, [Io(IOErr)])\nmain! = |_args| {"), "{app}");
         assert!(app.contains("import pf.OsStr") && app.contains("import pf.IOErr"), "{app}");
         let bare = app_main("myapp", &main_contract(BARE).unwrap());
-        assert!(bare.contains("main! : {} => Try({}, [Exit(I32), ..])\nmain! = |{}| {"), "{bare}");
+        assert!(bare.contains("main! : {} => Try({}, [Exit(I32)])\nmain! = |{}| {"), "{bare}");
         assert!(!bare.contains("import pf.I32"), "a builtin type is not a platform module: {bare}");
         let none = app_main("myapp", &main_contract("\trequires {\n\t\tmain! : {} => Try({}, [Exit(I32), ..])\n\t}\n\texposes []\n").unwrap());
         assert!(!none.contains("import"), "an empty exposes list imports nothing: {none}");

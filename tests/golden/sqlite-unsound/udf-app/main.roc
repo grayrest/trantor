@@ -8,7 +8,7 @@ import pf.Report
 ## in/out keeps the demo free of borrowed-cell decref intricacy.
 db = ":memory:"
 
-main! : {} => Try({}, [Exit(I32), ..])
+main! : {} => Try({}, [Exit(I32)])
 main! = |{}| {
 	Turso.turso_register_scalar!("roc_triple", Box.box(triple)) ? |_| Exit(1)
 	Sql.sql_exec!({ db, sql: "CREATE TABLE t (id INTEGER)", params: [] }) ? |_| Exit(2)

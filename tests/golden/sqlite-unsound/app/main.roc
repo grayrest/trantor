@@ -10,7 +10,7 @@ import pf.Report
 ## target and is NOT run here.
 db = "/tmp/trantor-sq1.db"
 
-main! : {} => Try({}, [Exit(I32), ..])
+main! : {} => Try({}, [Exit(I32)])
 main! = |{}| {
 	Sql.sql_exec!({ db, sql: "DROP TABLE IF EXISTS t", params: [] }) ? |_| Exit(1)
 	Sql.sql_exec!({ db, sql: "CREATE TABLE t (id INTEGER, name TEXT, score REAL)", params: [] }) ? |_| Exit(2)
