@@ -26,6 +26,14 @@ REPO=/Users/grayrest/Repositories/roc-basic-cli
 TAG=0.21.0
 ROC="${ROC:-$HOME/.bin/roc}"
 cap() { perl -e 'alarm shift; exec @ARGV' 90 "$@"; }
+# roc exits non-zero for a warning as well as an error, and $TAG is a released
+# tag whose contents never change: `file-size` spells an explicit `..` in a
+# return type, which roc `d861ad` made redundant (D-S1-15) long after 0.21.0
+# shipped. That lint alone is tolerated, by name, so this does not quietly
+# become "warnings are fine" — anything else still fails the row.
+only_redundant_lint() {
+	! grep -q '── ✗' <<<"$1" && ! grep -o '── ● [a-z ]*' <<<"$1" | grep -qv 'redundant open tag union'
+}
 [[ -d $REPO/.git ]] || { echo "FAIL: basic-cli repo not at $REPO (needed for the migration proof)"; exit 1; }
 cargo build --release -q
 
@@ -36,15 +44,36 @@ if ! _b=$(./target/release/trantor build "$B" --app app --out b8 2>&1); then ech
 # The two http examples (http-client, http-simple) are EXCLUDED here: choosing a
 # streaming Http.Response (H6) means they no longer pure-URL-swap — they take a
 # small, enumerated streaming adaptation and are built + RUN in the HC3 section
-# below. Every other non-sqlite example still migrates by URL alone.
+# below.
+#
+# `url` is EXCLUDED too, and for a reason that is ours rather than the
+# example's: `Url.append_path_segments` refuses a `.` or `..` item and so
+# returns a `Try` (D-S2-63, the first divergence `Url.roc`'s header lists),
+# while the example chains `.append_query_param` straight onto its result. The
+# example cannot compile against the shim, and that is the API we chose — but an
+# exclusion that outlives its cause is a lie, so the divergence is asserted
+# below rather than assumed. Every other non-sqlite example still migrates by
+# URL alone.
+grep -q 'append_path_segments : Url, List(Str) -> Try(' "$PKG/components/basic-lib/Url.roc" || {
+	echo "FAIL: \`url\` is excluded from the migration proof because append_path_segments returns a Try,"
+	echo "      and it no longer does. Put \`url\` back in the URL-swap loop."; exit 1; }
 X="$B/examples-run"; rm -rf "$X"; mkdir -p "$X"
-pass=0; total=0; failed=""
+pass=0; total=0; failed=""; linted=""
 for f in $(git -C "$REPO" ls-tree --name-only "$TAG" examples/ | grep '\.roc$'); do
   n=$(basename "$f" .roc); [[ $n == sqlite-* ]] && continue
   [[ $n == http-client || $n == http-simple ]] && continue   # adapted + run in HC3
+  [[ $n == url ]] && continue                                # our Try divergence, asserted above
   total=$((total+1)); mkdir -p "$X/$n"
   git -C "$REPO" show "${TAG}:${f}" | perl -pe 's|platform "[^"]+"|platform "../../target/trantor/b8-basic-cli/platform/main.roc"|' > "$X/$n/main.roc"
-  if cap "$ROC" check "$X/$n/main.roc" >/dev/null 2>&1; then pass=$((pass+1)); else failed="$failed $n"; fi
+  # The claim is that the example TYPECHECKS, so an error fails it and a lint
+  # does not. `roc check` exits non-zero for either, and $TAG is a released tag
+  # whose contents never change: `file-size` spells an explicit `..` in a return
+  # type, which roc `d861ad` made redundant (D-S1-15) long after 0.21.0 shipped,
+  # and holding a frozen release to that would fail this row forever. Only that
+  # one lint is tolerated, by name — any other warning still fails, so this does
+  # not quietly become "warnings are fine".
+  out=$(cap "$ROC" check "$X/$n/main.roc" 2>&1) && { pass=$((pass+1)); continue; }
+  if only_redundant_lint "$out"; then pass=$((pass+1)); linted="$linted $n"; else failed="$failed $n"; fi
 done
 # Guard against a vacuous 0/0 pass (wrong tag, moved examples/, detached repo):
 # basic-cli 0.21.0 ships ~26 non-sqlite, non-http examples.
@@ -55,11 +84,25 @@ for n in tty terminal-app-snake; do
   [[ -f "$X/$n/main.roc" ]] || { echo "FAIL: $n is not among the checked examples"; exit 1; }
 done
 [[ $pass -eq $total ]] || { echo "FAIL: $pass/$total examples check; failing:$failed"; exit 1; }
-echo "ok: $pass/$total basic-cli $TAG non-http examples roc-check with only the platform URL changed"
+echo "ok: $pass/$total basic-cli $TAG non-http examples roc-check with only the platform URL changed${linted:+ (typecheck, redundant-.. lint only:$linted)}"
 
 # ---- 2. runs ----
-build() { cap "$ROC" build --output="$B/target/trantor/b8-basic-cli/bin/ex-$1" "$X/$1/main.roc" >/dev/null 2>&1 || { echo "FAIL: build $1"; exit 1; }; }
-for n in hello-world hello print dir temp-dir file-size file-read-buffered file-replace file-permissions file-read-write random url command command-line-args stdin-basic stdin-pipe bytes-stdin-stdout env-var path time locale; do build "$n"; done
+# A tolerated lint still exits non-zero, though roc reports "successfully
+# building" and writes the binary, so the built file is what decides.
+build() {
+	local o="$B/target/trantor/b8-basic-cli/bin/ex-$1" out
+	out=$(cap "$ROC" build --output="$o" "$X/$1/main.roc" 2>&1) && return 0
+	{ only_redundant_lint "$out" && [[ -x "$o" ]]; } || { echo "FAIL: build $1"; echo "$out" | tail -20; exit 1; }
+}
+# `url` is absent for the reason given above: it does not typecheck against our
+# `append_path_segments`, so it cannot be built, run, or asserted on.
+#
+# The staged binaries go first. They are not otherwise cleaned, so an example
+# dropped from this list keeps satisfying its `expect` row from whatever an
+# earlier run left on disk — `url`'s row passed for a week against a binary
+# built before the divergence it cannot compile against.
+rm -f "$B"/target/trantor/b8-basic-cli/bin/ex-*
+for n in hello-world hello print dir temp-dir file-size file-read-buffered file-replace file-permissions file-read-write random command command-line-args stdin-basic stdin-pipe bytes-stdin-stdout env-var path time locale; do build "$n"; done
 cd "$X"; printf 'line one\nline two\nline three\n' > LICENSE; cp hello/main.roc main.roc   # 29 bytes, 3 lines
 expect() { # name, expected (exact stdout)
   local got; got=$(eval "$2" 2>/dev/null); [[ "$got" == "$3" ]] || { echo "FAIL: $1"; diff <(echo "$3") <(echo "$got") || true; exit 1; }
@@ -78,7 +121,6 @@ expect stdin-basic   "printf 'Ada\nLovelace\n' | ../target/trantor/b8-basic-cli/
 expect stdin-pipe    "printf abc | ../target/trantor/b8-basic-cli/bin/ex-stdin-pipe" 'This is what you piped in: "abc"'
 expect bytes-stdin   "printf wxyz | ../target/trantor/b8-basic-cli/bin/ex-bytes-stdin-stdout" "wxyz"
 expect env-var       "EDITOR=vim LETTERS=a,b,c ../target/trantor/b8-basic-cli/bin/ex-env-var" $'Your favorite editor is vim!\nYour favorite letters are: a b c'
-expect url           "../target/trantor/b8-basic-cli/bin/ex-url | head -1"          "Request URL: https://api.example.com/v1/search?q=roc+lang&page=1#results"
 has dir              "../target/trantor/b8-basic-cli/bin/ex-dir"                    "demo-workspace/src"
 has dir-2            "../target/trantor/b8-basic-cli/bin/ex-dir"                    "Workspace cleaned up."
 has temp-dir         "../target/trantor/b8-basic-cli/bin/ex-temp-dir"               "The temp dir path is /"
