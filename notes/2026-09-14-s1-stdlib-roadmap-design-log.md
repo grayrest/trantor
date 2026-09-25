@@ -280,18 +280,40 @@ of them:**
    the package's own sweep reverted and everything else held constant, so it is
    a compiler bug. Its `tests/` suites — including the toml-test conformance
    vectors — cannot run on this compiler at all.
-2. `b8-basic-cli`'s `file-size` example warns on basic-cli 0.21.0's OWN `..`.
-   The fixture's premise is that upstream examples check unmodified, so the
-   file is not ours to edit.
-3. `b8-basic-cli`'s `url` example fails with three `missing method` errors on
-   static dispatch. Checked against an UNSWEPT trantor-cli: the same three.
+2. `b8-basic-cli` — SETTLED, see below; the fixture is green again.
+3. `b8-basic-cli`'s `url` — NOT the compiler, and not the sweep. See below.
 4. `seahaven-slice` asserts its `stdio-lib/Stdout.roc` is byte-identical to
    seahaven's. Sweeping the copy breaks that assertion; keeping it fails the
    build on the warning. The copy is kept identical, so the fixture records
    that seahaven has not migrated.
 
 Green: eight packages (cli, files, process, net, terminal, temporal, hash,
-random), 18 of 20 fixtures, 135 unit tests, clippy clean.
+random), 19 of 20 fixtures, 135 unit tests, clippy clean.
+
+**`b8-basic-cli`, settled the same day.** Two causes, neither the sweep's:
+
+- `file-size` spells an explicit `..` in a return type, in basic-cli 0.21.0's
+  own source. `$TAG` is a released tag whose contents never change, so it will
+  carry that spelling forever and the file is not ours to edit — the fixture's
+  premise is that upstream examples check UNMODIFIED. The row now passes when
+  the example typechecks and the only complaint is that one lint, matched by
+  name; anything else still fails it. `roc build` needed the same reading: it
+  prints "successfully building" and writes the binary, then exits 2.
+- `url` has not typechecked since `2bb1528`, which is ours:
+  `append_path_segments` returns a `Try` so it can refuse a `.` or `..` item
+  (D-S2-63), and the example chains `.append_query_param` onto its result.
+  Confirmed on the PREVIOUS compiler with the PRE-sweep package — the same
+  three `missing method` errors — so neither `d861ad` nor the sweep is
+  involved. It is excluded from the proof as the http examples are, and the
+  divergence is ASSERTED: if `append_path_segments` stops returning a `Try`,
+  the fixture fails and says to put `url` back. Nobody had noticed because the
+  review rounds ran the package gates, not this repo's `just verify`.
+
+Found while excluding it: the fixture never cleaned its staged binaries, so
+`url`'s `expect` row had been green since 2026-09-18 against an `ex-url` built
+before the divergence it cannot compile against. Any example dropped from the
+build list would have done the same. The binaries are removed before the build
+loop now.
 
 (User, 2026-09-25, after the sweep was priced: the one-way cost and the four
 red items were on the table before it landed.)
