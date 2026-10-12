@@ -9,13 +9,14 @@ use abi::services;
 use abi::{Element, ElementTag, Env, Event, RocBox, RocList};
 use core::ffi::c_void;
 use core::ptr;
+use core::ptr::NonNull;
 use trantor_abi as abi;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 
-#[unsafe(no_mangle)] pub extern "C" fn roc_alloc(l: usize, a: usize) -> *mut c_void { abi::DefaultAllocators::roc_alloc(ptr::null_mut(), l, a) }
+#[unsafe(no_mangle)] pub extern "C" fn roc_alloc(l: usize, a: usize) -> NonNull<c_void> { abi::DefaultAllocators::roc_alloc(ptr::null_mut(), l, a) }
 #[unsafe(no_mangle)] pub unsafe extern "C" fn roc_dealloc(p: *mut c_void, a: usize) { abi::DefaultAllocators::roc_dealloc(ptr::null_mut(), p, a) }
-#[unsafe(no_mangle)] pub unsafe extern "C" fn roc_realloc(p: *mut c_void, n: usize, a: usize) -> *mut c_void { abi::DefaultAllocators::roc_realloc(ptr::null_mut(), p, n, a) }
+#[unsafe(no_mangle)] pub unsafe extern "C" fn roc_realloc(p: *mut c_void, n: usize, a: usize) -> NonNull<c_void> { abi::DefaultAllocators::roc_realloc(ptr::null_mut(), p, n, a) }
 #[unsafe(no_mangle)] pub unsafe extern "C" fn roc_dbg(b: *const u8, n: usize) { eprintln!("[dbg] {}", String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(b, n) })); }
 #[unsafe(no_mangle)] pub unsafe extern "C" fn roc_expect_failed(b: *const u8, n: usize) { eprintln!("[expect] {}", String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(b, n) })); }
 #[unsafe(no_mangle)] pub unsafe extern "C" fn roc_crashed(b: *const u8, n: usize) { eprintln!("[CRASH] {}", String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(b, n) })); std::process::exit(1); }

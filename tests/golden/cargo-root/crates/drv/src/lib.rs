@@ -6,10 +6,11 @@
 #![allow(clippy::missing_safety_doc)]
 use core::ffi::c_void;
 use core::ptr;
+use core::ptr::NonNull;
 use trantor_abi as abi;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> *mut c_void {
+pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> NonNull<c_void> {
     abi::gauge::roc_alloc(ptr::null_mut(), length, alignment)
 }
 #[unsafe(no_mangle)]
@@ -20,7 +21,7 @@ pub unsafe extern "C" fn roc_dealloc(ptr_: *mut c_void, alignment: usize) {
     abi::gauge::roc_dealloc(ptr::null_mut(), ptr_, alignment)
 }
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn roc_realloc(ptr_: *mut c_void, new_length: usize, alignment: usize) -> *mut c_void {
+pub unsafe extern "C" fn roc_realloc(ptr_: *mut c_void, new_length: usize, alignment: usize) -> NonNull<c_void> {
     abi::DefaultAllocators::roc_realloc(ptr::null_mut(), ptr_, new_length, alignment)
 }
 #[unsafe(no_mangle)]

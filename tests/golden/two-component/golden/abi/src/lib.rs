@@ -39,6 +39,7 @@ pub fn host() -> &'static RocHost {
 pub mod gauge {
     use super::*;
     use core::ffi::c_void;
+    use core::ptr::NonNull;
     use core::sync::atomic::{AtomicU64, Ordering};
     use std::sync::OnceLock;
 
@@ -52,7 +53,7 @@ pub mod gauge {
     }
 
     #[inline]
-    pub extern "C" fn roc_alloc(host: *mut RocHost, length: usize, alignment: usize) -> *mut c_void {
+    pub extern "C" fn roc_alloc(host: *mut RocHost, length: usize, alignment: usize) -> NonNull<c_void> {
         if on() { ALLOCS.fetch_add(1, Ordering::Relaxed); }
         DefaultAllocators::roc_alloc(host, length, alignment)
     }

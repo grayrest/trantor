@@ -4,6 +4,7 @@
 //! it also builds as an rlib so the workspace lints it.
 use core::ffi::c_void;
 use core::ptr;
+use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use trantor_abi as abi;
 
@@ -14,7 +15,7 @@ type App = abi::AnonStruct5f5555ad42ba4a42;
 static ROC_ALLOCS: AtomicUsize = AtomicUsize::new(0);
 
 #[unsafe(no_mangle)]
-pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> *mut c_void {
+pub extern "C" fn roc_alloc(length: usize, alignment: usize) -> NonNull<c_void> {
     ROC_ALLOCS.fetch_add(1, Ordering::Relaxed);
     abi::DefaultAllocators::roc_alloc(ptr::null_mut(), length, alignment)
 }
@@ -23,7 +24,7 @@ pub unsafe extern "C" fn roc_dealloc(p: *mut c_void, alignment: usize) {
     abi::DefaultAllocators::roc_dealloc(ptr::null_mut(), p, alignment)
 }
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn roc_realloc(p: *mut c_void, new_length: usize, alignment: usize) -> *mut c_void {
+pub unsafe extern "C" fn roc_realloc(p: *mut c_void, new_length: usize, alignment: usize) -> NonNull<c_void> {
     abi::DefaultAllocators::roc_realloc(ptr::null_mut(), p, new_length, alignment)
 }
 #[unsafe(no_mangle)]
