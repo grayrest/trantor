@@ -69,7 +69,7 @@ mkdir -p "$S/app"
 printf '[world]\nname = "baseline"\n\n[deps]\ntrantor-cli = { path = "%s" }\n' "$PWD/../trantor-cli" > "$S/world.toml"
 cat > "$S/app/main.roc" <<'ROC'
 app [main!] { pf: platform "../target/trantor/baseline/platform/main.roc" }
-import pf.OsStr exposing [OsStr]
+import pf.OsStr
 import pf.Stdout
 main! : List(OsStr) => Try({}, _)
 main! = |_args| Stdout.line!("baseline")

@@ -1,4 +1,4 @@
-import IOErr exposing [IOErr]
+import IOErr
 import Stdio
 
 ## Write text or raw bytes to the process's standard output stream.

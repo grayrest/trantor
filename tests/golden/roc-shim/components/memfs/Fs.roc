@@ -5,7 +5,7 @@
 ## proves Roc-shim state through `cell` (D12). This is the SAME interface
 ## capstdfs implements in Rust; the derived `Path` component is byte-identical
 ## between the two wirings.
-import IOErr exposing [IOErr]
+import IOErr
 import Cell
 Fs :: [].{
 	file_read! : Str => Try(Str, [FileErr(IOErr)])

@@ -1,7 +1,7 @@
 app [Model, main] { pf: platform "../target/trantor/imview-slice/platform/main.roc" }
 
-import pf.Element exposing [Element]
-import pf.Env exposing [Env]
+import pf.Element
+import pf.Env
 
 Model : { label : Str, n : U64 }
 

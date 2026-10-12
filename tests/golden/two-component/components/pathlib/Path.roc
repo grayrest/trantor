@@ -2,7 +2,7 @@
 ## archive, no hosted symbols. `line_count!` is derived logic (the kind that
 ## would drift if every fs implementation shipped its own copy).
 import Fs
-import IOErr exposing [IOErr]
+import IOErr
 Path :: [].{
 	read_to_string! : Str => Try(Str, [FileErr(IOErr)])
 	read_to_string! = |p| Fs.file_read!(p)

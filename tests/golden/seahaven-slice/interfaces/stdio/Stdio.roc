@@ -1,4 +1,4 @@
-import IOErr exposing [IOErr]
+import IOErr
 ## trantor binding module for interface roc:cli/stdio. The six primitive
 ## leaves seahaven's real Stdout/Stderr derived layer wraps.
 Stdio :: [].{

@@ -64,7 +64,13 @@ for f in $(git -C "$REPO" ls-tree --name-only "$TAG" examples/ | grep '\.roc$');
   [[ $n == http-client || $n == http-simple ]] && continue   # adapted + run in HC3
   [[ $n == url ]] && continue                                # our Try divergence, asserted above
   total=$((total+1)); mkdir -p "$X/$n"
-  git -C "$REPO" show "${TAG}:${f}" | perl -pe 's|platform "[^"]+"|platform "../../target/trantor/b8-basic-cli/platform/main.roc"|' > "$X/$n/main.roc"
+  # The second substitution is the migration every 0.21.0 app needs on roc
+  # 620d04, which made `import pf.X exposing [X]` a "redundant expose" ERROR
+  # (a type module exposes its own type). `path` is the only example that
+  # spells it. It is rewritten rather than tolerated because the rule below is
+  # that an error always fails, and a frozen tag cannot be fixed at the source.
+  git -C "$REPO" show "${TAG}:${f}" \
+    | perl -pe 's|platform "[^"]+"|platform "../../target/trantor/b8-basic-cli/platform/main.roc"|; s/^(import pf\.(\w+)) exposing \[\2\]$/$1/' > "$X/$n/main.roc"
   # The claim is that the example TYPECHECKS, so an error fails it and a lint
   # does not. `roc check` exits non-zero for either, and $TAG is a released tag
   # whose contents never change: `file-size` spells an explicit `..` in a return

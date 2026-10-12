@@ -1,9 +1,9 @@
 app [Model, main] { pf: platform "../target/trantor/im-services/platform/main.roc" }
 
-import pf.Element exposing [Element]
-import pf.Env exposing [Env]
-import pf.Cmd exposing [Cmd]
-import pf.Event exposing [Event]
+import pf.Element
+import pf.Env
+import pf.Cmd
+import pf.Event
 import pf.Echo
 import pf.EchoEvent
 import pf.Tick
