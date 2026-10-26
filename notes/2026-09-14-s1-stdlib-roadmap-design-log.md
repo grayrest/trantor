@@ -318,6 +318,99 @@ loop now.
 (User, 2026-09-25, after the sweep was priced: the one-way cost and the four
 red items were on the table before it landed.)
 
+### D-S1-16 The family runs on roc `ec5981`, and every gate is green
+
+`~/.bin/roc` became `release-fast-ec598185` on 2026-10-22. The family's last
+move had been to `620d04` on 2026-10-12, and that move was partial. A run of
+every gate on 2026-10-25 found five packages red. Each failure was then run on
+`620d04` as a control, which split them by cause:
+
+| Package | On `620d04` | Cause | Fix |
+|---|---|---|---|
+| files, random | red | the `620d04` sweep (`import X exposing [X]` is an error) never reached them | the same sweep |
+| temporal | red | a lint added between `d861ad` and `620d04`: an `if` on a comparison the compiler decides is "unconditional", and a warning fails `roc check` | `tests/behaviours` goes through its own `yn` helper; the line still checks `eq=no` |
+| encoding | red | a compiler refcount bug, below | `TomlTree.slot_at` |
+| terminal | green | `ec5981`: a union a host function returns cannot widen | rebuild at the device boundary |
+| cli | green | `ec5981` frees a value at its last use, earlier than before | a test-app fix, not a package one |
+
+**A host's union is rebuilt where it enters Roc, not where it is widened.**
+Under `ec5981` a tag union a host function returns is exactly that union. It
+cannot join a caller's larger one, and `?` hands it on unchanged, so
+`Ok(TerminalDevice.write!(..)?)` only looked like a rebuild. Five sites broke,
+and trantor's b8 fixture broke through them. trantor-terminal now rebuilds
+every device error in the wrapper that makes the call. That includes `open!`,
+`size!` and `suspend!`, which nothing inside the package widens. They are
+public, and a consumer that uses `?` on one into its own wider error type would
+hit the same error. No other package has a wrapper of this shape.
+
+**Holding a resource in a list does not keep it alive.** Roc frees a value
+after its last use, not at the end of its scope. `fd-handoff` held 61 open
+descriptors in a list it never read again. `ec5981` closed all 61 on entering
+the arm that used up the fds, and `620d04` already did the same once the list
+left the loop. The test now hands each descriptor to the host after the
+handoff. Any code that relies on a list to keep resources open has the same
+exposure. That is not a compiler bug, since the language promises nothing
+about when a value is freed.
+
+**trantor-encoding: a compiler bug, worked around rather than waited on.**
+Three things together trigger it:
+
+- a `match` that binds a nested `Ok(Tag(record))` straight off `get`, `first`
+  or `last`;
+- a union with more than one variant;
+- a payload holding a refcounted field that the arm then consumes.
+
+The binding is never shared, so `record.path.append(..)` writes over a list
+the source still owns. The interpreter is correct. The dev and LLVM backends
+are not, on every build since `d861ad`. That is why the gate could not run at
+all from 2026-09-25 (D-S1-15's first red item). The crash also took
+trantor-temporal's formats suite with it, because that suite writes
+`[outer.event]`. The standalone reproduction, with no trantor involved:
+
+```roc
+Repro :: [].{}
+
+Slot : [Full({ level : U64, path : List(U64) }), Empty]
+
+build : List(Slot) -> List(Slot)
+build = |slots| slots.append(Full({ level: 2, path: [].append(1) }))
+
+expect {
+	slots = build([])
+	extended =
+		match slots.get(0) {
+			Ok(Full(record)) => record.path.append(2)
+			_ => []
+		}
+	extended == [1, 2]
+}
+```
+
+`roc test --no-cache Repro.roc` gives `[0, 2]` on `ec5981`, SIGSEGV with
+`--opt=speed`, "List written in place while another reference to it was live"
+from the debug build, and `RuntimeHostEnv: realloc of untracked memory` on
+`620d04` and `d861ad`. Matching in two steps (`Ok(slot) => match slot`) passes
+everywhere. That is the workaround, at the seven `TomlTree` sites that had the
+shape. No other site in the package has it.
+
+**Open: `roc test` sometimes hangs on a cache hit.** On trantor-encoding's
+composed expects, `ec5981` with the shared cache hung in about 4 runs of 11.
+It used 100% CPU on one thread inside the compiler and printed nothing, even
+with `--timings`. With `--no-cache` it hung in 0 runs of 15, and each of those
+runs compiled from scratch and passed all 1424 expects. A fresh
+`ROC_CACHE_DIR`, and an APFS clone of the shared cache directory, also passed.
+So the cached path is at fault, not our code. A gate that hangs this way is
+killed at `TRANTOR_TEST_TIMEOUT` (900 s) and reads as a failure. No other
+package's expects have hung. The `ec5981` debug build cannot help here: on the
+full composed platform it aborts on a postcheck invariant first
+("stored const representation differed from its expected Monotype type").
+
+Verified 2026-10-26 on `ec5981`: all nine package gates pass (encoding's with a
+fresh `ROC_CACHE_DIR`), `just verify` runs 20 of 20, trantor's 135 unit tests
+pass and clippy is clean, and seahaven's platform checks clean.
+
+(User, 2026-10-25: "get all repos running".)
+
 ## Still open
 
 - Moving the compiler fork's `local-fixes` off the hashing commits, and
