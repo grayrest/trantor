@@ -25,6 +25,8 @@ pub fn test_package(dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("read {}/package.toml: {e}", root.display()))?;
     let pkg: Package = toml::from_str(&text).map_err(|e| format!("parse package.toml: {e}"))?;
     let scratch = crate::package_worlds::fresh_scratch(&pkg.package.name)?;
+    // Inside the scratch directory: gone on a pass, kept with the rest on a failure.
+    crate::build::use_roc_cache(&scratch.join("roc-cache"))?;
     match (Steps { root: &root, pkg: &pkg, scratch: &scratch }).all() {
         Ok(()) => {
             std::fs::remove_dir_all(&scratch).ok();

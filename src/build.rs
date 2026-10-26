@@ -54,6 +54,21 @@ fn on_path(name: &str) -> Option<String> {
     })
 }
 
+/// roc's compile cache, which `trantor test` points at a directory of its own.
+/// On roc ec5981 a `roc test` that hits the shared cache hangs in about a third
+/// of runs, spinning and printing nothing until the 900 s cap kills it; one
+/// that starts from an empty cache has never hung (D-S1-16).
+const ROC_CACHE_VAR: &str = "ROC_CACHE_DIR";
+
+/// Every roc this process starts, directly or through a child, caches under
+/// `dir`. Called before any thread or child exists, so the environment write
+/// races nothing.
+pub(crate) fn use_roc_cache(dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    std::env::set_var(ROC_CACHE_VAR, dir);
+    Ok(())
+}
+
 /// `$ROC`, else roc as installed normally, else this repo's pin.
 ///
 /// PATH used to not be consulted at all: it was `$ROC` or `$HOME/.bin/roc`,
@@ -318,7 +333,11 @@ pub fn test(dir: &Path, world_file: &str, app: &str) -> Result<(), String> {
 
     let app_main = app_entry(app);
     if dir.join(&app_main).exists() {
-        roc_capped(&["test", &app_main], dir, "roc test")?;
+        let cache = crate::package_worlds::fresh_scratch_named("trantor-roc-cache", &world.world.name)?;
+        use_roc_cache(&cache)?;
+        let tested = roc_capped(&["test", &app_main], dir, "roc test");
+        std::fs::remove_dir_all(&cache).ok();
+        tested?;
         eprintln!("trantor test: roc expects pass");
     } else {
         eprintln!("trantor test: no app at {app_main}, skipping roc test");
