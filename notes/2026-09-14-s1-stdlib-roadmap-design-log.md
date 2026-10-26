@@ -405,11 +405,28 @@ package's expects have hung. The `ec5981` debug build cannot help here: on the
 full composed platform it aborts on a postcheck invariant first
 ("stored const representation differed from its expected Monotype type").
 
-Verified 2026-10-26 on `ec5981`: all nine package gates pass (encoding's with a
-fresh `ROC_CACHE_DIR`), `just verify` runs 20 of 20, trantor's 135 unit tests
-pass and clippy is clean, and seahaven's platform checks clean.
+**`trantor test` therefore gives roc a cache of its own** (`4c1a555`). A
+package test points `ROC_CACHE_DIR` at `roc-cache/` inside its scratch world
+before anything runs, so every roc beneath it uses that cache, whether started
+by a trantor child, a suite or a `test.sh`. The cache is removed with the
+scratch world on a pass and kept with it on a failure. A world test gets a
+scratch cache for its one `roc test`, removed either way. Two things were
+rejected:
 
-(User, 2026-10-25: "get all repos running".)
+- `--no-cache` would still recompile every module that a run's suites share.
+- Moving the shared cache aside would only reset the odds, and it belongs to
+  every other roc on the machine.
+
+The cost is one cold compile per run: encoding's gate takes 71–78 s, and three
+runs in a row all passed. A `ROC_CACHE_DIR` the user has set is overridden
+for the run. Revisit when the hang is fixed upstream.
+
+Verified 2026-10-26 on `ec5981`: all nine package gates pass, `just verify`
+runs 20 of 20, trantor's 135 unit tests pass and clippy is clean, and
+seahaven's platform checks clean.
+
+(User, 2026-10-25: "get all repos running"; 2026-10-26: "use a fresh cache dir
+in trantor test".)
 
 ## Still open
 
